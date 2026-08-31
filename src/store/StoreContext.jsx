@@ -75,6 +75,7 @@ async function loadState() {
         parent_id: t.parent_id ?? null,
         start_date: t.start_date ?? null,
         end_date: t.end_date ?? null,
+        console_end_date: t.console_end_date ?? null,
         sort_order: t.sort_order ?? 0,
       })),
       categories,
@@ -108,6 +109,7 @@ function makeTask(input, tasks) {
     parent_id: input.parent_id ?? null,
     start_date: input.start_date ?? null,
     end_date: input.end_date ?? null,
+    console_end_date: input.console_end_date ?? null,
     priority: input.priority ?? null,
     sort_order: input.parent_id
       ? nextSortOrder(tasks, (t) => t.parent_id === input.parent_id)
@@ -124,10 +126,10 @@ async function dbUpsertTask(db, t) {
   await db.execute(
     `INSERT OR REPLACE INTO tasks
      (id,title,status,scheduled_date,completed_at,category_id,project_id,
-      parent_id,start_date,end_date,priority,sort_order,recurrence,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      parent_id,start_date,end_date,console_end_date,priority,sort_order,recurrence,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [t.id, t.title, t.status, t.scheduled_date, t.completed_at, t.category_id,
-     t.project_id, t.parent_id, t.start_date, t.end_date, t.priority,
+     t.project_id, t.parent_id, t.start_date, t.end_date, t.console_end_date, t.priority,
      t.sort_order, t.recurrence, t.created_at, t.updated_at],
   )
 }
@@ -289,6 +291,22 @@ function reducer(state, action) {
       }
     }
 
+    // WBS の計画日程（start_date/end_date）を、コンソール用の期間
+    // （scheduled_date/console_end_date）へ一括コピーする。プロジェクト単位。
+    case 'SYNC_CONSOLE_DATES': {
+      const now = stamp()
+      return {
+        ...state,
+        tasks: state.tasks.map((t) => {
+          if (t.project_id !== action.projectId) return t
+          const scheduled_date = t.start_date ?? null
+          const console_end_date = t.end_date ?? null
+          if (t.scheduled_date === scheduled_date && t.console_end_date === console_end_date) return t
+          return { ...t, scheduled_date, console_end_date, updated_at: now }
+        }),
+      }
+    }
+
     case 'REORDER': {
       const orderMap = new Map(action.orderedIds.map((id, i) => [id, i]))
       return {
@@ -419,6 +437,18 @@ function syncToDb(prevState, nextState, action) {
           const changed = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
             return prev && prev.sort_order !== t.sort_order
+          })
+          for (const t of changed) await dbUpsertTask(db, t)
+          break
+        }
+        case 'SYNC_CONSOLE_DATES': {
+          const changed = nextState.tasks.filter((t) => {
+            const prev = prevState.tasks.find((p) => p.id === t.id)
+            return (
+              prev &&
+              (prev.scheduled_date !== t.scheduled_date ||
+                prev.console_end_date !== t.console_end_date)
+            )
           })
           for (const t of changed) await dbUpsertTask(db, t)
           break
@@ -580,6 +610,7 @@ export function StoreProvider({ children }) {
         input: { title, project_id: parent.project_id ?? null, parent_id: parent.id, scheduled_date: null },
       }),
     moveToDate: (id, date) => dispatchWithSync({ type: 'MOVE_TO_DATE', id, date }),
+    syncConsoleDates: (projectId) => dispatchWithSync({ type: 'SYNC_CONSOLE_DATES', projectId }),
     reorder: (orderedIds) => dispatchWithSync({ type: 'REORDER', orderedIds }),
     addCategory: (name) => dispatchWithSync({ type: 'ADD_CATEGORY', name }),
     updateCategory: (id, patch) => dispatchWithSync({ type: 'UPDATE_CATEGORY', id, patch }),

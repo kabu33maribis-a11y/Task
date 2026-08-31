@@ -291,6 +291,16 @@ function WbsGantt({ project }) {
           >
             {exporting ? '出力中…' : 'Excel出力'}
           </button>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => {
+              actions.syncConsoleDates(project.id)
+            }}
+            title="WBSの開始日〜終了日をカレンダーに反映する"
+            disabled={roots.length === 0}
+          >
+            日程を更新
+          </button>
           <button className="btn btn-sm" onClick={scrollToToday}>今日</button>
           <div className="view-toggle wbs-zoom">
             {Object.entries(ZOOMS).map(([k, z]) => (

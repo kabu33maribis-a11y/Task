@@ -1446,6 +1446,11 @@ select {
   text-decoration: line-through;
   text-decoration-color: var(--border-strong);
 }
+/* リスト表示での継続日（↳）は薄く表示 */
+.cal-task-label.cont {
+  opacity: 0.55;
+  font-size: 11px;
+}
 /* 期間タスクの帯: 各日を1セグメントとして表示。内側の角を落として連続を示唆する */
 .cal-task-label.band-start {
   border-top-right-radius: 0;

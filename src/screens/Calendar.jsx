@@ -85,14 +85,23 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     setMonth({ year: y, month: m })
   }, [resetKey])
 
+  // 各タスクを scheduled_date 〜 console_end_date の全日に展開して配置する。
+  // console_end_date が無ければ単日。band 内の位置（start/mid/end/single）も持たせる。
   const tasksByDate = useMemo(() => {
     const m = new Map()
     for (const t of state.tasks) {
       if (!t.scheduled_date) continue
       if (projectFilter !== 'all' && t.project_id !== projectFilter) continue
-      const list = m.get(t.scheduled_date) || []
-      list.push(t)
-      m.set(t.scheduled_date, list)
+      const start = t.scheduled_date
+      const end = t.console_end_date && t.console_end_date >= start ? t.console_end_date : start
+      let d = start
+      for (let guard = 0; guard < 400 && d <= end; guard++) {
+        const band = start === end ? 'single' : d === start ? 'start' : d === end ? 'end' : 'mid'
+        const list = m.get(d) || []
+        list.push({ task: t, band })
+        m.set(d, list)
+        d = addDays(d, 1)
+      }
     }
     return m
   }, [state.tasks, projectFilter])
@@ -139,8 +148,14 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
 
   const selectedTasks = useMemo(() => {
     if (!selected) return []
+    const covers = (t) => {
+      if (!t.scheduled_date) return false
+      const end = t.console_end_date && t.console_end_date >= t.scheduled_date
+        ? t.console_end_date : t.scheduled_date
+      return t.scheduled_date <= selected && selected <= end
+    }
     const list = state.tasks
-      .filter((t) => t.scheduled_date === selected)
+      .filter(covers)
       .filter((t) => projectFilter === 'all' || t.project_id === projectFilter)
     return [
       ...list.filter((t) => t.status === 'TODO').sort(bySort),
@@ -162,22 +177,32 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   // リストモード用: rows をフラットにして日付リストを作る
   const flatDates = useMemo(() => rows.flat().filter(Boolean), [rows])
 
-  function renderTaskLabel(t) {
-    const color =
-      (t.project_id ? projMap.get(t.project_id)?.color : null) ??
-      (t.category_id ? catMap.get(t.category_id)?.color : null)
-    const style = color && t.status !== 'DONE'
-      ? { backgroundColor: color + '55', borderLeft: `3px solid ${color}` }
-      : undefined
-    const priorityCls = !color && t.status !== 'DONE' && t.priority
-      ? ` priority-${t.priority}` : ''
+  // tasksByDate は { task, band } を要素に持つ。band は single/start/mid/end。
+  // グリッドは帯セグメント表示（mid/end はタイトルを隠して連続を示す）、
+  // リストは可読性優先で常に全文表示し、継続日は ↳ で薄く示す。
+  function renderTaskLabel({ task: t, band }, mode = 'grid') {
+    const { style, priorityCls } = taskLabelStyle(t, projMap, catMap)
+    if (mode === 'list') {
+      const cont = band === 'mid' || band === 'end'
+      return (
+        <span
+          key={t.id}
+          className={`cal-task-label${cont ? ' cont' : ''}${t.status === 'DONE' ? ' done' : ''}${priorityCls}`}
+          style={style}
+          title={t.title}
+        >
+          {cont ? `↳ ${t.title}` : t.title}
+        </span>
+      )
+    }
     return (
       <span
         key={t.id}
-        className={`cal-task-label${t.status === 'DONE' ? ' done' : ''}${priorityCls}`}
+        className={`cal-task-label band-${band}${t.status === 'DONE' ? ' done' : ''}${priorityCls}`}
         style={style}
+        title={t.title}
       >
-        {t.title}
+        {band === 'start' || band === 'single' ? t.title : ' '}
       </span>
     )
   }
@@ -240,7 +265,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                   {holiday && <span className="cal-holiday-name">{holiday}</span>}
                 </div>
                 <div className="cal-task-list">
-                  {tasks.map((t) => renderTaskLabel(t))}
+                  {tasks.map((item) => renderTaskLabel(item))}
                 </div>
               </button>
             )
@@ -273,7 +298,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                 </div>
                 <div className="cal-list-tasks">
                   {tasks.length > 0
-                    ? tasks.map((t) => renderTaskLabel(t))
+                    ? tasks.map((item) => renderTaskLabel(item, 'list'))
                     : <span className="cal-list-empty">—</span>
                   }
                 </div>
