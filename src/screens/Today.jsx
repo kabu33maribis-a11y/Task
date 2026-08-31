@@ -19,27 +19,33 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
   const localAddRef = useRef(null)
   const ref = addBarRef ?? localAddRef
   const addDate = calendarDate ?? today
-  const [dropZone, setDropZone] = useState(null) // 'today' | 'inbox' | null
+  const [dropZone, setDropZone] = useState(null)
 
-  const { important, others, overdue, inbox } = useMemo(() => {
+  const { todaysByProject, overdue, inbox } = useMemo(() => {
     const inProject = (t) => projectFilter === 'all' || t.project_id === projectFilter
     const scoped = state.tasks.filter(inProject)
     const todays = scoped.filter((t) => t.scheduled_date === today)
-    const todoTodays = todays.filter((t) => t.status === 'TODO')
-    const doneTodays = todays.filter((t) => t.status === 'DONE')
+    const todoTodays = todays.filter((t) => t.status === 'TODO').sort(byPriority)
+    const doneTodays = todays
+      .filter((t) => t.status === 'DONE')
       .sort((a, b) => (a.completed_at || '').localeCompare(b.completed_at || ''))
 
-    const important = todoTodays.filter((t) => t.priority === 'high').sort(byPriority)
-    const others = [
-      ...todoTodays.filter((t) => t.priority !== 'high').sort(byPriority),
-      ...doneTodays,
-    ]
+    const allTodays = [...todoTodays, ...doneTodays]
+    const byProject = {}
+    for (const t of allTodays) {
+      const key = t.project_id ?? '__none__'
+      if (!byProject[key]) byProject[key] = []
+      byProject[key].push(t)
+    }
+
     const overdue = scoped
       .filter((t) => t.status === 'TODO' && t.scheduled_date && t.scheduled_date < today)
       .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
-    const inbox = scoped.filter((t) => !t.scheduled_date && t.status === 'TODO')
+    const inbox = scoped
+      .filter((t) => !t.scheduled_date && t.status === 'TODO')
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    return { important, others, overdue, inbox }
+
+    return { todaysByProject: byProject, overdue, inbox }
   }, [state.tasks, today, projectFilter])
 
   function makeDropProps(zone, onDrop) {
@@ -54,6 +60,19 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
       },
     }
   }
+
+  function handleProjectDrop(taskId, laneId) {
+    const task = state.tasks.find((t) => t.id === taskId)
+    if (!task) return
+    if (task.scheduled_date !== today) actions.moveToDate(taskId, today)
+    actions.updateTask(taskId, { project_id: laneId === '__none__' ? null : laneId })
+  }
+
+  const sortedProjects = [...state.projects].sort((a, b) => a.sort_order - b.sort_order)
+  const lanes =
+    projectFilter === 'all'
+      ? [...sortedProjects, { id: '__none__', name: '未分類', color: null }]
+      : sortedProjects.filter((p) => p.id === projectFilter)
 
   return (
     <div>
@@ -92,23 +111,40 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
         </div>
       )}
 
-      <div
-        className={`drop-zone${dropZone === 'today' ? ' drop-zone-over' : ''}`}
-        {...makeDropProps('today', (id) => actions.moveToDate(id, today))}
-      >
-        {important.length > 0 && (
-          <>
-            <div className="section-title">重要</div>
-            <TaskList tasks={important} showStar showDate={false} />
-          </>
-        )}
+      <div className="section-title" style={{ marginTop: '4px' }}>本日のタスク</div>
 
-        <div className="section-title">本日のタスク</div>
-        {others.length > 0 ? (
-          <TaskList tasks={others} showStar showDate={false} />
-        ) : important.length === 0 ? (
-          <p className="empty">タスクはありません</p>
-        ) : null}
+      <div className="proj-lanes">
+        {lanes.map((lane) => {
+          const tasks = todaysByProject[lane.id] ?? []
+          const isOver = dropZone === lane.id
+          const color = lane.color || 'var(--sumi-faint)'
+          return (
+            <div
+              key={lane.id}
+              className={`proj-lane${isOver ? ' proj-lane-over' : ''}`}
+              style={{ '--lane-color': color }}
+              {...makeDropProps(lane.id, (id) => handleProjectDrop(id, lane.id))}
+            >
+              <div className="proj-lane-head">
+                <span
+                  className="proj-lane-dot"
+                  style={{ background: lane.color || 'var(--sumi-faint)' }}
+                />
+                <span className="proj-lane-name">{lane.name}</span>
+                {tasks.length > 0 && (
+                  <span className="proj-lane-count">{tasks.length}</span>
+                )}
+              </div>
+              <div className="proj-lane-body">
+                {tasks.length > 0 ? (
+                  <TaskList tasks={tasks} showStar showDate={false} />
+                ) : (
+                  <div className="proj-lane-empty">ドロップしてプロジェクトをアサイン</div>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       <div
