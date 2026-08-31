@@ -4,3 +4,8 @@ src-tauri/target/
 *.db
 *.db-shm
 *.db-wal
+
+# Tauri signing keys
+*.key
+*.key.pub
+~/.tauri/

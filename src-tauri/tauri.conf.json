@@ -26,7 +26,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVFMTEwMTM3OUEzNTIwQkIKUldTN0lEV2FOd0VSN2d1cmhVSmxtRlc4MGNFd0F2SUdLNXpzaG9lL0E2TkJyNHJFaVpudXA3Q0wK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU2NTk1RTgyMDM5QUZGRjEKUldUeC81b0RnbDVaVmpMMHIyZ3JtQnNoRDBNUjN6YlJYZWxLeDJGUk9SWmlUZkFqRDQ0Qy80ekoK",
       "endpoints": [
         "https://github.com/kabu33maribis-a11y/Task/releases/latest/download/latest.json"
       ]
