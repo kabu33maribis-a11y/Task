@@ -93,8 +93,8 @@
   --surface-muted: #2B303E;
 
   --text: #E4E7F0;
-  --text-soft: #8A92AC;
-  --text-muted: #52596E;
+  --text-soft: #9AA2BA;
+  --text-muted: #7A8299;
 
   --border: #333A4E;
   --border-strong: #404A60;
@@ -1331,6 +1331,15 @@ select {
   gap: 4px;
 }
 
+/* layout mode divider */
+.cal-layout-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--rule-strong);
+  align-self: center;
+  margin: 0 2px;
+}
+
 /* 5-column weekday grid (土日非表示) */
 .cal-grid-wd {
   display: grid;
@@ -1475,6 +1484,104 @@ select {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 68px;
+}
+
+/* ---- リスト表示モード ---- */
+.cal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cal-list-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  font: inherit;
+  width: 100%;
+  transition: border-color 0.14s, background 0.14s, box-shadow 0.14s;
+}
+.cal-list-row:hover {
+  border-color: var(--sumi-faint);
+  box-shadow: var(--shadow-xs);
+}
+.cal-list-row.today {
+  border-color: var(--primary);
+  border-width: 2px;
+  background: var(--primary-subtle);
+}
+.cal-list-row.selected {
+  box-shadow: inset 0 0 0 2px var(--primary);
+  border-color: var(--primary);
+}
+.cal-list-row.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+.cal-list-row.holiday:not(.today) {
+  background: rgba(192, 64, 46, 0.03);
+}
+.cal-list-date {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  width: 80px;
+}
+.cal-list-date .d {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sumi-soft);
+  min-width: 22px;
+  text-align: right;
+}
+.cal-list-row.today .cal-list-date .d {
+  background: var(--primary);
+  color: #fff;
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-weight: 700;
+}
+.cal-list-row.holiday .cal-list-date .d {
+  color: var(--shu);
+}
+.cal-list-date .dow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--sumi-faint);
+  letter-spacing: 0.04em;
+}
+.cal-list-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-start;
+}
+/* リストモードのタスクラベルは折り返し許可 */
+.cal-list-tasks .cal-task-label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  flex-shrink: 0;
+  max-width: 100%;
+}
+.cal-list-empty {
+  font-size: 12px;
+  color: var(--sumi-faint);
+  line-height: 1.8;
+}
+[data-theme="dark"] .cal-list-row {
+  background: var(--surface);
+}
+[data-theme="dark"] .cal-list-row.today {
+  background: var(--primary-subtle);
 }
 
 .cal-day-list {

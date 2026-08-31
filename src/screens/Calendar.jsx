@@ -18,6 +18,20 @@ import TaskList from '../components/TaskList.jsx'
 const DOW = ['月', '火', '水', '木', '金']
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
 
+// タスクラベルの色・優先度クラスを求める（グリッド／一覧で共通）
+function taskLabelStyle(t, projMap, catMap) {
+  const color =
+    (t.project_id ? projMap.get(t.project_id)?.color : null) ??
+    (t.category_id ? catMap.get(t.category_id)?.color : null)
+  const style =
+    color && t.status !== 'DONE'
+      ? { backgroundColor: color + '55', borderLeft: `3px solid ${color}` }
+      : undefined
+  const priorityCls =
+    !color && t.status !== 'DONE' && t.priority ? ` priority-${t.priority}` : ''
+  return { style, priorityCls }
+}
+
 function weekRows(anchor) {
   const mon = weekStart(anchor)
   return [[0, 1, 2, 3, 4].map((i) => addDays(mon, i))]
@@ -42,6 +56,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   const projMap = useProjectMap()
   const today = todayStr()
   const [viewMode, setViewMode] = useState('week')
+  const [layoutMode, setLayoutMode] = useState('grid')
   const [month, setMonth] = useState(currentMonth())
   const [anchor, setAnchor] = useState(() => weekStart(today))
   const [localSelected, setLocalSelected] = useState(today)
@@ -144,6 +159,29 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
 
   const VIEW_LABELS = { week: '今週', twoweek: '2週間', month: '1か月' }
 
+  // リストモード用: rows をフラットにして日付リストを作る
+  const flatDates = useMemo(() => rows.flat().filter(Boolean), [rows])
+
+  function renderTaskLabel(t) {
+    const color =
+      (t.project_id ? projMap.get(t.project_id)?.color : null) ??
+      (t.category_id ? catMap.get(t.category_id)?.color : null)
+    const style = color && t.status !== 'DONE'
+      ? { backgroundColor: color + '55', borderLeft: `3px solid ${color}` }
+      : undefined
+    const priorityCls = !color && t.status !== 'DONE' && t.priority
+      ? ` priority-${t.priority}` : ''
+    return (
+      <span
+        key={t.id}
+        className={`cal-task-label${t.status === 'DONE' ? ' done' : ''}${priorityCls}`}
+        style={style}
+      >
+        {t.title}
+      </span>
+    )
+  }
+
   return (
     <div>
       <div className="cal-head">
@@ -160,63 +198,90 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
               {label}
             </button>
           ))}
+          <div className="cal-layout-divider" />
+          <button
+            className={`btn btn-sm${layoutMode === 'grid' ? ' btn-primary' : ''}`}
+            title="グリッド表示"
+            onClick={() => setLayoutMode('grid')}
+          >⊞</button>
+          <button
+            className={`btn btn-sm${layoutMode === 'list' ? ' btn-primary' : ''}`}
+            title="リスト表示"
+            onClick={() => setLayoutMode('list')}
+          >☰</button>
         </div>
       </div>
 
-      <div className={`cal-grid cal-grid-wd cal-view-${viewMode}`}>
-        {DOW.map((d) => (
-          <div key={d} className="cal-dow">{d}</div>
-        ))}
-        {rows.flat().map((dateStr, idx) => {
-          if (!dateStr) return <div key={`e${idx}`} className="cal-cell empty-cell" />
-          const tasks = tasksByDate.get(dateStr) || []
-          const holiday = holidayMap.get(dateStr)
-          const cls = ['cal-cell']
-          if (dateStr === today) cls.push('today')
-          if (dateStr === selected) cls.push('selected')
-          if (dateStr === dragOver) cls.push('drag-over')
-          if (holiday) cls.push('holiday')
-          return (
-            <button
-              key={dateStr}
-              className={cls.join(' ')}
-              onClick={() => setSelected(dateStr)}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDragOver(dateStr)
-              }}
-              onDragLeave={() => setDragOver((d) => (d === dateStr ? null : d))}
-              onDrop={(e) => handleDrop(e, dateStr)}
-            >
-              <div className="cal-cell-head">
-                <span className="d">{Number(dateStr.slice(8, 10))}</span>
-                {holiday && <span className="cal-holiday-name">{holiday}</span>}
-              </div>
-              <div className="cal-task-list">
-                {tasks.map((t) => {
-                  const color =
-                    (t.project_id ? projMap.get(t.project_id)?.color : null) ??
-                    (t.category_id ? catMap.get(t.category_id)?.color : null)
-                  const style = color && t.status !== 'DONE'
-                    ? { backgroundColor: color + '55', borderLeft: `3px solid ${color}` }
-                    : undefined
-                  const priorityCls = !color && t.status !== 'DONE' && t.priority
-                    ? ` priority-${t.priority}` : ''
-                  return (
-                    <span
-                      key={t.id}
-                      className={`cal-task-label${t.status === 'DONE' ? ' done' : ''}${priorityCls}`}
-                      style={style}
-                    >
-                      {t.title}
-                    </span>
-                  )
-                })}
-              </div>
-            </button>
-          )
-        })}
-      </div>
+      {layoutMode === 'grid' ? (
+        <div className={`cal-grid cal-grid-wd cal-view-${viewMode}`}>
+          {DOW.map((d) => (
+            <div key={d} className="cal-dow">{d}</div>
+          ))}
+          {rows.flat().map((dateStr, idx) => {
+            if (!dateStr) return <div key={`e${idx}`} className="cal-cell empty-cell" />
+            const tasks = tasksByDate.get(dateStr) || []
+            const holiday = holidayMap.get(dateStr)
+            const cls = ['cal-cell']
+            if (dateStr === today) cls.push('today')
+            if (dateStr === selected) cls.push('selected')
+            if (dateStr === dragOver) cls.push('drag-over')
+            if (holiday) cls.push('holiday')
+            return (
+              <button
+                key={dateStr}
+                className={cls.join(' ')}
+                onClick={() => setSelected(dateStr)}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(dateStr) }}
+                onDragLeave={() => setDragOver((d) => (d === dateStr ? null : d))}
+                onDrop={(e) => handleDrop(e, dateStr)}
+              >
+                <div className="cal-cell-head">
+                  <span className="d">{Number(dateStr.slice(8, 10))}</span>
+                  {holiday && <span className="cal-holiday-name">{holiday}</span>}
+                </div>
+                <div className="cal-task-list">
+                  {tasks.map((t) => renderTaskLabel(t))}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="cal-list">
+          {flatDates.map((dateStr) => {
+            const tasks = tasksByDate.get(dateStr) || []
+            const holiday = holidayMap.get(dateStr)
+            const dow = formatWeekdayJP(dateStr)
+            const cls = ['cal-list-row']
+            if (dateStr === today) cls.push('today')
+            if (dateStr === selected) cls.push('selected')
+            if (dateStr === dragOver) cls.push('drag-over')
+            if (holiday) cls.push('holiday')
+            return (
+              <button
+                key={dateStr}
+                className={cls.join(' ')}
+                onClick={() => setSelected(dateStr)}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(dateStr) }}
+                onDragLeave={() => setDragOver((d) => (d === dateStr ? null : d))}
+                onDrop={(e) => handleDrop(e, dateStr)}
+              >
+                <div className="cal-list-date">
+                  <span className="d">{Number(dateStr.slice(8, 10))}</span>
+                  <span className="dow">{dow}</span>
+                  {holiday && <span className="cal-holiday-name">{holiday}</span>}
+                </div>
+                <div className="cal-list-tasks">
+                  {tasks.length > 0
+                    ? tasks.map((t) => renderTaskLabel(t))
+                    : <span className="cal-list-empty">—</span>
+                  }
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {selected && (
         <div className="cal-day-list">
