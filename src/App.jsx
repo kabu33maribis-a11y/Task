@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { check } from '@tauri-apps/plugin-updater'
 import { ask } from '@tauri-apps/plugin-dialog'
+import { relaunch } from '@tauri-apps/plugin-process'
 import { todayStr } from './lib/date.js'
 import { StoreProvider, useStore } from './store/StoreContext.jsx'
 import { BottomNav } from './components/Nav.jsx'
@@ -59,7 +60,10 @@ function Shell() {
         title: 'アップデート',
         kind: 'info',
       })
-      if (yes) await update.downloadAndInstall()
+      if (yes) {
+        await update.downloadAndInstall()
+        await relaunch()
+      }
     }).catch((e) => console.error('[updater]', e))
   }, [])
 
