@@ -109,6 +109,17 @@ export default function SettingsModal({ onClose }) {
   const [dbDir, setDbDir] = useState(null)
   const [dbMsg, setDbMsg] = useState('')
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
+  const [theme, setTheme] = useState(() => localStorage.getItem('taskmanager.theme') || 'light')
+
+  function applyTheme(t) {
+    setTheme(t)
+    localStorage.setItem('taskmanager.theme', t)
+    if (t === 'dark') {
+      document.documentElement.dataset.theme = 'dark'
+    } else {
+      delete document.documentElement.dataset.theme
+    }
+  }
 
   const closeConfirm = () => setConfirm(null)
 
@@ -151,6 +162,14 @@ export default function SettingsModal({ onClose }) {
         <h2>設定</h2>
 
         <div>
+          <div className="section-title" style={{ marginTop: 0 }}>表示モード</div>
+          <div className="view-toggle" style={{ marginLeft: 0 }}>
+            <button className={theme === 'light' ? 'active' : ''} onClick={() => applyTheme('light')}>ライト</button>
+            <button className={theme === 'dark' ? 'active' : ''} onClick={() => applyTheme('dark')}>ダーク</button>
+          </div>
+        </div>
+
+        <div className="modal-section">
           <div className="section-title" style={{ marginTop: 0 }}>
             プロジェクト
           </div>
