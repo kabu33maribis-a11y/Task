@@ -1127,6 +1127,7 @@ select {
   font-size: 13px;
   font-family: inherit;
   background: var(--washi-raised);
+  color: var(--sumi);
   outline: none;
   resize: none;
   overflow: hidden;
@@ -1153,6 +1154,7 @@ select {
   font-size: 13px;
   font-family: inherit;
   background: var(--washi-raised);
+  color: var(--sumi);
   outline: none;
   resize: none;
   overflow: hidden;
@@ -1614,6 +1616,76 @@ select {
   border-radius: 4px;
   padding: 2px 7px;
   letter-spacing: 0.02em;
+}
+
+/* ---- グリッドモード: 週行ラッパー + 連続バンドオーバーレイ ---- */
+.cal-grid-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cal-dow-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+/* Each week is a positioned container so the overlay can be absolute inside it */
+.cal-week-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  /* Column geometry used by JS for band bar left/width */
+  --cal-col-w: calc((100% - 16px) / 5);
+  --cal-col-step: calc((100% - 16px) / 5 + 4px);
+}
+/* Transparent overlay that sits atop the cells; only band bars are interactive */
+.cal-band-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+/* One element per multi-day task, spanning continuously across column gaps */
+.cal-band-bar {
+  position: absolute;
+  height: 18px;
+  background: var(--washi-sink);
+  border-left: 3px solid transparent;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sumi);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: filter 0.1s;
+  box-sizing: border-box;
+}
+.cal-band-bar:hover {
+  filter: brightness(0.92);
+}
+.cal-band-bar.done {
+  background: transparent;
+  color: var(--sumi-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+  border-left-color: transparent !important;
+}
+.cal-band-bar.priority-high {
+  border-left-color: var(--shu) !important;
+}
+[data-theme="dark"] .cal-band-bar {
+  background: var(--surface-raised, var(--surface));
+  color: var(--sumi);
+}
+[data-theme="dark"] .cal-band-bar.done {
+  background: transparent;
 }
 
 /* =====================================================================
