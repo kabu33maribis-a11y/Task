@@ -21,6 +21,7 @@ pub fn run() {
       Ok(())
     })
     .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_window_state::Builder::default().build())
     .plugin(tauri_plugin_store::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
     .plugin(
