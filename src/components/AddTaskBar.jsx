@@ -87,11 +87,8 @@ const AddTaskBar = forwardRef(function AddTaskBar(
 
   return (
     <div>
-      <div className="addbar">
-        <span className="plus" aria-hidden>
-          ＋
-        </span>
-        {defaultDate && defaultDate !== todayStr() && (
+      {defaultDate && defaultDate !== todayStr() && (
+        <div className="addbar-date-chip-row">
           <span className="addbar-date-chip">
             {formatMonthDayJP(defaultDate)}
             <button
@@ -103,7 +100,12 @@ const AddTaskBar = forwardRef(function AddTaskBar(
               ×
             </button>
           </span>
-        )}
+        </div>
+      )}
+      <div className="addbar">
+        <span className="plus" aria-hidden>
+          ＋
+        </span>
         <input
           ref={inputRef}
           type="text"

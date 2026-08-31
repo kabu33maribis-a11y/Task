@@ -585,6 +585,10 @@ select {
   color: var(--sumi-faint);
   font-size: 17px;
 }
+.addbar-date-chip-row {
+  display: flex;
+  padding: 0 4px 4px;
+}
 .addbar-date-chip {
   display: inline-flex;
   align-items: center;
@@ -1466,6 +1470,18 @@ select {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
   color: transparent;
+}
+
+/* prev-month cells (month view only) */
+.cal-cell.out-of-month {
+  background: var(--surface-muted, var(--washi-sink));
+  opacity: 0.55;
+}
+.cal-cell.out-of-month .d {
+  color: var(--text-muted);
+}
+[data-theme="dark"] .cal-cell.out-of-month {
+  background: var(--surface-muted);
 }
 
 /* holiday cells */
@@ -2595,6 +2611,19 @@ select {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 2px;
+}
+
+/* weekend column shading (behind rows, visible through transparent track) */
+.gantt-weekend-col {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(33, 32, 27, 0.028);
+  pointer-events: none;
+  z-index: -1;
+}
+[data-theme="dark"] .gantt-weekend-col {
+  background: rgba(255, 255, 255, 0.028);
 }
 
 /* bars */

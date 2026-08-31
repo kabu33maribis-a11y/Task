@@ -59,6 +59,8 @@ function WbsGantt({ project }) {
   const catMap = useCategoryMap()
   const today = todayStr()
   const [exporting, setExporting] = useState(false)
+  const [syncToast, setSyncToast] = useState(false)
+  const syncTimerRef = useRef(null)
 
   const projectTasks = useMemo(
     () => state.tasks.filter((t) => t.project_id === project.id),
@@ -295,6 +297,9 @@ function WbsGantt({ project }) {
             className="btn btn-sm btn-primary"
             onClick={() => {
               actions.syncConsoleDates(project.id)
+              setSyncToast(true)
+              if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+              syncTimerRef.current = setTimeout(() => setSyncToast(false), 2500)
             }}
             title="WBSの開始日〜終了日をカレンダーに反映する"
             disabled={roots.length === 0}
@@ -368,6 +373,17 @@ function WbsGantt({ project }) {
               </div>
             </div>
 
+            {/* 週末列シェーディング */}
+            {axis.ticks
+              .filter((t) => t.dow === 0 || t.dow === 6)
+              .map((t) => (
+                <div
+                  key={`wkend-${t.d}`}
+                  className="gantt-weekend-col"
+                  style={{ left: leftW + diffDays(range.start, t.d) * dayW, width: dayW }}
+                />
+              ))}
+
             {/* 今日ライン（本文のみ） */}
             {today >= range.start && today <= range.end && (
               <div
@@ -436,6 +452,9 @@ function WbsGantt({ project }) {
           y={datePopover.y}
           onClose={() => setDatePopover(null)}
         />
+      )}
+      {syncToast && (
+        <div className="toast">更新しました</div>
       )}
     </div>
   )

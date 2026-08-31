@@ -10,6 +10,7 @@ import {
   formatWeekdayJP,
   weekStart,
   addDays,
+  dateStrInMonth,
 } from '../lib/date.js'
 import { getJapaneseHolidays } from '../lib/holidays.js'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
@@ -48,7 +49,20 @@ function twoWeekRows(anchor) {
 }
 
 function monthRows(month) {
-  return monthGrid(month).map((week) => week.slice(0, 5))
+  const grid = monthGrid(month)
+  // Fill leading nulls in first row with actual prev-month dates
+  const first = grid[0]
+  const firstRealIdx = first.findIndex(Boolean)
+  if (firstRealIdx > 0) {
+    const firstDate = first[firstRealIdx]
+    for (let i = 0; i < firstRealIdx; i++) {
+      first[i] = addDays(firstDate, i - firstRealIdx)
+    }
+  }
+  // Slice to Mon–Fri and drop rows that are entirely empty (e.g. Aug when 1st is Sat/Sun)
+  return grid
+    .map((week) => week.slice(0, 5))
+    .filter((week) => week.some(Boolean))
 }
 
 // For a row of dates, collect multi-day task bars with slot assignments
@@ -229,11 +243,13 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                   if (!dateStr) return <div key={`e${colIdx}`} className="cal-cell empty-cell" />
                   const singleItems = (tasksByDate.get(dateStr) || []).filter(i => i.band === 'single')
                   const holiday = holidayMap.get(dateStr)
+                  const isOutOfMonth = viewMode === 'month' && !dateStrInMonth(dateStr, month)
                   const cls = ['cal-cell']
                   if (dateStr === today) cls.push('today')
                   if (dateStr === selected) cls.push('selected')
                   if (dateStr === dragOver) cls.push('drag-over')
                   if (holiday) cls.push('holiday')
+                  if (isOutOfMonth) cls.push('out-of-month')
                   return (
                     <button
                       key={dateStr}
