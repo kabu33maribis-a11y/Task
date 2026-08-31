@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { save } from '@tauri-apps/plugin-dialog'
+import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { useStore, useCategoryMap } from '../store/StoreContext.jsx'
 import {
   currentMonth,
@@ -74,7 +76,7 @@ export default function Log({ embedded = false }) {
     }
   }, [state.tasks, month, catMap, today])
 
-  function exportTxt() {
+  async function exportTxt() {
     const SEP = '━'.repeat(28)
     const lines = []
 
@@ -131,16 +133,13 @@ export default function Log({ embedded = false }) {
     }
 
     const text = lines.join('\n')
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${month.year}${String(month.month).padStart(2, '0')}_月次レポート.txt`
-    a.style.display = 'none'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    setTimeout(() => URL.revokeObjectURL(url), 200)
+    const defaultName = `${month.year}${String(month.month).padStart(2, '0')}_月次レポート.txt`
+    const path = await save({
+      defaultPath: defaultName,
+      filters: [{ name: 'テキストファイル', extensions: ['txt'] }],
+    })
+    if (!path) return
+    await writeTextFile(path, text)
   }
 
   function copyMonthly() {

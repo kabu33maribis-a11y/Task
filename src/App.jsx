@@ -60,7 +60,7 @@ function Shell() {
         kind: 'info',
       })
       if (yes) await update.downloadAndInstall()
-    }).catch(() => {})
+    }).catch((e) => console.error('[updater]', e))
   }, [])
 
   // Laptop-first: at >=1024px show Today + Calendar side by side in one screen.
