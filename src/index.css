@@ -114,6 +114,284 @@
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.50), 0 3px 8px rgba(0, 0, 0, 0.35);
 }
 
+/* =====================================================================
+   Wabi mode — 和紙 / 墨 / 朱（AI-Auto デザインシステム）
+   ===================================================================== */
+
+[data-theme="wabi"] {
+  --primary: #21201b;
+  --primary-hover: #6c675c;
+  --primary-deep: #21201b;
+  --primary-light: #eeece4;
+  --primary-subtle: rgba(192, 64, 46, 0.08);
+
+  --bg: #fbfaf6;
+  --surface: #ffffff;
+  --surface-muted: #eeece4;
+
+  --text: #21201b;
+  --text-soft: #6c675c;
+  --text-muted: #a7a294;
+
+  --border: #e3dfd4;
+  --border-strong: #d3cec0;
+
+  --danger: #c0402e;
+  --danger-deep: #9a3224;
+  --danger-light: #e29a8b;
+  --warning: #d4a820;
+  --warning-deep: #b89218;
+  --warning-bg: #faf6eb;
+  --warning-border: #e8d9a8;
+  --gold: #d4a820;
+
+  --washi: var(--bg);
+  --washi-raised: var(--surface);
+  --washi-sink: var(--surface-muted);
+  --sumi: var(--text);
+  --sumi-soft: var(--text-soft);
+  --sumi-faint: var(--text-muted);
+  --rule: var(--border);
+  --rule-strong: var(--border-strong);
+  --shu: #c0402e;
+  --shu-deep: #9a3224;
+  --shu-light: #e29a8b;
+  --shu-wash: rgba(192, 64, 46, 0.08);
+  --amber: var(--warning);
+  --amber-deep: var(--warning-deep);
+  --amber-bg: var(--warning-bg);
+  --amber-border: var(--warning-border);
+
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: 0 2px 8px rgba(33, 32, 27, 0.06);
+  --shadow-pop: 0 4px 16px rgba(33, 32, 27, 0.10);
+
+  --r: 3px;
+  --r-lg: 5px;
+
+  --font-display: 'Yu Mincho', 'Hiragino Mincho ProN', 'MS PMincho', serif;
+  --font-sans: 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+}
+
+[data-theme="wabi-dark"] {
+  --primary: #ece8df;
+  --primary-hover: #a8a296;
+  --primary-deep: #ece8df;
+  --primary-light: #2e2c27;
+  --primary-subtle: rgba(208, 80, 60, 0.12);
+
+  --bg: #1a1916;
+  --surface: #24221e;
+  --surface-muted: #2e2c27;
+
+  --text: #ece8df;
+  --text-soft: #a8a296;
+  --text-muted: #6e6a60;
+
+  --border: #3a3730;
+  --border-strong: #4a4640;
+
+  --danger: #d0503c;
+  --danger-deep: #b84030;
+  --danger-light: #c87868;
+  --warning: #d4a820;
+  --warning-deep: #b89218;
+  --warning-bg: rgba(212, 168, 32, 0.10);
+  --warning-border: rgba(212, 168, 32, 0.28);
+  --gold: #d4a820;
+
+  --washi: var(--bg);
+  --washi-raised: var(--surface);
+  --washi-sink: var(--surface-muted);
+  --sumi: var(--text);
+  --sumi-soft: var(--text-soft);
+  --sumi-faint: var(--text-muted);
+  --rule: var(--border);
+  --rule-strong: var(--border-strong);
+  --shu: #d0503c;
+  --shu-deep: #b84030;
+  --shu-light: #c87868;
+  --shu-wash: rgba(208, 80, 60, 0.12);
+  --amber: var(--warning);
+  --amber-deep: var(--warning-deep);
+  --amber-bg: var(--warning-bg);
+  --amber-border: var(--warning-border);
+
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.35);
+
+  --r: 3px;
+  --r-lg: 5px;
+
+  --font-display: 'Yu Mincho', 'Hiragino Mincho ProN', 'MS PMincho', serif;
+  --font-sans: 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+}
+
+[data-theme="wabi"] .dash-brand::before,
+[data-theme="wabi-dark"] .dash-brand::before {
+  background: var(--shu);
+}
+
+[data-theme="wabi"] .btn-primary,
+[data-theme="wabi-dark"] .btn-primary {
+  color: var(--washi);
+  box-shadow: none;
+}
+
+[data-theme="wabi"] .btn-primary:hover,
+[data-theme="wabi-dark"] .btn-primary:hover {
+  box-shadow: none;
+}
+
+[data-theme="wabi"] .btn:hover,
+[data-theme="wabi-dark"] .btn:hover {
+  box-shadow: none;
+}
+
+[data-theme="wabi"] .proj-pill,
+[data-theme="wabi-dark"] .proj-pill {
+  border-radius: var(--r);
+}
+
+[data-theme="wabi"] .proj-pill.active,
+[data-theme="wabi-dark"] .proj-pill.active {
+  background: var(--washi-sink);
+  border-color: var(--sumi-soft);
+  color: var(--sumi);
+  box-shadow: none;
+}
+
+[data-theme="wabi"] .cal-cell.today,
+[data-theme="wabi-dark"] .cal-cell.today {
+  border-color: var(--shu);
+  border-width: 1px;
+  background: var(--shu-wash);
+}
+
+[data-theme="wabi"] .cal-cell.today .d,
+[data-theme="wabi-dark"] .cal-cell.today .d {
+  background: transparent;
+  color: var(--shu);
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+}
+
+[data-theme="wabi"] .cal-cell.selected,
+[data-theme="wabi-dark"] .cal-cell.selected {
+  box-shadow: inset 0 0 0 2px var(--sumi);
+  border-color: var(--sumi-faint);
+}
+
+[data-theme="wabi"] .cal-cell.drag-over,
+[data-theme="wabi-dark"] .cal-cell.drag-over {
+  border-color: var(--sumi);
+  background: var(--washi-sink);
+}
+
+[data-theme="wabi"] .cal-list-row,
+[data-theme="wabi-dark"] .cal-list-row {
+  border-radius: var(--r);
+}
+
+[data-theme="wabi"] .cal-list-row.today,
+[data-theme="wabi-dark"] .cal-list-row.today {
+  border-color: var(--shu);
+  border-width: 1px;
+  background: var(--shu-wash);
+}
+
+[data-theme="wabi"] .cal-list-row.today .cal-list-date .d,
+[data-theme="wabi-dark"] .cal-list-row.today .cal-list-date .d {
+  background: transparent;
+  color: var(--shu);
+  border-radius: 0;
+  padding: 0;
+}
+
+[data-theme="wabi"] .cal-list-row.selected,
+[data-theme="wabi-dark"] .cal-list-row.selected {
+  box-shadow: inset 0 0 0 2px var(--sumi);
+  border-color: var(--sumi-faint);
+}
+
+[data-theme="wabi"] .cal-list-row.drag-over,
+[data-theme="wabi-dark"] .cal-list-row.drag-over {
+  border-color: var(--sumi);
+  background: var(--washi-sink);
+}
+
+[data-theme="wabi"] .task.priority-high,
+[data-theme="wabi-dark"] .task.priority-high {
+  background: linear-gradient(to right, var(--shu-wash) 0px, transparent 48px);
+}
+
+[data-theme="wabi"] .slideover-backdrop,
+[data-theme="wabi"] .overlay {
+  background: rgba(33, 32, 27, 0.35);
+}
+
+[data-theme="wabi-dark"] .slideover-backdrop,
+[data-theme="wabi-dark"] .overlay {
+  background: rgba(0, 0, 0, 0.50);
+}
+
+[data-theme="wabi"] .view-toggle,
+[data-theme="wabi-dark"] .view-toggle {
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  gap: 0;
+}
+
+[data-theme="wabi"] .view-toggle button,
+[data-theme="wabi-dark"] .view-toggle button {
+  padding: 8px 14px 6px;
+  letter-spacing: 0.06em;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+[data-theme="wabi"] .view-toggle button.active,
+[data-theme="wabi-dark"] .view-toggle button.active {
+  background: transparent;
+  color: var(--sumi);
+  border-bottom-color: var(--sumi);
+}
+
+[data-theme="wabi"] :focus-visible,
+[data-theme="wabi-dark"] :focus-visible {
+  outline-color: var(--sumi-soft);
+}
+
+[data-theme="wabi-dark"] .cal-cell,
+[data-theme="wabi-dark"] .cal-list-row {
+  background: var(--washi-raised);
+}
+
+[data-theme="wabi-dark"] .cal-cell.out-of-month {
+  background: var(--washi-sink);
+}
+
+[data-theme="wabi-dark"] .gantt-axis-day.weekend,
+[data-theme="wabi-dark"] .gantt-weekend-col {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="wabi-dark"] .cal-band-bar {
+  background: var(--washi-sink);
+}
+
+[data-theme="wabi-dark"] .cal-band-bar.done {
+  opacity: 0.55;
+}
+
 [data-theme="dark"] .cal-cell {
   background: var(--surface);
 }
@@ -562,44 +840,45 @@ select {
 }
 
 /* =====================================================================
-   Quick add
+   Quick add — low-chrome, borderless minimal
    ===================================================================== */
 
 .addbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  border: 1px solid var(--rule-strong);
-  background: var(--washi-raised);
-  border-radius: var(--r);
-  padding: 4px 6px 4px 14px;
-  margin-bottom: 10px;
-  box-shadow: var(--shadow-xs);
-  transition: border-color 0.14s, box-shadow 0.14s;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 2px 0 2px 4px;
+  border: none;
+  border-bottom: 1px solid var(--rule-strong);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: border-color 0.15s;
 }
 .addbar:focus-within {
-  border-color: var(--primary);
-  box-shadow: var(--shadow-sm), 0 0 0 3px rgba(47, 191, 173, 0.12);
+  border-bottom-color: var(--sumi);
+  box-shadow: none;
 }
 .addbar .plus {
   color: var(--sumi-faint);
-  font-size: 17px;
+  font-size: 16px;
+  flex-shrink: 0;
 }
 .addbar-date-chip-row {
-  display: flex;
-  padding: 0 4px 4px;
+  padding: 0 0 6px;
 }
 .addbar-date-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  padding: 2px 8px;
   font-family: var(--font-mono);
-  color: var(--sumi);
+  font-size: 11px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
   background: var(--washi-sink);
-  border: 1px solid var(--rule-strong);
-  border-radius: 999px;
-  padding: 2px 6px 2px 9px;
+  color: var(--sumi);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -607,17 +886,18 @@ select {
   background: none;
   border: none;
   padding: 0 2px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
   color: var(--sumi-faint);
   cursor: pointer;
-  transition: color 0.1s;
+  transition: color 0.15s;
 }
 .addbar-date-chip-del:hover {
   color: var(--sumi);
 }
 .addbar input {
   flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
   padding: 10px 4px;
@@ -627,100 +907,132 @@ select {
 .addbar input::placeholder {
   color: var(--sumi-faint);
 }
-.addbar .add-inbox {
-  border: 1px solid var(--rule-strong);
-  background: var(--washi-raised);
+.addbar-action {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--sumi-faint);
+  background: none;
+  border: none;
+  border-radius: 0;
+  transition: color 0.15s;
+}
+.addbar-action:hover {
   color: var(--sumi-soft);
-  border-radius: 8px;
-  padding: 9px 14px;
-  font-size: 13px;
-  transition: border-color 0.12s, color 0.12s;
+}
+.addbar-action.active {
+  color: var(--sumi);
+  font-weight: 600;
+}
+.addbar .add-inbox,
+.addbar .add-go {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: var(--r);
+  border: 1px solid var(--rule-strong);
+  background: transparent;
+  color: var(--sumi-soft);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .addbar .add-inbox:hover:not(:disabled) {
-  border-color: var(--sumi-soft);
+  border-color: var(--sumi-faint);
   color: var(--sumi);
 }
 .addbar .add-inbox:disabled {
-  color: var(--sumi-faint);
+  opacity: 0.4;
   cursor: default;
 }
 .addbar .add-go {
-  border: none;
-  background: var(--primary);
-  color: #fff;
-  border-radius: 8px;
-  padding: 9px 16px;
-  font-size: 14px;
-  transition: background 0.12s;
+  background: var(--sumi);
+  border-color: var(--sumi);
+  color: var(--washi);
 }
 .addbar .add-go:hover:not(:disabled) {
-  background: var(--primary-hover);
+  background: var(--sumi-soft);
+  border-color: var(--sumi-soft);
 }
 .addbar .add-go:disabled {
-  background: var(--rule-strong);
-  color: var(--washi-raised);
+  opacity: 0.4;
   cursor: default;
 }
 .addbar-opts {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin: 2px 0 18px;
-  padding-left: 4px;
+  gap: 12px;
+  margin: 8px 0 20px;
+  padding: 12px 0 0;
+  border-top: 1px dashed var(--rule);
+}
+.addbar-opts .btn {
+  border: none;
+  border-bottom: 1px solid var(--rule-strong);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 4px 2px;
+  font-size: 13px;
+}
+.addbar-opts .btn:hover {
+  border-color: transparent;
+  border-bottom-color: var(--sumi-faint);
+  background: transparent;
+  box-shadow: none;
+}
+.addbar-opts .btn:focus {
+  border-bottom-color: var(--sumi);
+  box-shadow: none;
 }
 .addbar-subtasks {
   width: 100%;
-  border-top: 1px solid var(--rule);
-  padding-top: 8px;
-  margin-top: 2px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
 }
-.addbar-subtask-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.addbar-subtask-row input {
-  flex: 1;
-  border: 1px solid var(--rule-strong);
-  border-radius: 8px;
-  padding: 5px 8px;
-  font-size: 13px;
-  background: var(--washi-raised);
-  outline: none;
-}
-.addbar-subtask-row input:focus {
-  border-color: var(--sumi);
-}
-.addbar-subtask-prefix {
-  font-size: 12px;
-  color: var(--sumi-faint);
-  flex-shrink: 0;
-  width: 14px;
-  text-align: right;
-}
+.addbar-subtask-row,
 .addbar-subtask-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 0;
 }
-.addbar-subtask-title {
+.addbar-subtask-row input,
+.addbar-subtask-item .addbar-subtask-title {
   flex: 1;
   font-size: 13px;
+}
+.addbar-subtask-row input {
+  border: none;
+  border-bottom: 1px solid var(--rule-strong);
+  border-radius: 0;
+  padding: 4px 2px;
+  background: transparent;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.addbar-subtask-row input:focus {
+  border-bottom-color: var(--sumi);
+}
+.addbar-subtask-prefix {
+  font-size: 11px;
+  color: var(--sumi-faint);
+  flex-shrink: 0;
+  width: 12px;
+  text-align: right;
+}
+.addbar-subtask-title {
   color: var(--sumi-soft);
 }
 .addbar-subtask-del {
   background: none;
   border: none;
-  padding: 0 4px;
-  font-size: 13px;
+  padding: 0 2px;
+  font-size: 12px;
   line-height: 1;
   color: var(--sumi-faint);
   cursor: pointer;
-  transition: color 0.1s;
+  transition: color 0.15s;
 }
 .addbar-subtask-del:hover {
   color: var(--shu);

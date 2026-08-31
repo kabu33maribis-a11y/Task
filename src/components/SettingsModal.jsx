@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, reconnectDb } from '../store/StoreContext.jsx'
 import { getDbPath, pickDbFolder, toSqliteUri, DEFAULT_DB_URI } from '../lib/appConfig.js'
+import { applyTheme as setThemeOnDocument, getSavedTheme, THEMES } from '../lib/theme.js'
 import { version } from '../../package.json'
 
 function ConfirmDialog({ message, detail, okLabel = 'OK', danger = false, onOk, onCancel }) {
@@ -109,16 +110,10 @@ export default function SettingsModal({ onClose }) {
   const [dbDir, setDbDir] = useState(null)
   const [dbMsg, setDbMsg] = useState('')
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
-  const [theme, setTheme] = useState(() => localStorage.getItem('taskmanager.theme') || 'light')
+  const [theme, setTheme] = useState(getSavedTheme)
 
   function applyTheme(t) {
-    setTheme(t)
-    localStorage.setItem('taskmanager.theme', t)
-    if (t === 'dark') {
-      document.documentElement.dataset.theme = 'dark'
-    } else {
-      delete document.documentElement.dataset.theme
-    }
+    setTheme(setThemeOnDocument(t))
   }
 
   const closeConfirm = () => setConfirm(null)
@@ -164,8 +159,10 @@ export default function SettingsModal({ onClose }) {
         <div>
           <div className="section-title" style={{ marginTop: 0 }}>表示モード</div>
           <div className="view-toggle" style={{ marginLeft: 0 }}>
-            <button className={theme === 'light' ? 'active' : ''} onClick={() => applyTheme('light')}>ライト</button>
-            <button className={theme === 'dark' ? 'active' : ''} onClick={() => applyTheme('dark')}>ダーク</button>
+            <button className={theme === THEMES.light ? 'active' : ''} onClick={() => applyTheme(THEMES.light)}>ライト</button>
+            <button className={theme === THEMES.dark ? 'active' : ''} onClick={() => applyTheme(THEMES.dark)}>ダーク</button>
+            <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
+            <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
           </div>
         </div>
 

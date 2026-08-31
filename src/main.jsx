@@ -2,9 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
+import { applyTheme, getSavedTheme } from './lib/theme.js'
 
-const savedTheme = localStorage.getItem('taskmanager.theme')
-if (savedTheme === 'dark') document.documentElement.dataset.theme = 'dark'
+applyTheme(getSavedTheme())
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

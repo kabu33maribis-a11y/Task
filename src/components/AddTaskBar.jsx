@@ -117,7 +117,7 @@ const AddTaskBar = forwardRef(function AddTaskBar(
           }}
         />
         <button
-          className="btn btn-sm"
+          className={`addbar-action${showOpts ? ' active' : ''}`}
           onClick={() => setShowOpts((s) => !s)}
           title="日付・カテゴリを指定"
         >
