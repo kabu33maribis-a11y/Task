@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, reconnectDb } from '../store/StoreContext.jsx'
 import { getDbPath, pickDbFolder, toSqliteUri, DEFAULT_DB_URI } from '../lib/appConfig.js'
+import { version } from '../../package.json'
 
 function ConfirmDialog({ message, detail, okLabel = 'OK', danger = false, onOk, onCancel }) {
   useEffect(() => {
@@ -263,6 +264,11 @@ export default function SettingsModal({ onClose }) {
           >
             全データをリセット
           </button>
+        </div>
+
+        <div className="modal-section settings-version">
+          <span>タスク管理</span>
+          <span className="settings-version-num">v{version}</span>
         </div>
       </div>
     </div>

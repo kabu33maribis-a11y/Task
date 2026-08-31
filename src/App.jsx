@@ -206,6 +206,8 @@ function Tabbed() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [projectFilter, setProjectFilter] = useState('all')
   const [view, setView] = useState('console') // 'console' | 'wbs'
+  const [calDate, setCalDate] = useState(todayStr)
+  const [calResetKey, setCalResetKey] = useState(0)
 
   return (
     <div className="shell">
@@ -229,8 +231,33 @@ function Tabbed() {
           <Wbs projectFilter={projectFilter} onSelectProject={setProjectFilter} />
         ) : (
           <>
-            {tab === 'today' && <Today projectFilter={projectFilter} />}
-            {tab === 'calendar' && <Calendar projectFilter={projectFilter} />}
+            {tab === 'today' && (
+              <>
+                <Today
+                  calendarDate={calDate}
+                  onResetCalDate={() => {
+                    setCalDate(todayStr())
+                    setCalResetKey((k) => k + 1)
+                  }}
+                  projectFilter={projectFilter}
+                />
+                <div className="stacked-cal-divider">Calendar</div>
+                <Calendar
+                  selected={calDate}
+                  onSelect={setCalDate}
+                  resetKey={calResetKey}
+                  projectFilter={projectFilter}
+                />
+              </>
+            )}
+            {tab === 'calendar' && (
+              <Calendar
+                selected={calDate}
+                onSelect={setCalDate}
+                resetKey={calResetKey}
+                projectFilter={projectFilter}
+              />
+            )}
             {tab === 'log' && <Log />}
             {tab === 'inbox' && <Inbox projectFilter={projectFilter} />}
           </>
