@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-db"
+description = "Allows database connect, execute, select, and close commands."
+commands.allow = ["app_db_connect", "app_db_execute", "app_db_select", "app_db_close"]

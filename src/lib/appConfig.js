@@ -30,11 +30,4 @@ export async function pickDbFolder() {
   return selected ?? null
 }
 
-// "sqlite:/absolute/path/tasks.db" 形式に変換
-export function toSqliteUri(dirPath) {
-  // Windows パスはスラッシュに統一
-  const normalized = dirPath.replace(/\\/g, '/')
-  return `sqlite://${normalized}/tasks.db`
-}
-
-export const DEFAULT_DB_URI = 'sqlite:tasks.db'
+// カスタム DB パスは Rust 側で絶対パスとして解決する（toSqliteUri は廃止）

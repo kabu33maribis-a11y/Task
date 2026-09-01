@@ -1,34 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import Database from '@tauri-apps/plugin-sql'
+import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react'
 import { uid } from '../lib/id.js'
 import { todayStr } from '../lib/date.js'
-import { getDbPath, toSqliteUri, DEFAULT_DB_URI } from '../lib/appConfig.js'
-
-// ---- DB singleton ------------------------------------------------------
-
-let _db = null
-let _dbUri = null
-
-async function getDb() {
-  if (_db) return _db
-  const savedPath = await getDbPath()
-  _dbUri = savedPath ? toSqliteUri(savedPath) : DEFAULT_DB_URI
-  _db = await Database.load(_dbUri)
-  return _db
-}
-
-// DB を閉じて新しいパスで再接続
-export async function reconnectDb(newDirPath) {
-  if (_db) {
-    await _db.close().catch(() => {})
-    _db = null
-  }
-  const { setDbPath, toSqliteUri: toUri } = await import('../lib/appConfig.js')
-  await setDbPath(newDirPath)
-  _dbUri = toUri(newDirPath)
-  _db = await Database.load(_dbUri)
-  return _db
-}
+import { getDb } from '../lib/db.js'
 
 // ---- initial data ------------------------------------------------------
 
@@ -404,10 +377,11 @@ function reducer(state, action) {
 
 // ---- DB sync (state diff → SQL) ----------------------------------------
 
-function syncToDb(prevState, nextState, action) {
-  getDb().then(async (db) => {
-    try {
-      switch (action.type) {
+let syncChain = Promise.resolve()
+
+async function doSyncToDb(prevState, nextState, action) {
+  const db = await getDb()
+  switch (action.type) {
         case 'ADD_TASK': {
           const task = nextState.tasks.find((t) => !prevState.tasks.some((p) => p.id === t.id))
           if (task) await dbUpsertTask(db, task)
@@ -547,10 +521,16 @@ function syncToDb(prevState, nextState, action) {
         }
         default: break
       }
-    } catch (e) {
-      console.error('syncToDb error', action.type, e)
-    }
-  })
+}
+
+function syncToDb(prevState, nextState, action) {
+  syncChain = syncChain
+    .then(() => doSyncToDb(prevState, nextState, action))
+    .catch((e) => console.error('syncToDb error', action.type, e))
+}
+
+export function flushSync() {
+  return syncChain
 }
 
 // ---- context -----------------------------------------------------------
@@ -564,6 +544,12 @@ export function StoreProvider({ children }) {
   const toastTimer = useRef(null)
   const prevStateRef = useRef(state)
 
+  const reloadFromDb = useCallback(async () => {
+    const s = await loadState()
+    dispatch({ type: 'INIT', state: s })
+    prevStateRef.current = s
+  }, [])
+
   // 初回: DB からロード
   useEffect(() => {
     loadState().then((s) => {
@@ -571,6 +557,19 @@ export function StoreProvider({ children }) {
       prevStateRef.current = s
       setReady(true)
     })
+  }, [])
+
+  // 終了前に未完了の DB 書き込みを待つ
+  useEffect(() => {
+    let unlisten
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      getCurrentWindow().onCloseRequested(async (event) => {
+        event.preventDefault()
+        await flushSync()
+        getCurrentWindow().destroy()
+      }).then((fn) => { unlisten = fn })
+    })
+    return () => { unlisten?.() }
   }, [])
 
   // dispatch をラップして DB sync
@@ -621,6 +620,7 @@ export function StoreProvider({ children }) {
     deleteProject: (id) => dispatchWithSync({ type: 'DELETE_PROJECT', id }),
     importState: (s) => dispatchWithSync({ type: 'IMPORT', state: s }),
     resetAllData: () => dispatchWithSync({ type: 'RESET' }),
+    reloadFromDb,
     addActivity: (taskId, body) => dispatchWithSync({ type: 'ADD_ACTIVITY', taskId, body }),
     updateActivity: (id, body) => dispatchWithSync({ type: 'UPDATE_ACTIVITY', id, body }),
     deleteActivity: (id) => dispatchWithSync({ type: 'DELETE_ACTIVITY', id }),

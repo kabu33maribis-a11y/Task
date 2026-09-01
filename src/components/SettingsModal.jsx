@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useStore, reconnectDb } from '../store/StoreContext.jsx'
-import { getDbPath, pickDbFolder, toSqliteUri, DEFAULT_DB_URI } from '../lib/appConfig.js'
+import { useStore } from '../store/StoreContext.jsx'
+import { reconnectDb, resetDbConnection } from '../lib/db.js'
+import { getDbPath, pickDbFolder } from '../lib/appConfig.js'
 import { applyTheme as setThemeOnDocument, getSavedTheme, THEMES } from '../lib/theme.js'
 import { version } from '../../package.json'
 
@@ -127,20 +128,21 @@ export default function SettingsModal({ onClose }) {
     if (!dir) return
     try {
       await reconnectDb(dir)
+      await actions.reloadFromDb()
       setDbDir(dir)
-      setDbMsg('変更しました。アプリを再起動するとデータが引き継がれます。')
+      setDbMsg('保存先を変更しました。')
     } catch (e) {
       setDbMsg('エラー: ' + String(e))
     }
   }
 
-  function resetDbPath() {
-    import('../lib/appConfig.js').then(({ setDbPath }) => {
-      setDbPath(null).then(() => {
-        setDbDir(null)
-        setDbMsg('デフォルトに戻しました。再起動後に反映されます。')
-      })
-    })
+  async function resetDbPath() {
+    const { setDbPath } = await import('../lib/appConfig.js')
+    await setDbPath(null)
+    await resetDbConnection()
+    await actions.reloadFromDb()
+    setDbDir(null)
+    setDbMsg('デフォルトの保存先に戻しました。')
   }
 
 
