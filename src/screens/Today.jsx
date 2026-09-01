@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { useStore, useHiddenProjectIds } from '../store/StoreContext.jsx'
+import { useStore, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import { todayStr, formatFullJP, formatConsoleDateRange, taskCoversDate, taskConsoleEndDate } from '../lib/date.js'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 import AddTaskBar from '../components/AddTaskBar.jsx'
@@ -13,8 +13,51 @@ const byPriority = (a, b) => {
   return (a.sort_order ?? 0) - (b.sort_order ?? 0)
 }
 
+function LaneAddInput({ projectId, date }) {
+  const { actions } = useStore()
+  const [title, setTitle] = useState('')
+  const inputRef = useRef(null)
+
+  function submit() {
+    const t = title.trim()
+    if (!t) return
+    actions.addTask({
+      title: t,
+      scheduled_date: date,
+      project_id: projectId,
+    })
+    setTitle('')
+    inputRef.current?.focus()
+  }
+
+  return (
+    <div className="proj-lane-add">
+      <span className="plus" aria-hidden>＋</span>
+      <input
+        ref={inputRef}
+        type="text"
+        value={title}
+        placeholder="タスクを追加"
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit()
+        }}
+      />
+      <button
+        type="button"
+        className="btn btn-sm"
+        onClick={submit}
+        disabled={!title.trim()}
+      >
+        追加
+      </button>
+    </div>
+  )
+}
+
 export default function Today({ addBarRef, calendarDate, onResetCalDate, projectFilter = 'all' }) {
   const { state, actions } = useStore()
+  const visibleProjects = useVisibleProjects()
   const hiddenIds = useHiddenProjectIds()
   const today = todayStr()
   const localAddRef = useRef(null)
@@ -22,17 +65,25 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
   const addDate = calendarDate ?? today
   const [dropZone, setDropZone] = useState(null)
 
-  const { todays, overdue, inbox } = useMemo(() => {
+  const { todaysByProject, overdue, inbox } = useMemo(() => {
     const inScope = (t) => {
       if (t.project_id && hiddenIds.has(t.project_id)) return false
       return projectFilter === 'all' || t.project_id === projectFilter
     }
     const scoped = state.tasks.filter(inScope)
-    const todayTasks = scoped.filter((t) => taskCoversDate(t, today))
-    const todoTodays = todayTasks.filter((t) => t.status === 'TODO').sort(byPriority)
-    const doneTodays = todayTasks
+    const todays = scoped.filter((t) => taskCoversDate(t, today))
+    const todoTodays = todays.filter((t) => t.status === 'TODO').sort(byPriority)
+    const doneTodays = todays
       .filter((t) => t.status === 'DONE')
       .sort((a, b) => (a.completed_at || '').localeCompare(b.completed_at || ''))
+
+    const allTodays = [...todoTodays, ...doneTodays]
+    const byProject = {}
+    for (const t of allTodays) {
+      const key = t.project_id ?? '__none__'
+      if (!byProject[key]) byProject[key] = []
+      byProject[key].push(t)
+    }
 
     const overdue = scoped
       .filter((t) => t.status === 'TODO' && t.scheduled_date && taskConsoleEndDate(t) < today)
@@ -41,7 +92,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
       .filter((t) => !t.scheduled_date && t.status === 'TODO')
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
-    return { todays: [...todoTodays, ...doneTodays], overdue, inbox }
+    return { todaysByProject: byProject, overdue, inbox }
   }, [state.tasks, today, projectFilter, hiddenIds])
 
   function makeDropProps(zone, onDrop) {
@@ -57,6 +108,18 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
     }
   }
 
+  function handleProjectDrop(taskId, laneId) {
+    const task = state.tasks.find((t) => t.id === taskId)
+    if (!task) return
+    if (!taskCoversDate(task, today)) actions.moveToDate(taskId, today)
+    actions.updateTask(taskId, { project_id: laneId === '__none__' ? null : laneId })
+  }
+
+  const lanes =
+    projectFilter === 'all'
+      ? [...visibleProjects, { id: '__none__', name: '未分類', color: null }]
+      : visibleProjects.filter((p) => p.id === projectFilter)
+
   return (
     <div>
       <h1
@@ -71,6 +134,8 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
         ref={ref}
         defaultDate={addDate}
         categories={state.categories}
+        projects={visibleProjects}
+        defaultProjectId={projectFilter !== 'all' ? projectFilter : null}
         placeholder="タスクを追加（Enterで登録）"
         onResetDate={onResetCalDate}
       />
@@ -94,11 +159,39 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
 
       <div className="section-title" style={{ marginTop: '4px' }}>本日のタスク</div>
 
-      {todays.length > 0 ? (
-        <TaskList tasks={todays} showStar showDate={false} showProject />
-      ) : (
-        <p className="empty">本日のタスクはありません</p>
-      )}
+      <div className="proj-lanes">
+        {lanes.map((lane) => {
+          const tasks = todaysByProject[lane.id] ?? []
+          const isOver = dropZone === lane.id
+          const color = lane.color || 'var(--sumi-faint)'
+          const laneProjectId = lane.id === '__none__' ? null : lane.id
+          return (
+            <div
+              key={lane.id}
+              className={`proj-lane${isOver ? ' proj-lane-over' : ''}`}
+              style={{ '--lane-color': color }}
+              {...makeDropProps(lane.id, (id) => handleProjectDrop(id, lane.id))}
+            >
+              <div className="proj-lane-head">
+                <span
+                  className="proj-lane-dot"
+                  style={{ background: lane.color || 'var(--sumi-faint)' }}
+                />
+                <span className="proj-lane-name">{lane.name}</span>
+                {tasks.length > 0 && (
+                  <span className="proj-lane-count">{tasks.length}</span>
+                )}
+              </div>
+              <div className="proj-lane-body">
+                {tasks.length > 0 && (
+                  <TaskList tasks={tasks} showStar showDate={false} showProject={false} />
+                )}
+                <LaneAddInput projectId={laneProjectId} date={today} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
 
       <div
         className={`drop-zone${dropZone === 'inbox' ? ' drop-zone-over' : ''}`}
