@@ -9,6 +9,7 @@ export default function TaskList({
   showStar = false,
   showDate = false,
   showDateActions = false,
+  showProject = true,
   reorderable = true,
 }) {
   const { actions } = useStore()
@@ -27,13 +28,14 @@ export default function TaskList({
 
   return (
     <div>
-      {tasks.map((task, i) => (
+      {tasks.map((task) => (
         <TaskItem
           key={task.id}
           task={task}
           showStar={showStar}
           showDate={showDate}
           showDateActions={showDateActions}
+          showProject={showProject}
           dnd={
             reorderable
               ? {

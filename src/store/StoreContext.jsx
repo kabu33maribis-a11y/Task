@@ -56,7 +56,10 @@ async function loadState() {
         ...c,
         color: c.color ?? null,
       })),
-      projects,
+      projects: projects.map((p) => ({
+        ...p,
+        hidden: Boolean(p.hidden),
+      })),
       activities,
     }
   } catch (e) {
@@ -120,8 +123,8 @@ async function dbUpsertCategory(db, c) {
 
 async function dbUpsertProject(db, p) {
   await db.execute(
-    'INSERT OR REPLACE INTO projects VALUES (?,?,?,?,?,?)',
-    [p.id, p.name, p.color, p.sort_order, p.created_at, p.updated_at],
+    'INSERT OR REPLACE INTO projects (id,name,color,sort_order,created_at,updated_at,hidden) VALUES (?,?,?,?,?,?,?)',
+    [p.id, p.name, p.color, p.sort_order, p.created_at, p.updated_at, p.hidden ? 1 : 0],
   )
 }
 
@@ -332,6 +335,7 @@ function reducer(state, action) {
         name: action.name.trim(),
         color: action.color ?? null,
         sort_order: state.projects.length,
+        hidden: false,
         created_at: now,
         updated_at: now,
       }
@@ -733,6 +737,24 @@ export function useProjectMap() {
     for (const p of state.projects) m.set(p.id, p)
     return m
   }, [state.projects])
+}
+
+/** Projects that should appear in console / WBS / filters (not hidden). */
+export function useVisibleProjects() {
+  const { state } = useStore()
+  return useMemo(
+    () => [...state.projects].filter((p) => !p.hidden).sort((a, b) => a.sort_order - b.sort_order),
+    [state.projects],
+  )
+}
+
+/** Set of project ids marked hidden in settings. */
+export function useHiddenProjectIds() {
+  const { state } = useStore()
+  return useMemo(
+    () => new Set(state.projects.filter((p) => p.hidden).map((p) => p.id)),
+    [state.projects],
+  )
 }
 
 export { todayStr }

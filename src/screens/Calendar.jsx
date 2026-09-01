@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.jsx'
+import { useStore, useCategoryMap, useProjectMap, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import {
   currentMonth,
   monthLabel,
@@ -98,6 +98,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   const { state, actions } = useStore()
   const catMap = useCategoryMap()
   const projMap = useProjectMap()
+  const hiddenIds = useHiddenProjectIds()
   const today = todayStr()
   const [viewMode, setViewMode] = useState('week')
   const [layoutMode, setLayoutMode] = useState('grid')
@@ -133,6 +134,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     const m = new Map()
     for (const t of state.tasks) {
       if (!t.scheduled_date) continue
+      if (t.project_id && hiddenIds.has(t.project_id)) continue
       if (projectFilter !== 'all' && t.project_id !== projectFilter) continue
       const start = t.scheduled_date
       const end = t.console_end_date && t.console_end_date >= start ? t.console_end_date : start
@@ -146,7 +148,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
       }
     }
     return m
-  }, [state.tasks, projectFilter])
+  }, [state.tasks, projectFilter, hiddenIds])
 
   const rows = useMemo(() => {
     if (viewMode === 'week') return weekRows(anchor)
@@ -189,12 +191,13 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     }
     const list = state.tasks
       .filter(covers)
+      .filter((t) => !(t.project_id && hiddenIds.has(t.project_id)))
       .filter((t) => projectFilter === 'all' || t.project_id === projectFilter)
     return [
       ...list.filter((t) => t.status === 'TODO').sort(bySort),
       ...list.filter((t) => t.status === 'DONE').sort((a, b) => (a.completed_at || '').localeCompare(b.completed_at || '')),
     ]
-  }, [state.tasks, selected, projectFilter])
+  }, [state.tasks, selected, projectFilter, hiddenIds])
 
   function handleDrop(e, dateStr) {
     e.preventDefault()

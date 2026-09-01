@@ -1,10 +1,16 @@
-import { useStore } from '../store/StoreContext.jsx'
+import { useEffect } from 'react'
+import { useVisibleProjects } from '../store/StoreContext.jsx'
 
 // Shared project scope selector. value: 'all' | projectId.
-// Renders color-coded pills: 「すべて」 + each project.
+// Renders color-coded pills: 「すべて」 + each visible project.
 export default function ProjectFilter({ value, onChange }) {
-  const { state } = useStore()
-  const projects = [...state.projects].sort((a, b) => a.sort_order - b.sort_order)
+  const projects = useVisibleProjects()
+
+  useEffect(() => {
+    if (value !== 'all' && !projects.some((p) => p.id === value)) {
+      onChange('all')
+    }
+  }, [value, projects, onChange])
 
   if (projects.length === 0) return null
 

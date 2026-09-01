@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 const MIGRATION_001: &str = include_str!("../migrations/001_init.sql");
 const MIGRATION_002: &str = include_str!("../migrations/002_add_console_end_date.sql");
 const MIGRATION_003: &str = include_str!("../migrations/003_add_category_color.sql");
+const MIGRATION_004: &str = include_str!("../migrations/004_add_project_hidden.sql");
 
 pub struct AppDb(Mutex<Option<Pool<Sqlite>>>);
 
@@ -66,6 +67,10 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), String> {
 
     if !column_exists(pool, "categories", "color").await? {
         run_sql_script(pool, MIGRATION_003).await?;
+    }
+
+    if !column_exists(pool, "projects", "hidden").await? {
+        run_sql_script(pool, MIGRATION_004).await?;
     }
 
     Ok(())

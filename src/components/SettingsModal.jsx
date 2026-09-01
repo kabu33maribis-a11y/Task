@@ -192,7 +192,7 @@ export default function SettingsModal({ onClose }) {
             プロジェクト
           </div>
           <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-            タスクをまとめる大枠。カレンダーではプロジェクトの色でラベルを見分けられます。
+            タスクをまとめる大枠。カレンダーではプロジェクトの色でラベルを見分けられます。非表示にするとコンソール・WBSから隠れます。
           </p>
           {sortedProjs.map((p) => (
             <ProjectRow key={p.id} project={p} />
@@ -380,10 +380,11 @@ function ProjectRow({ project }) {
   const [name, setName] = useState(project.name)
   const [confirm, setConfirm] = useState(null)
   const color = project.color || ''
+  const hidden = Boolean(project.hidden)
 
   return (
     <>
-    <div className="cat-edit-row">
+    <div className={`cat-edit-row${hidden ? ' is-hidden' : ''}`}>
       <ColorPickerSwatch
         color={color}
         onChange={(c) => actions.updateProject(project.id, { color: c })}
@@ -405,6 +406,13 @@ function ProjectRow({ project }) {
           }
         }}
       />
+      <button
+        className="btn btn-sm"
+        onClick={() => actions.updateProject(project.id, { hidden: !hidden })}
+        title={hidden ? '表示する' : '非表示にする'}
+      >
+        {hidden ? '表示' : '非表示'}
+      </button>
       <button
         className="btn btn-sm"
         onClick={() =>

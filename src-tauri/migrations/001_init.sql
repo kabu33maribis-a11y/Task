@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS projects (
   color TEXT,
   sort_order INTEGER,
   created_at TEXT,
-  updated_at TEXT
+  updated_at TEXT,
+  hidden INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS tasks (

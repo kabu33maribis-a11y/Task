@@ -10,6 +10,7 @@ export default function TaskItem({
   showStar = false,
   showDate = false,
   showDateActions = false,
+  showProject = true,
   dnd = null,
 }) {
   const { state, actions } = useStore()
@@ -125,7 +126,7 @@ export default function TaskItem({
                 {task.priority === 'low' && (
                   <span className="priority-chip low">低</span>
                 )}
-                {project && (
+                {showProject && project && (
                   <span
                     className="chip chip-project"
                     style={project.color ? { background: project.color + '33', borderColor: project.color } : undefined}
@@ -366,7 +367,7 @@ function SubtaskRow({ task }) {
 
 function InlineEditor({ task, categories, onClose }) {
   const { state, actions } = useStore()
-  const projects = state.projects
+  const projects = state.projects.filter((p) => !p.hidden || p.id === task.project_id)
   const [title, setTitle] = useState(task.title)
   const inputRef = useRef(null)
 

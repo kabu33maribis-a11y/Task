@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useStore, useProjectMap, useCategoryMap } from '../store/StoreContext.jsx'
+import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import { buildTree, buildProjectTrees, prevSibling, flattenVisible } from '../lib/wbs.js'
 import { todayStr, addDays, diffDays, formatMonthDayJP } from '../lib/date.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
@@ -37,19 +37,24 @@ export default function Wbs({ projectFilter = 'all' }) {
 function WbsGantt({ project, multi }) {
   const { state, actions } = useStore()
   const catMap = useCategoryMap()
+  const visibleProjects = useVisibleProjects()
+  const hiddenIds = useHiddenProjectIds()
   const today = todayStr()
   const [exporting, setExporting] = useState(false)
   const [syncToast, setSyncToast] = useState(false)
   const syncTimerRef = useRef(null)
 
   const scopedTasks = useMemo(
-    () => (multi ? state.tasks : state.tasks.filter((t) => t.project_id === project.id)),
-    [state.tasks, multi, project?.id],
+    () => {
+      if (!multi) return state.tasks.filter((t) => t.project_id === project.id)
+      return state.tasks.filter((t) => !(t.project_id && hiddenIds.has(t.project_id)))
+    },
+    [state.tasks, multi, project?.id, hiddenIds],
   )
 
   const roots = useMemo(
-    () => (multi ? buildProjectTrees(state.tasks, state.projects) : buildTree(scopedTasks)),
-    [multi, state.tasks, state.projects, scopedTasks],
+    () => (multi ? buildProjectTrees(scopedTasks, visibleProjects) : buildTree(scopedTasks)),
+    [multi, scopedTasks, visibleProjects],
   )
 
   const scopeKey = multi ? 'all' : project.id
@@ -283,14 +288,14 @@ function WbsGantt({ project, multi }) {
 
   const pct = overall.total ? Math.round((overall.done / overall.total) * 100) : 0
   const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
-  const hasContent = multi ? state.projects.length > 0 : roots.length > 0
+  const hasContent = multi ? visibleProjects.length > 0 : roots.length > 0
 
   return (
     <div className="wbs-root">
       <div className="wbs-head">
         <h1 className="screen-date wbs-title">
           {multi ? (
-            <>すべてのプロジェクト <span className="wbs-count-sub">({state.projects.length}件)</span></>
+            <>すべてのプロジェクト <span className="wbs-count-sub">({visibleProjects.length}件)</span></>
           ) : (
             <>
               {project.color && <span className="proj-dot" style={{ background: project.color }} />}
@@ -346,7 +351,7 @@ function WbsGantt({ project, multi }) {
 
       <AddTaskBar
         defaultDate={null}
-        projects={state.projects}
+        projects={visibleProjects}
         categories={state.categories}
         defaultProjectId={multi ? null : project.id}
         placeholder={
