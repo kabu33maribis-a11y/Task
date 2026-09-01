@@ -291,8 +291,8 @@
 
 [data-theme="wabi"] .cal-cell.selected,
 [data-theme="wabi-dark"] .cal-cell.selected {
-  box-shadow: inset 0 0 0 2px var(--sumi);
-  border-color: var(--sumi-faint);
+  box-shadow: inset 0 0 0 2px var(--today-accent);
+  border-color: var(--today-accent);
 }
 
 [data-theme="wabi"] .cal-cell.drag-over,
@@ -324,8 +324,8 @@
 
 [data-theme="wabi"] .cal-list-row.selected,
 [data-theme="wabi-dark"] .cal-list-row.selected {
-  box-shadow: inset 0 0 0 2px var(--sumi);
-  border-color: var(--sumi-faint);
+  box-shadow: inset 0 0 0 2px var(--today-accent);
+  border-color: var(--today-accent);
 }
 
 [data-theme="wabi"] .cal-list-row.drag-over,
@@ -1727,8 +1727,8 @@ select {
   font-weight: 700;
 }
 .cal-cell.selected {
-  box-shadow: inset 0 0 0 2px var(--primary);
-  border-color: var(--primary);
+  box-shadow: inset 0 0 0 2px var(--today-accent);
+  border-color: var(--today-accent);
 }
 .cal-cell.drag-over {
   border-color: var(--primary);
@@ -1751,6 +1751,7 @@ select {
 }
 .cal-task-label {
   display: block;
+  position: relative;
   font-size: 12px;
   line-height: 1.3;
   padding: 2px 6px;
@@ -1762,6 +1763,41 @@ select {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+}
+.cal-task-label.cal-task-draggable,
+.cal-band-bar.cal-task-draggable {
+  cursor: grab;
+}
+.cal-task-label.cal-task-draggable.dragging,
+.cal-band-bar.cal-task-draggable.dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+.cal-task-label.resizing,
+.cal-band-bar.resizing {
+  transition: none;
+  filter: none;
+  z-index: 2;
+}
+.cal-task-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 3;
+  cursor: ew-resize;
+  opacity: 0;
+}
+.cal-task-resize-handle.left {
+  left: 0;
+}
+.cal-task-resize-handle.right {
+  right: 0;
+}
+.cal-task-label:hover .cal-task-resize-handle,
+.cal-band-bar:hover .cal-task-resize-handle {
+  opacity: 1;
+  background: linear-gradient(var(--today-accent), var(--today-accent)) center / 2px 60% no-repeat;
 }
 .cal-task-label.priority-high {
   border-left-color: #E8A000;
@@ -1861,8 +1897,8 @@ select {
   border-top: 2px solid var(--today-accent);
 }
 .cal-list-row.selected {
-  box-shadow: inset 0 0 0 2px var(--primary);
-  border-color: var(--primary);
+  box-shadow: inset 0 0 0 2px var(--today-accent);
+  border-color: var(--today-accent);
 }
 .cal-list-row.drag-over {
   border-color: var(--primary);
@@ -1998,7 +2034,7 @@ select {
   white-space: nowrap;
   color: var(--sumi);
   pointer-events: auto;
-  cursor: pointer;
+  cursor: grab;
   transition: filter 0.1s;
   box-sizing: border-box;
 }
@@ -2318,7 +2354,7 @@ select {
 }
 
 /* =====================================================================
-   View toggle (コンソール / WBS) — segmented control
+   View toggle (カレンダー / WBS) — segmented control
    ===================================================================== */
 
 .view-toggle {
@@ -2735,6 +2771,33 @@ select {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.wbs-sync-group {
+  display: inline-flex;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--washi);
+  padding: 2px;
+  overflow: hidden;
+}
+.wbs-sync-group .btn-sync {
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--sumi-soft);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 4px 12px;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+.wbs-sync-group .btn-sync:not(:disabled):hover {
+  color: var(--sumi);
+  background: var(--washi-sink);
+}
+.wbs-sync-group .btn-sync:disabled {
+  color: var(--sumi-faint);
+  cursor: default;
 }
 .btn-export {
   font-weight: 600;

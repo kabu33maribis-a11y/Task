@@ -11,6 +11,8 @@ import {
   weekStart,
   addDays,
   dateStrInMonth,
+  taskConsoleEndDate,
+  fromDateStr,
 } from '../lib/date.js'
 import { getJapaneseHolidays } from '../lib/holidays.js'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
@@ -18,6 +20,30 @@ import TaskList from '../components/TaskList.jsx'
 
 const DOW = ['月', '火', '水', '木', '金']
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+const CAL_COL_GAP = 4
+
+function isWeekendDate(str) {
+  const dow = fromDateStr(str).getDay()
+  return dow === 0 || dow === 6
+}
+
+/** Add n weekdays (skip Sat/Sun). n may be negative. */
+function addWorkDays(str, n) {
+  if (n === 0) return str
+  let d = str
+  const step = n > 0 ? 1 : -1
+  let left = Math.abs(n)
+  while (left > 0) {
+    d = addDays(d, step)
+    if (!isWeekendDate(d)) left -= 1
+  }
+  return d
+}
+
+function getCalColStep(rowEl) {
+  const colW = (rowEl.getBoundingClientRect().width - CAL_COL_GAP * 4) / 5
+  return colW + CAL_COL_GAP
+}
 
 // Height constants shared between JS and CSS
 const CELL_HEAD_H = 26  // px: date number row height
@@ -94,6 +120,26 @@ function computeRowBands(row, tasksByDate) {
   return { bars, slotCount: slotEnds.length }
 }
 
+function CalResizeHandles({ task, showStart, showEnd, onStartResize }) {
+  if (!showStart && !showEnd) return null
+  return (
+    <>
+      {showStart && (
+        <span
+          className="cal-task-resize-handle left"
+          onMouseDown={(e) => onStartResize(e, task, 'start')}
+        />
+      )}
+      {showEnd && (
+        <span
+          className="cal-task-resize-handle right"
+          onMouseDown={(e) => onStartResize(e, task, 'end')}
+        />
+      )}
+    </>
+  )
+}
+
 export default function Calendar({ selected: selectedProp, onSelect, resetKey = 0, projectFilter = 'all' }) {
   const { state, actions } = useStore()
   const catMap = useCategoryMap()
@@ -106,6 +152,8 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   const [anchor, setAnchor] = useState(() => weekStart(today))
   const [localSelected, setLocalSelected] = useState(today)
   const [dragOver, setDragOver] = useState(null)
+  const [draggingTaskId, setDraggingTaskId] = useState(null)
+  const [resize, setResize] = useState(null)
 
   const selected = selectedProp !== undefined ? selectedProp : localSelected
   function setSelected(d) {
@@ -128,11 +176,54 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     setMonth({ year: y, month: m })
   }, [resetKey])
 
+  useEffect(() => {
+    if (!resize) return
+    function onMove(e) {
+      setResize((r) => {
+        if (!r) return r
+        const colStep = getCalColStep(r.rowEl)
+        const deltaCols = Math.round((e.clientX - r.startX) / colStep)
+        if (r.mode === 'start') {
+          const ns = addWorkDays(r.origStart, deltaCols)
+          return { ...r, start: ns <= r.origEnd ? ns : r.origEnd }
+        }
+        const ne = addWorkDays(r.origEnd, deltaCols)
+        return { ...r, end: ne >= r.origStart ? ne : r.origStart }
+      })
+    }
+    function onUp() {
+      setResize((r) => {
+        if (r) actions.setConsoleDateRange(r.id, r.start, r.end)
+        return null
+      })
+      document.documentElement.style.cursor = ''
+      document.documentElement.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [!!resize, resize?.id, actions])
+
+  const effectiveTasks = useMemo(() => {
+    if (!resize) return state.tasks
+    return state.tasks.map((t) => {
+      if (t.id !== resize.id) return t
+      return {
+        ...t,
+        scheduled_date: resize.start,
+        console_end_date: resize.end === resize.start ? null : resize.end,
+      }
+    })
+  }, [state.tasks, resize])
+
   // Expand each task over [scheduled_date .. console_end_date].
   // Each entry carries band position: single / start / mid / end.
   const tasksByDate = useMemo(() => {
     const m = new Map()
-    for (const t of state.tasks) {
+    for (const t of effectiveTasks) {
       if (!t.scheduled_date) continue
       if (t.project_id && hiddenIds.has(t.project_id)) continue
       if (projectFilter !== 'all' && t.project_id !== projectFilter) continue
@@ -148,7 +239,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
       }
     }
     return m
-  }, [state.tasks, projectFilter, hiddenIds])
+  }, [effectiveTasks, projectFilter, hiddenIds])
 
   const rows = useMemo(() => {
     if (viewMode === 'week') return weekRows(anchor)
@@ -204,6 +295,45 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     const id = e.dataTransfer.getData(TASK_DND_TYPE) || e.dataTransfer.getData('text/plain')
     if (id) actions.moveToDate(id, dateStr)
     setDragOver(null)
+    setDraggingTaskId(null)
+  }
+
+  function handleTaskDragStart(e, taskId) {
+    if (e.target.closest('.cal-task-resize-handle')) {
+      e.preventDefault()
+      return
+    }
+    e.stopPropagation()
+    e.dataTransfer.setData(TASK_DND_TYPE, taskId)
+    e.dataTransfer.setData('text/plain', taskId)
+    e.dataTransfer.effectAllowed = 'move'
+    setDraggingTaskId(taskId)
+  }
+
+  function handleTaskDragEnd() {
+    setDraggingTaskId(null)
+    setDragOver(null)
+  }
+
+  function startResize(e, task, mode) {
+    e.preventDefault()
+    e.stopPropagation()
+    const rowEl = e.currentTarget.closest('.cal-week-row')
+    if (!rowEl) return
+    const start = task.scheduled_date
+    const end = taskConsoleEndDate(task)
+    document.documentElement.style.cursor = 'ew-resize'
+    document.documentElement.style.userSelect = 'none'
+    setResize({
+      id: task.id,
+      mode,
+      startX: e.clientX,
+      origStart: start,
+      origEnd: end,
+      start,
+      end,
+      rowEl,
+    })
   }
 
   const VIEW_LABELS = { week: '今週', twoweek: '2週間', month: '1か月' }
@@ -270,11 +400,26 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                       <div className="cal-task-list" style={bandAreaH ? { paddingTop: bandAreaH + 2 } : undefined}>
                         {singleItems.map(({ task: t }) => {
                           const color = getTaskColor(t, projMap, catMap)
-                          const cls2 = `cal-task-label${t.status === 'DONE' ? ' done' : ''}${priorityCls(t, color)}`
+                          const isResizing = resize?.id === t.id
+                          const cls2 = `cal-task-label cal-task-draggable${draggingTaskId === t.id ? ' dragging' : ''}${isResizing ? ' resizing' : ''}${t.status === 'DONE' ? ' done' : ''}${priorityCls(t, color)}`
                           const st = color && t.status !== 'DONE'
                             ? { backgroundColor: color + '55', borderLeft: `3px solid ${color}` }
                             : undefined
-                          return <span key={t.id} className={cls2} style={st} title={t.title}>{t.title}</span>
+                          return (
+                            <span
+                              key={t.id}
+                              className={cls2}
+                              style={st}
+                              title={t.title}
+                              draggable
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onDragStart={(e) => handleTaskDragStart(e, t.id)}
+                              onDragEnd={handleTaskDragEnd}
+                            >
+                              <CalResizeHandles task={t} showStart showEnd onStartResize={startResize} />
+                              {t.title}
+                            </span>
+                          )
                         })}
                       </div>
                     </button>
@@ -288,6 +433,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                     {bars.map(({ task: t, startCol, endCol, isBarStart, isBarEnd, slot }) => {
                       const color = getTaskColor(t, projMap, catMap)
                       const pcls = priorityCls(t, color)
+                      const isResizing = resize?.id === t.id
                       const st = {
                         top: CELL_HEAD_H + slot * BAND_H,
                         left: `calc(${startCol} * var(--cal-col-step))`,
@@ -304,11 +450,20 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                       return (
                         <div
                           key={t.id}
-                          className={`cal-band-bar${t.status === 'DONE' ? ' done' : ''}${pcls}`}
+                          className={`cal-band-bar cal-task-draggable${draggingTaskId === t.id ? ' dragging' : ''}${isResizing ? ' resizing' : ''}${t.status === 'DONE' ? ' done' : ''}${pcls}`}
                           style={st}
                           title={t.title}
+                          draggable
+                          onDragStart={(e) => handleTaskDragStart(e, t.id)}
+                          onDragEnd={handleTaskDragEnd}
                           onClick={() => setSelected(t.scheduled_date)}
                         >
+                          <CalResizeHandles
+                            task={t}
+                            showStart={isBarStart}
+                            showEnd={isBarEnd}
+                            onStartResize={startResize}
+                          />
                           {isBarStart ? t.title : ''}
                         </div>
                       )
@@ -354,9 +509,13 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                     return (
                       <span
                         key={t.id}
-                        className={`cal-task-label${cont ? ' cont' : ''}${t.status === 'DONE' ? ' done' : ''}${priorityCls(t, color)}`}
+                        className={`cal-task-label cal-task-draggable${draggingTaskId === t.id ? ' dragging' : ''}${cont ? ' cont' : ''}${t.status === 'DONE' ? ' done' : ''}${priorityCls(t, color)}`}
                         style={st}
                         title={t.title}
+                        draggable
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onDragStart={(e) => handleTaskDragStart(e, t.id)}
+                        onDragEnd={handleTaskDragEnd}
                       >
                         {cont ? `↳ ${t.title}` : t.title}
                       </span>

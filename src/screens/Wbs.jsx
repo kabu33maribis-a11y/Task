@@ -4,6 +4,7 @@ import { buildTree, buildProjectTrees, prevSibling, flattenVisible } from '../li
 import { todayStr, addDays, diffDays, formatMonthDayJP, fromDateStr } from '../lib/date.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import AddTaskBar from '../components/AddTaskBar.jsx'
+import ConfirmDialog from '../components/ConfirmDialog.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
 const HEAD_H = 46 // 軸ヘッダー高
@@ -61,6 +62,7 @@ function WbsGantt({ project, multi }) {
   const today = todayStr()
   const [exporting, setExporting] = useState(false)
   const [syncToast, setSyncToast] = useState(null) // string | null
+  const [confirm, setConfirm] = useState(null)
   const syncTimerRef = useRef(null)
 
   const scopedTasks = useMemo(
@@ -240,15 +242,31 @@ function WbsGantt({ project, multi }) {
   }
 
   function handleSyncDates() {
-    if (multi) actions.syncAllConsoleDates()
-    else actions.syncConsoleDates(project.id)
-    showSyncToast('カレンダーに反映しました')
+    setConfirm({
+      message: 'WBS → カレンダー',
+      detail: 'WBSの開始日〜終了日を、カレンダーの予定日〜終了日に反映します。',
+      okLabel: '反映する',
+      onOk: () => {
+        setConfirm(null)
+        if (multi) actions.syncAllConsoleDates()
+        else actions.syncConsoleDates(project.id)
+        showSyncToast('WBSをカレンダーに反映しました')
+      },
+    })
   }
 
   function handleSyncFromConsole() {
-    if (multi) actions.syncAllWbsDates()
-    else actions.syncWbsDates(project.id)
-    showSyncToast('コンソールからWBSに反映しました')
+    setConfirm({
+      message: 'カレンダー → WBS',
+      detail: 'カレンダーの予定日〜終了日を、WBSの開始日〜終了日に反映します。',
+      okLabel: '反映する',
+      onOk: () => {
+        setConfirm(null)
+        if (multi) actions.syncAllWbsDates()
+        else actions.syncWbsDates(project.id)
+        showSyncToast('カレンダーをWBSに反映しました')
+      },
+    })
   }
 
   function collapseAllProjects() {
@@ -407,22 +425,24 @@ function WbsGantt({ project, multi }) {
           >
             {exporting ? '出力中…' : 'Excel出力'}
           </button>
-          <button
-            className="btn btn-sm"
-            onClick={handleSyncFromConsole}
-            title="コンソールの予定日〜終了日をWBSの開始日〜終了日に反映する"
-            disabled={overall.total === 0}
-          >
-            コンソールから反映
-          </button>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={handleSyncDates}
-            title="WBSの開始日〜終了日をカレンダーに反映する"
-            disabled={overall.total === 0}
-          >
-            日程を更新
-          </button>
+          <div className="wbs-sync-group">
+            <button
+              className="btn btn-sm btn-sync"
+              onClick={handleSyncFromConsole}
+              title="カレンダーの予定日〜終了日をWBSの開始日〜終了日に反映する"
+              disabled={overall.total === 0}
+            >
+              カレンダ→WBS
+            </button>
+            <button
+              className="btn btn-sm btn-sync"
+              onClick={handleSyncDates}
+              title="WBSの開始日〜終了日をカレンダーの予定日〜終了日に反映する"
+              disabled={overall.total === 0}
+            >
+              WBS→カレンダー
+            </button>
+          </div>
           <button
             className={`btn btn-sm${showWeekends ? ' btn-primary' : ''}`}
             onClick={toggleWeekends}
@@ -623,6 +643,15 @@ function WbsGantt({ project, multi }) {
       )}
       {syncToast && (
         <div className="toast toast-top-right" role="status">{syncToast}</div>
+      )}
+      {confirm && (
+        <ConfirmDialog
+          message={confirm.message}
+          detail={confirm.detail}
+          okLabel={confirm.okLabel}
+          onOk={confirm.onOk}
+          onCancel={() => setConfirm(null)}
+        />
       )}
     </div>
   )

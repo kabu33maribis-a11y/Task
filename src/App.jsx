@@ -21,7 +21,7 @@ function ViewToggle({ view, onChange }) {
         className={view === 'console' ? 'active' : ''}
         onClick={() => onChange('console')}
       >
-        コンソール
+        カレンダー
       </button>
       <button className={view === 'wbs' ? 'active' : ''} onClick={() => onChange('wbs')}>
         WBS
