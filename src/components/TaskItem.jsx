@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.jsx'
-import { formatMonthDayJP, todayStr, addDays } from '../lib/date.js'
+import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays } from '../lib/date.js'
 import ActivityPanel from './ActivityPanel.jsx'
+import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
 
 export const TASK_DND_TYPE = 'application/x-task-id'
 
@@ -22,7 +23,6 @@ export default function TaskItem({
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [subtaskTitle, setSubtaskTitle] = useState('')
   const menuRef = useRef(null)
-  const dateRef = useRef(null)
   const subtaskInputRef = useRef(null)
 
   function submitSubtask() {
@@ -137,7 +137,7 @@ export default function TaskItem({
                 )}
                 {category && <span className="chip">{category.name}</span>}
                 {showDate && task.scheduled_date && (
-                  <span className="meta-note">{formatMonthDayJP(task.scheduled_date)}</span>
+                  <span className="meta-note">{formatConsoleDateRange(task)}</span>
                 )}
                 {done && task.completed_at && (
                   <span className="meta-note">
@@ -146,24 +146,24 @@ export default function TaskItem({
                 )}
               </div>
               {showDateActions && (
-                <div className="editor-row" style={{ marginTop: 8 }}>
-                  <button className="btn btn-sm" onClick={() => actions.moveToDate(task.id, todayStr())}>
-                    今日
-                  </button>
-                  <button
-                    className="btn btn-sm"
-                    onClick={() => actions.moveToDate(task.id, addDays(todayStr(), 1))}
-                  >
-                    明日
-                  </button>
-                  <button className="btn btn-sm" onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()}>
-                    日付指定
-                  </button>
-                  <input
-                    ref={dateRef}
-                    type="date"
-                    style={{ width: 0, height: 0, opacity: 0, padding: 0, border: 0, position: 'absolute' }}
-                    onChange={(e) => e.target.value && actions.moveToDate(task.id, e.target.value)}
+                <div style={{ marginTop: 8 }}>
+                  <div className="editor-row">
+                    <button className="btn btn-sm" onClick={() => actions.setConsoleDateRange(task.id, todayStr(), null)}>
+                      今日
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => actions.setConsoleDateRange(task.id, addDays(todayStr(), 1), null)}
+                    >
+                      明日
+                    </button>
+                  </div>
+                  <ConsoleDateRangeFields
+                    start={task.scheduled_date}
+                    end={task.console_end_date}
+                    onChange={({ scheduled_date, console_end_date }) =>
+                      actions.setConsoleDateRange(task.id, scheduled_date, console_end_date)
+                    }
                   />
                 </div>
               )}
@@ -351,7 +351,7 @@ function SubtaskRow({ task }) {
         </span>
       )}
       {task.scheduled_date && (
-        <span className="subtask-date">{formatMonthDayJP(task.scheduled_date)}</span>
+        <span className="subtask-date">{formatConsoleDateRange(task)}</span>
       )}
       <button
         className="task-del"
@@ -408,14 +408,13 @@ function InlineEditor({ task, categories, onClose }) {
         }}
       />
       <div className="editor-row">
-        <label>
-          日付
-          <input
-            type="date"
-            value={task.scheduled_date ?? ''}
-            onChange={(e) => save({ scheduled_date: e.target.value || null })}
-          />
-        </label>
+        <ConsoleDateRangeFields
+          start={task.scheduled_date}
+          end={task.console_end_date}
+          onChange={({ scheduled_date, console_end_date }) =>
+            save({ scheduled_date, console_end_date })
+          }
+        />
         {projects.length > 0 && (
           <label>
             プロジェクト

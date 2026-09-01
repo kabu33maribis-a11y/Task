@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react'
 import { uid } from '../lib/id.js'
-import { todayStr } from '../lib/date.js'
+import { todayStr, normalizeConsoleDateRange } from '../lib/date.js'
 import { getDb } from '../lib/db.js'
 
 // ---- initial data ------------------------------------------------------
@@ -264,6 +264,7 @@ function reducer(state, action) {
           return {
             ...t,
             scheduled_date: action.date,
+            console_end_date: null,
             sort_order: nextSortOrder(state.tasks, (x) => x.scheduled_date === action.date && x.id !== t.id),
             updated_at: stamp(),
           }
@@ -283,6 +284,22 @@ function reducer(state, action) {
           const console_end_date = t.end_date ?? null
           if (t.scheduled_date === scheduled_date && t.console_end_date === console_end_date) return t
           return { ...t, scheduled_date, console_end_date, updated_at: now }
+        }),
+      }
+    }
+
+    // コンソール用の期間（scheduled_date/console_end_date）を、
+    // WBS の計画日程（start_date/end_date）へ一括コピーする。プロジェクト単位。
+    case 'SYNC_WBS_DATES': {
+      const now = stamp()
+      return {
+        ...state,
+        tasks: state.tasks.map((t) => {
+          if (!action.all && t.project_id !== action.projectId) return t
+          const start_date = t.scheduled_date ?? null
+          const end_date = t.console_end_date ?? null
+          if (t.start_date === start_date && t.end_date === end_date) return t
+          return { ...t, start_date, end_date, updated_at: now }
         }),
       }
     }
@@ -431,6 +448,17 @@ async function doSyncToDb(prevState, nextState, action) {
               prev &&
               (prev.scheduled_date !== t.scheduled_date ||
                 prev.console_end_date !== t.console_end_date)
+            )
+          })
+          for (const t of changed) await dbUpsertTask(db, t)
+          break
+        }
+        case 'SYNC_WBS_DATES': {
+          const changed = nextState.tasks.filter((t) => {
+            const prev = prevState.tasks.find((p) => p.id === t.id)
+            return (
+              prev &&
+              (prev.start_date !== t.start_date || prev.end_date !== t.end_date)
             )
           })
           for (const t of changed) await dbUpsertTask(db, t)
@@ -652,8 +680,14 @@ export function StoreProvider({ children }) {
         input: { title, project_id: parent.project_id ?? null, parent_id: parent.id, scheduled_date: null },
       }),
     moveToDate: (id, date) => dispatchWithSync({ type: 'MOVE_TO_DATE', id, date }),
+    setConsoleDateRange: (id, start, end) => {
+      const patch = normalizeConsoleDateRange(start, end)
+      dispatchWithSync({ type: 'UPDATE_TASK', id, patch })
+    },
     syncConsoleDates: (projectId) => dispatchWithSync({ type: 'SYNC_CONSOLE_DATES', projectId }),
     syncAllConsoleDates: () => dispatchWithSync({ type: 'SYNC_CONSOLE_DATES', all: true }),
+    syncWbsDates: (projectId) => dispatchWithSync({ type: 'SYNC_WBS_DATES', projectId }),
+    syncAllWbsDates: () => dispatchWithSync({ type: 'SYNC_WBS_DATES', all: true }),
     reorder: (orderedIds) => dispatchWithSync({ type: 'REORDER', orderedIds }),
     addCategory: (name) => dispatchWithSync({ type: 'ADD_CATEGORY', name }),
     updateCategory: (id, patch) => dispatchWithSync({ type: 'UPDATE_CATEGORY', id, patch }),

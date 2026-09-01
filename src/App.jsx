@@ -115,7 +115,6 @@ function Dashboard() {
   return (
     <div className="shell shell-wide">
       <header className="dash-header">
-        <span className="dash-brand">タスク管理</span>
         <ViewToggle view={view} onChange={setView} />
         <ProjectFilter value={projectFilter} onChange={setProjectFilter} />
         <div className="dash-actions">
@@ -217,7 +216,6 @@ function Tabbed() {
     <div className="shell">
       <header className="topbar">
         <div className="topbar-inner">
-          <span className="dash-brand">タスク管理</span>
           <div className="topbar-inner-actions">
             <ViewToggle view={view} onChange={setView} />
             <button className="header-btn" onClick={() => setSettingsOpen(true)}>

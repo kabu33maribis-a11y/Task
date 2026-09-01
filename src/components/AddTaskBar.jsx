@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { useStore } from '../store/StoreContext.jsx'
-import { todayStr, formatMonthDayJP } from '../lib/date.js'
+import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
+import { todayStr, formatMonthDayJP, normalizeConsoleDateRange } from '../lib/date.js'
 
 // Quick-add bar. Goal: title + Enter to register in ~3 seconds.
 // Optional "詳細" toggle reveals date/category without a modal.
@@ -12,6 +13,7 @@ const AddTaskBar = forwardRef(function AddTaskBar(
   const [title, setTitle] = useState('')
   const [showOpts, setShowOpts] = useState(false)
   const [date, setDate] = useState(defaultDate ?? '')
+  const [endDate, setEndDate] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [projectId, setProjectId] = useState(defaultProjectId ?? '')
   const [priority, setPriority] = useState('')
@@ -34,6 +36,7 @@ const AddTaskBar = forwardRef(function AddTaskBar(
 
   useEffect(() => {
     setDate(defaultDate ?? '')
+    setEndDate('')
   }, [defaultDate])
 
   useEffect(() => {
@@ -45,9 +48,14 @@ const AddTaskBar = forwardRef(function AddTaskBar(
   }))
 
   function buildParentInput(date) {
+    const { scheduled_date, console_end_date } = normalizeConsoleDateRange(
+      date || null,
+      (showOpts ? endDate : '') || null,
+    )
     return {
       title: title.trim(),
-      scheduled_date: date || null,
+      scheduled_date,
+      console_end_date,
       category_id: (showOpts ? categoryId : '') || null,
       project_id: (showOpts ? projectId : defaultProjectId) || null,
       priority: (showOpts ? priority : '') || null,
@@ -134,16 +142,15 @@ const AddTaskBar = forwardRef(function AddTaskBar(
       </div>
       {showOpts && (
         <div className="addbar-opts">
-          <label className="editor-row" style={{ gap: 6 }}>
-            <span className="meta-note">日付</span>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="btn btn-sm"
-              style={{ padding: '5px 8px' }}
-            />
-          </label>
+          <ConsoleDateRangeFields
+            start={date}
+            end={endDate}
+            className="editor-row date-range-row addbar-date-range"
+            onChange={({ scheduled_date, console_end_date }) => {
+              setDate(scheduled_date ?? '')
+              setEndDate(console_end_date ?? '')
+            }}
+          />
           {projects.length > 0 && (
             <label className="editor-row" style={{ gap: 6 }}>
               <span className="meta-note">プロジェクト</span>

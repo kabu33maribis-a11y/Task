@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import { buildTree, buildProjectTrees, prevSibling, flattenVisible } from '../lib/wbs.js'
-import { todayStr, addDays, diffDays, formatMonthDayJP } from '../lib/date.js'
+import { todayStr, addDays, diffDays, formatMonthDayJP, fromDateStr } from '../lib/date.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import AddTaskBar from '../components/AddTaskBar.jsx'
 
@@ -11,11 +11,30 @@ const DEFAULT_LEFT_W = 340 // 固定タスク列の初期幅
 const MIN_LEFT_W = 220
 const MAX_LEFT_W = 760
 const LEFT_W_KEY = 'taskmanager.wbs.leftw'
+const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
 
 const ZOOMS = {
   day: { label: '日', w: 34 },
   week: { label: '週', w: 16 },
   month: { label: '月', w: 7 },
+}
+
+function isWeekendDate(str) {
+  const dow = fromDateStr(str).getDay()
+  return dow === 0 || dow === 6
+}
+
+/** Add n weekdays (skip Sat/Sun). n may be negative. */
+function addWorkDays(str, n) {
+  if (n === 0) return str
+  let d = str
+  const step = n > 0 ? 1 : -1
+  let left = Math.abs(n)
+  while (left > 0) {
+    d = addDays(d, step)
+    if (!isWeekendDate(d)) left -= 1
+  }
+  return d
 }
 
 export default function Wbs({ projectFilter = 'all' }) {
@@ -41,7 +60,7 @@ function WbsGantt({ project, multi }) {
   const hiddenIds = useHiddenProjectIds()
   const today = todayStr()
   const [exporting, setExporting] = useState(false)
-  const [syncToast, setSyncToast] = useState(false)
+  const [syncToast, setSyncToast] = useState(null) // string | null
   const syncTimerRef = useRef(null)
 
   const scopedTasks = useMemo(
@@ -64,6 +83,10 @@ function WbsGantt({ project, multi }) {
   const [addingChildOf, setAddingChildOf] = useState(null) // task id or proj:* id
   const [datePopover, setDatePopover] = useState(null) // { taskId, x, y }
   const [zoom, setZoom] = useState('day')
+  const [showWeekends, setShowWeekends] = useState(() => {
+    const s = localStorage.getItem(SHOW_WEEKENDS_KEY)
+    return s === null ? true : s === '1'
+  })
   const [drag, setDrag] = useState(null) // {id, mode, start, end}
   const [leftW, setLeftW] = useState(() => {
     const s = Number(localStorage.getItem(LEFT_W_KEY))
@@ -78,6 +101,22 @@ function WbsGantt({ project, multi }) {
     () => roots.filter((n) => n.isProject).map((n) => n.task.id),
     [roots],
   )
+
+  const collapsibleRowIds = useMemo(() => {
+    const ids = []
+    const walk = (nodes) => {
+      for (const n of nodes) {
+        if (n.children.length) {
+          ids.push(n.task.id)
+          walk(n.children)
+        }
+      }
+    }
+    walk(roots)
+    return ids
+  }, [roots])
+
+  const collapseTargetIds = multi ? projectRowIds : collapsibleRowIds
 
   // 左右で共有する描画行リスト（子追加の入力欄も1行として挟む → 左右が常に整列）
   const rows = useMemo(() => {
@@ -121,7 +160,6 @@ function WbsGantt({ project, multi }) {
   }, [visible, today])
 
   const totalDays = diffDays(range.start, range.end) + 1
-  const canvasW = totalDays * dayW
 
   const axis = useMemo(() => {
     const months = []
@@ -130,6 +168,7 @@ function WbsGantt({ project, multi }) {
       const d = addDays(range.start, i)
       const [y, m, day] = d.split('-').map(Number)
       const dow = new Date(y, m - 1, day).getDay()
+      if (!showWeekends && (dow === 0 || dow === 6)) continue
       const key = `${y}-${m}`
       const last = months[months.length - 1]
       if (last && last.key === key) last.days += 1
@@ -137,22 +176,44 @@ function WbsGantt({ project, multi }) {
       ticks.push({ d, dayNum: day, dow, isToday: d === today })
     }
     return { months, ticks }
-  }, [range.start, totalDays, today])
+  }, [range.start, totalDays, today, showWeekends])
+
+  const canvasW = axis.ticks.length * dayW
+
+  const colOf = useMemo(() => {
+    const map = new Map()
+    axis.ticks.forEach((t, i) => map.set(t.d, i))
+    return (d) => {
+      if (map.has(d)) return map.get(d)
+      let cur = d
+      for (let g = 0; g < 14; g++) {
+        cur = addDays(cur, -1)
+        if (map.has(cur)) return map.get(cur)
+      }
+      cur = d
+      for (let g = 0; g < 14; g++) {
+        cur = addDays(cur, 1)
+        if (map.has(cur)) return map.get(cur)
+      }
+      return 0
+    }
+  }, [axis.ticks])
 
   // 初期表示 & ズーム変更時に今日付近へ横スクロール
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const todayX = leftW + diffDays(range.start, today) * dayW
+    const todayX = leftW + colOf(today) * dayW
     el.scrollLeft = Math.max(0, todayX - el.clientWidth * 0.5)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom, scopeKey])
+  }, [zoom, scopeKey, showWeekends])
 
-  function scrollToToday() {
-    const el = scrollRef.current
-    if (!el) return
-    const todayX = leftW + diffDays(range.start, today) * dayW
-    el.scrollTo({ left: Math.max(0, todayX - el.clientWidth * 0.5), behavior: 'smooth' })
+  function toggleWeekends() {
+    setShowWeekends((prev) => {
+      const next = !prev
+      localStorage.setItem(SHOW_WEEKENDS_KEY, next ? '1' : '0')
+      return next
+    })
   }
 
   async function handleExport() {
@@ -172,16 +233,26 @@ function WbsGantt({ project, multi }) {
     }
   }
 
+  function showSyncToast(message) {
+    setSyncToast(message)
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => setSyncToast(null), 2500)
+  }
+
   function handleSyncDates() {
     if (multi) actions.syncAllConsoleDates()
     else actions.syncConsoleDates(project.id)
-    setSyncToast(true)
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
-    syncTimerRef.current = setTimeout(() => setSyncToast(false), 2500)
+    showSyncToast('カレンダーに反映しました')
+  }
+
+  function handleSyncFromConsole() {
+    if (multi) actions.syncAllWbsDates()
+    else actions.syncWbsDates(project.id)
+    showSyncToast('コンソールからWBSに反映しました')
   }
 
   function collapseAllProjects() {
-    setCollapsed(new Set(projectRowIds))
+    setCollapsed(new Set(collapseTargetIds))
   }
 
   function expandAllProjects() {
@@ -231,17 +302,21 @@ function WbsGantt({ project, multi }) {
   useEffect(() => {
     if (!drag) return
     function onMove(e) {
-      const deltaDays = Math.round((e.clientX - drag.startX) / dayW)
+      const deltaCols = Math.round((e.clientX - drag.startX) / dayW)
       setDrag((d) => {
         if (!d) return d
         if (d.mode === 'move') {
-          return { ...d, start: addDays(d.origStart, deltaDays), end: addDays(d.origEnd, deltaDays) }
+          return {
+            ...d,
+            start: showWeekends ? addDays(d.origStart, deltaCols) : addWorkDays(d.origStart, deltaCols),
+            end: showWeekends ? addDays(d.origEnd, deltaCols) : addWorkDays(d.origEnd, deltaCols),
+          }
         }
         if (d.mode === 'start') {
-          const ns = addDays(d.origStart, deltaDays)
+          const ns = showWeekends ? addDays(d.origStart, deltaCols) : addWorkDays(d.origStart, deltaCols)
           return { ...d, start: ns <= d.origEnd ? ns : d.origEnd }
         }
-        const ne = addDays(d.origEnd, deltaDays)
+        const ne = showWeekends ? addDays(d.origEnd, deltaCols) : addWorkDays(d.origEnd, deltaCols)
         return { ...d, end: ne >= d.origStart ? ne : d.origStart }
       })
     }
@@ -259,7 +334,7 @@ function WbsGantt({ project, multi }) {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
-  }, [drag, dayW, actions])
+  }, [drag, dayW, actions, showWeekends])
 
   function startDrag(e, node, mode) {
     e.preventDefault()
@@ -293,16 +368,28 @@ function WbsGantt({ project, multi }) {
   return (
     <div className="wbs-root">
       <div className="wbs-head">
-        <h1 className="screen-date wbs-title">
-          {multi ? (
-            <>すべてのプロジェクト <span className="wbs-count-sub">({visibleProjects.length}件)</span></>
-          ) : (
-            <>
-              {project.color && <span className="proj-dot" style={{ background: project.color }} />}
-              {project.name}
-            </>
+        <div className="wbs-title-group">
+          <h1 className="screen-date wbs-title">
+            {multi ? (
+              <>すべてのプロジェクト <span className="wbs-count-sub">({visibleProjects.length}件)</span></>
+            ) : (
+              <>
+                {project.color && <span className="proj-dot" style={{ background: project.color }} />}
+                {project.name}
+              </>
+            )}
+          </h1>
+          {collapseTargetIds.length > 0 && (
+            <div className="wbs-title-actions">
+              <button className="btn btn-sm" onClick={expandAllProjects} title={multi ? '全プロジェクトを展開' : '全て展開'}>
+                全て展開
+              </button>
+              <button className="btn btn-sm" onClick={collapseAllProjects} title={multi ? '全プロジェクトを折りたたむ' : '全て折りたたむ'}>
+                全て折りたたむ
+              </button>
+            </div>
           )}
-        </h1>
+        </div>
         <div className="wbs-overall">
           <div className="wbs-bar wbs-bar-lg">
             <span className="wbs-bar-fill" style={{ width: `${pct}%` }} />
@@ -321,6 +408,14 @@ function WbsGantt({ project, multi }) {
             {exporting ? '出力中…' : 'Excel出力'}
           </button>
           <button
+            className="btn btn-sm"
+            onClick={handleSyncFromConsole}
+            title="コンソールの予定日〜終了日をWBSの開始日〜終了日に反映する"
+            disabled={overall.total === 0}
+          >
+            コンソールから反映
+          </button>
+          <button
             className="btn btn-sm btn-primary"
             onClick={handleSyncDates}
             title="WBSの開始日〜終了日をカレンダーに反映する"
@@ -328,17 +423,13 @@ function WbsGantt({ project, multi }) {
           >
             日程を更新
           </button>
-          {multi && projectRowIds.length > 0 && (
-            <>
-              <button className="btn btn-sm" onClick={expandAllProjects} title="全プロジェクトを展開">
-                全て展開
-              </button>
-              <button className="btn btn-sm" onClick={collapseAllProjects} title="全プロジェクトを折りたたむ">
-                全て折りたたむ
-              </button>
-            </>
-          )}
-          <button className="btn btn-sm" onClick={scrollToToday}>今日</button>
+          <button
+            className={`btn btn-sm${showWeekends ? ' btn-primary' : ''}`}
+            onClick={toggleWeekends}
+            title={showWeekends ? '土日を非表示にする' : '土日を表示する'}
+          >
+            土日
+          </button>
           <div className="view-toggle wbs-zoom">
             {Object.entries(ZOOMS).map(([k, z]) => (
               <button key={k} className={zoom === k ? 'active' : ''} onClick={() => setZoom(k)}>
@@ -416,22 +507,23 @@ function WbsGantt({ project, multi }) {
             </div>
 
             {/* 週末列シェーディング */}
-            {axis.ticks
-              .filter((t) => t.dow === 0 || t.dow === 6)
-              .map((t) => (
-                <div
-                  key={`wkend-${t.d}`}
-                  className="gantt-weekend-col"
-                  style={{ left: leftW + diffDays(range.start, t.d) * dayW, width: dayW }}
-                />
-              ))}
+            {showWeekends &&
+              axis.ticks
+                .filter((t) => t.dow === 0 || t.dow === 6)
+                .map((t) => (
+                  <div
+                    key={`wkend-${t.d}`}
+                    className="gantt-weekend-col"
+                    style={{ left: leftW + colOf(t.d) * dayW, width: dayW }}
+                  />
+                ))}
 
             {/* 今日ライン（本文のみ） */}
-            {today >= range.start && today <= range.end && (
+            {axis.ticks.some((t) => t.d === today) && (
               <div
                 className="gantt-today-line"
                 style={{
-                  left: leftW + diffDays(range.start, today) * dayW + dayW / 2,
+                  left: leftW + colOf(today) * dayW + dayW / 2,
                   top: HEAD_H,
                 }}
               />
@@ -506,9 +598,9 @@ function WbsGantt({ project, multi }) {
                       <GanttBar
                         node={node}
                         span={span}
-                        rangeStart={range.start}
                         dayW={dayW}
                         today={today}
+                        colOf={colOf}
                         dragging={drag?.id === node.task.id}
                         onStartDrag={startDrag}
                       />
@@ -530,16 +622,18 @@ function WbsGantt({ project, multi }) {
         />
       )}
       {syncToast && (
-        <div className="toast">更新しました</div>
+        <div className="toast toast-top-right" role="status">{syncToast}</div>
       )}
     </div>
   )
 }
 
-function GanttBar({ node, span, rangeStart, dayW, today, dragging, onStartDrag }) {
+function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag }) {
   const { rollup, isLeaf, isProject, project } = node
-  const left = diffDays(rangeStart, span.start) * dayW
-  const width = (diffDays(span.start, span.end) + 1) * dayW
+  const startCol = colOf(span.start)
+  const endCol = colOf(span.end)
+  const left = startCol * dayW
+  const width = Math.max(1, endCol - startCol + 1) * dayW
   const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
   const overdue = span.end < today && rollup.done < rollup.total
 

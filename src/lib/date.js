@@ -57,6 +57,40 @@ export function formatMonthDayJP(str) {
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
+/** Console span end date, or start when no multi-day range. */
+export function taskConsoleEndDate(task) {
+  if (!task.scheduled_date) return null
+  return task.console_end_date && task.console_end_date >= task.scheduled_date
+    ? task.console_end_date
+    : task.scheduled_date
+}
+
+/** Whether a task's console span covers a calendar date. */
+export function taskCoversDate(task, date) {
+  if (!task.scheduled_date || !date) return false
+  const end = taskConsoleEndDate(task)
+  return task.scheduled_date <= date && date <= end
+}
+
+/** Normalize scheduled_date / console_end_date for storage. */
+export function normalizeConsoleDateRange(start, end) {
+  const scheduled_date = start || null
+  let console_end_date = end || null
+  if (!scheduled_date) return { scheduled_date: null, console_end_date: null }
+  if (console_end_date && console_end_date < scheduled_date) console_end_date = scheduled_date
+  if (console_end_date === scheduled_date) console_end_date = null
+  return { scheduled_date, console_end_date }
+}
+
+/** Display label for a console date span. */
+export function formatConsoleDateRange(task) {
+  const start = task.scheduled_date
+  if (!start) return ''
+  const end = taskConsoleEndDate(task)
+  if (!end || end === start) return formatMonthDayJP(start)
+  return `${formatMonthDayJP(start)}〜${formatMonthDayJP(end)}`
+}
+
 export function formatWeekdayJP(str) {
   return WEEK_JP[fromDateStr(str).getDay()]
 }

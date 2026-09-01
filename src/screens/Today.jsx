@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useStore, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
-import { todayStr, formatFullJP, formatMonthDayJP } from '../lib/date.js'
+import { todayStr, formatFullJP, formatMonthDayJP, formatConsoleDateRange, taskCoversDate, taskConsoleEndDate } from '../lib/date.js'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 import AddTaskBar from '../components/AddTaskBar.jsx'
 import TaskList from '../components/TaskList.jsx'
@@ -71,7 +71,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
       return projectFilter === 'all' || t.project_id === projectFilter
     }
     const scoped = state.tasks.filter(inScope)
-    const todays = scoped.filter((t) => t.scheduled_date === today)
+    const todays = scoped.filter((t) => taskCoversDate(t, today))
     const todoTodays = todays.filter((t) => t.status === 'TODO').sort(byPriority)
     const doneTodays = todays
       .filter((t) => t.status === 'DONE')
@@ -86,7 +86,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
     }
 
     const overdue = scoped
-      .filter((t) => t.status === 'TODO' && t.scheduled_date && t.scheduled_date < today)
+      .filter((t) => t.status === 'TODO' && t.scheduled_date && taskConsoleEndDate(t) < today)
       .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
     const inbox = scoped
       .filter((t) => !t.scheduled_date && t.status === 'TODO')
@@ -111,7 +111,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
   function handleProjectDrop(taskId, laneId) {
     const task = state.tasks.find((t) => t.id === taskId)
     if (!task) return
-    if (task.scheduled_date !== today) actions.moveToDate(taskId, today)
+    if (!taskCoversDate(task, today)) actions.moveToDate(taskId, today)
     actions.updateTask(taskId, { project_id: laneId === '__none__' ? null : laneId })
   }
 
@@ -147,7 +147,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
             <div className="callout-row" key={t.id}>
               <span className="t">
                 {t.title}
-                <span className="meta-note"> ・{formatMonthDayJP(t.scheduled_date)}予定</span>
+                <span className="meta-note"> ・{formatConsoleDateRange(t)}予定</span>
               </span>
               <button className="btn btn-sm" onClick={() => actions.moveToDate(t.id, today)}>
                 今日へ移動
@@ -183,10 +183,8 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
                 )}
               </div>
               <div className="proj-lane-body">
-                {tasks.length > 0 ? (
+                {tasks.length > 0 && (
                   <TaskList tasks={tasks} showStar showDate={false} showProject={false} />
-                ) : (
-                  <div className="proj-lane-empty">ドロップしてプロジェクトをアサイン</div>
                 )}
                 <LaneAddInput projectId={laneProjectId} date={today} />
               </div>
