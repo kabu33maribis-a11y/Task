@@ -12,6 +12,7 @@ function makeInitialState() {
   const categories = DEFAULT_CATEGORY_NAMES.map((name, i) => ({
     id: uid('c'),
     name,
+    color: null,
     sort_order: i,
     created_at: now,
     updated_at: now,
@@ -34,8 +35,8 @@ async function loadState() {
       const initial = makeInitialState()
       for (const c of initial.categories) {
         await db.execute(
-          'INSERT INTO categories VALUES (?,?,?,?,?)',
-          [c.id, c.name, c.sort_order, c.created_at, c.updated_at],
+          'INSERT INTO categories (id,name,sort_order,created_at,updated_at,color) VALUES (?,?,?,?,?,?)',
+          [c.id, c.name, c.sort_order, c.created_at, c.updated_at, c.color ?? null],
         )
       }
       return { ...initial, tasks: [], projects: [], activities: [] }
@@ -51,13 +52,16 @@ async function loadState() {
         console_end_date: t.console_end_date ?? null,
         sort_order: t.sort_order ?? 0,
       })),
-      categories,
+      categories: categories.map((c) => ({
+        ...c,
+        color: c.color ?? null,
+      })),
       projects,
       activities,
     }
   } catch (e) {
     console.error('loadState error', e)
-    return makeInitialState()
+    throw e
   }
 }
 
@@ -109,8 +113,8 @@ async function dbUpsertTask(db, t) {
 
 async function dbUpsertCategory(db, c) {
   await db.execute(
-    'INSERT OR REPLACE INTO categories VALUES (?,?,?,?,?)',
-    [c.id, c.name, c.sort_order, c.created_at, c.updated_at],
+    'INSERT OR REPLACE INTO categories (id,name,sort_order,created_at,updated_at,color) VALUES (?,?,?,?,?,?)',
+    [c.id, c.name, c.sort_order, c.created_at, c.updated_at, c.color ?? null],
   )
 }
 
@@ -295,6 +299,7 @@ function reducer(state, action) {
       const cat = {
         id: uid('c'),
         name: action.name.trim(),
+        color: null,
         sort_order: state.categories.length,
         created_at: now,
         updated_at: now,
@@ -533,6 +538,15 @@ export function flushSync() {
   return syncChain
 }
 
+const CLOSE_FLUSH_TIMEOUT_MS = 3000
+
+function flushSyncWithTimeout(ms = CLOSE_FLUSH_TIMEOUT_MS) {
+  return Promise.race([
+    flushSync(),
+    new Promise((resolve) => setTimeout(resolve, ms)),
+  ])
+}
+
 // ---- context -----------------------------------------------------------
 
 const StoreContext = createContext(null)
@@ -540,6 +554,7 @@ const StoreContext = createContext(null)
 export function StoreProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, { version: 1, tasks: [], categories: [], projects: [], activities: [] })
   const [ready, setReady] = useState(false)
+  const [loadError, setLoadError] = useState(null)
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
   const prevStateRef = useRef(state)
@@ -552,34 +567,58 @@ export function StoreProvider({ children }) {
 
   // 初回: DB からロード
   useEffect(() => {
-    loadState().then((s) => {
-      dispatch({ type: 'INIT', state: s })
-      prevStateRef.current = s
-      setReady(true)
-    })
+    loadState()
+      .then((s) => {
+        dispatch({ type: 'INIT', state: s })
+        prevStateRef.current = s
+        setLoadError(null)
+        setReady(true)
+      })
+      .catch((e) => {
+        setLoadError(String(e))
+        setReady(true)
+      })
   }, [])
 
-  // 終了前に未完了の DB 書き込みを待つ
+  // 終了前に未完了の DB 書き込みを待ってから終了する（タイムアウト付きで ✕ が固まらないようにする）
   useEffect(() => {
     let unlisten
+    let closing = false
     import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
       getCurrentWindow().onCloseRequested(async (event) => {
+        if (closing) return
         event.preventDefault()
-        await flushSync()
-        getCurrentWindow().destroy()
+        closing = true
+        try {
+          await flushSyncWithTimeout()
+        } finally {
+          try {
+            const { exit } = await import('@tauri-apps/plugin-process')
+            await exit(0)
+          } catch (e) {
+            console.error('exit failed', e)
+            closing = false
+          }
+        }
       }).then((fn) => { unlisten = fn })
     })
     return () => { unlisten?.() }
   }, [])
 
   // dispatch をラップして DB sync
+  // reducer は1回だけ実行し、その結果を React と DB の両方に使う
+  // （2回実行すると uid() がずれ、画面の ID と DB の ID が不一致になる）
   const dispatchWithSync = useMemo(() => (action) => {
+    if (action.type === 'INIT') {
+      dispatch(action)
+      prevStateRef.current = action.state
+      return
+    }
     const prevState = prevStateRef.current
-    dispatch(action)
-    // reducer の純粋関数を再実行して nextState を得る
     const nextState = reducer(prevState, action)
     prevStateRef.current = nextState
-    if (action.type !== 'INIT') syncToDb(prevState, nextState, action)
+    dispatch({ type: 'INIT', state: nextState })
+    syncToDb(prevState, nextState, action)
   }, [])
 
   function showToast(message, undo) {
@@ -639,6 +678,34 @@ export function StoreProvider({ children }) {
   }), [])
 
   if (!ready) return null
+
+  if (loadError) {
+    return (
+      <div style={{ padding: 32, maxWidth: 480, margin: '10vh auto', fontFamily: 'sans-serif' }}>
+        <h2 style={{ marginTop: 0 }}>データの読み込みに失敗しました</h2>
+        <p style={{ color: '#666', lineHeight: 1.6 }}>{loadError}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setReady(false)
+            setLoadError(null)
+            loadState()
+              .then((s) => {
+                dispatch({ type: 'INIT', state: s })
+                prevStateRef.current = s
+                setReady(true)
+              })
+              .catch((e) => {
+                setLoadError(String(e))
+                setReady(true)
+              })
+          }}
+        >
+          再試行
+        </button>
+      </div>
+    )
+  }
 
   const value = { state, actions, toast, dismissToast }
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

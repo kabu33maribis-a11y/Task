@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useStore } from '../store/StoreContext.jsx'
+import { useStore, flushSync } from '../store/StoreContext.jsx'
 import { reconnectDb, resetDbConnection } from '../lib/db.js'
-import { getDbPath, pickDbFolder } from '../lib/appConfig.js'
+import { getDbPath, pickDbFolder, setDbPath } from '../lib/appConfig.js'
 import { applyTheme as setThemeOnDocument, getSavedTheme, THEMES } from '../lib/theme.js'
 import { version } from '../../package.json'
 
@@ -123,26 +123,45 @@ export default function SettingsModal({ onClose }) {
     getDbPath().then((p) => setDbDir(p))
   }, [])
 
+  function snapshotState() {
+    return {
+      version: state.version,
+      tasks: state.tasks,
+      categories: state.categories,
+      projects: state.projects,
+      activities: state.activities,
+    }
+  }
+
   async function handlePickDbFolder() {
     const dir = await pickDbFolder()
     if (!dir) return
     try {
+      await flushSync()
+      const snapshot = snapshotState()
       await reconnectDb(dir)
-      await actions.reloadFromDb()
+      actions.importState(snapshot)
+      await flushSync()
       setDbDir(dir)
-      setDbMsg('保存先を変更しました。')
+      setDbMsg('保存先を変更し、データを移行しました。')
     } catch (e) {
       setDbMsg('エラー: ' + String(e))
     }
   }
 
   async function resetDbPath() {
-    const { setDbPath } = await import('../lib/appConfig.js')
-    await setDbPath(null)
-    await resetDbConnection()
-    await actions.reloadFromDb()
-    setDbDir(null)
-    setDbMsg('デフォルトの保存先に戻しました。')
+    try {
+      await flushSync()
+      const snapshot = snapshotState()
+      await setDbPath(null)
+      await resetDbConnection()
+      actions.importState(snapshot)
+      await flushSync()
+      setDbDir(null)
+      setDbMsg('デフォルトの保存先に戻し、データを移行しました。')
+    } catch (e) {
+      setDbMsg('エラー: ' + String(e))
+    }
   }
 
 

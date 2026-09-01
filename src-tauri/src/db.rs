@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 const MIGRATION_001: &str = include_str!("../migrations/001_init.sql");
 const MIGRATION_002: &str = include_str!("../migrations/002_add_console_end_date.sql");
+const MIGRATION_003: &str = include_str!("../migrations/003_add_category_color.sql");
 
 pub struct AppDb(Mutex<Option<Pool<Sqlite>>>);
 
@@ -42,18 +43,29 @@ async fn run_sql_script(pool: &Pool<Sqlite>, script: &str) -> Result<(), String>
     Ok(())
 }
 
+async fn column_exists(pool: &Pool<Sqlite>, table: &str, column: &str) -> Result<bool, String> {
+    // pragma_table_info はテーブル名のバインドが使えないため、許可リストのみ受け付ける
+    if table != "tasks" && table != "categories" && table != "projects" && table != "activities" {
+        return Err(format!("invalid table: {table}"));
+    }
+    let sql = format!("SELECT count(*) FROM pragma_table_info('{table}') WHERE name = ?");
+    let count: (i64,) = sqlx::query_as(&sql)
+        .bind(column)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(count.0 > 0)
+}
+
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), String> {
     run_sql_script(pool, MIGRATION_001).await?;
 
-    let count: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM pragma_table_info('tasks') WHERE name = 'console_end_date'",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    if count.0 == 0 {
+    if !column_exists(pool, "tasks", "console_end_date").await? {
         run_sql_script(pool, MIGRATION_002).await?;
+    }
+
+    if !column_exists(pool, "categories", "color").await? {
+        run_sql_script(pool, MIGRATION_003).await?;
     }
 
     Ok(())

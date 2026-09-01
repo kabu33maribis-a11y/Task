@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS categories (
   name TEXT NOT NULL,
   sort_order INTEGER,
   created_at TEXT,
-  updated_at TEXT
+  updated_at TEXT,
+  color TEXT
 );
 
 CREATE TABLE IF NOT EXISTS projects (
