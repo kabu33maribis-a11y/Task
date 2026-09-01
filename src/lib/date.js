@@ -33,6 +33,27 @@ export function diffDays(a, b) {
   return Math.round((fromDateStr(b) - fromDateStr(a)) / 86400000)
 }
 
+/** Days from today until endDate (negative = overdue). */
+export function daysUntil(endDate, today = todayStr()) {
+  if (!endDate) return null
+  return diffDays(today, endDate)
+}
+
+/**
+ * Deadline urgency tier for incomplete tasks.
+ * Returns null when no end date or already completed.
+ * Tiers: 'near' (4–7d) → 'soon' (1–3d) → 'today' → 'overdue'.
+ */
+export function deadlineUrgency(endDate, { today = todayStr(), completed = false } = {}) {
+  if (!endDate || completed) return null
+  const left = daysUntil(endDate, today)
+  if (left < 0) return 'overdue'
+  if (left === 0) return 'today'
+  if (left <= 3) return 'soon'
+  if (left <= 7) return 'near'
+  return null
+}
+
 // min / max of 'YYYY-MM-DD' strings (lexicographic works for ISO dates)
 export function minDate(a, b) {
   if (!a) return b

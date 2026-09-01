@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import { buildTree, buildProjectTrees, prevSibling, flattenVisible } from '../lib/wbs.js'
-import { todayStr, addDays, diffDays, formatMonthDayJP, fromDateStr } from '../lib/date.js'
+import { todayStr, addDays, diffDays, formatMonthDayJP, fromDateStr, deadlineUrgency, daysUntil } from '../lib/date.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import AddTaskBar from '../components/AddTaskBar.jsx'
 import ConfirmDialog from '../components/ConfirmDialog.jsx'
@@ -559,15 +559,19 @@ function WbsGantt({ project, multi }) {
                   : row.parentId
                     ? `add-${row.parentId}-${i}`
                     : `add-proj-${row.projectId ?? 'none'}-${i}`
+              const rowDone = node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)
+              const rowUrgency = node?.span
+                ? deadlineUrgency(node.span.end, { today, completed: rowDone })
+                : null
               return (
                 <div
                   key={rowKey}
                   className={`gantt-matrix-row${
                     node?.isProject ? ' project-row' : ''
                   }${
-                    node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)
-                      ? ' done'
-                      : ''
+                    rowDone ? ' done' : ''
+                  }${
+                    rowUrgency ? ` deadline-${rowUrgency}` : ''
                   }`}
                   style={{ height: ROW_H }}
                 >
@@ -664,15 +668,24 @@ function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag }) {
   const left = startCol * dayW
   const width = Math.max(1, endCol - startCol + 1) * dayW
   const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
-  const overdue = span.end < today && rollup.done < rollup.total
+  const completed = rollup.done >= rollup.total
+  const urgency = deadlineUrgency(span.end, { today, completed })
 
   const cls = ['gantt-bar']
   if (isProject) cls.push('project')
   else cls.push(isLeaf ? 'leaf' : 'summary')
-  if (overdue) cls.push('overdue')
+  if (urgency) cls.push(`deadline-${urgency}`)
   if (dragging) cls.push('dragging')
 
-  const title = `${formatMonthDayJP(span.start)}〜${formatMonthDayJP(span.end)}・${pct}%`
+  const leftDays = daysUntil(span.end, today)
+  const deadlineNote = urgency === 'overdue'
+    ? `${Math.abs(leftDays)}日超過`
+    : urgency === 'today'
+      ? '本日期限'
+      : urgency
+        ? `あと${leftDays}日`
+        : ''
+  const title = `${formatMonthDayJP(span.start)}〜${formatMonthDayJP(span.end)}・${pct}%${deadlineNote ? `・${deadlineNote}` : ''}`
   const barStyle = { left, width }
   if (isProject && project?.color) {
     barStyle.background = project.color + '44'
@@ -752,6 +765,9 @@ function LeftRow({
   }, [editing, task.title])
 
   const done = hasChildren ? allDone : task.status === 'DONE'
+  const endDate = node.span?.end ?? null
+  const urgency = deadlineUrgency(endDate, { completed: done })
+  const leftDays = endDate ? daysUntil(endDate) : null
 
   function commitTitle() {
     const t = draft.trim()
@@ -809,9 +825,24 @@ function LeftRow({
           }}
         />
       ) : (
-        <span className="wbs-title" onClick={() => setEditing(true)} title={task.title || '(無題)'}>
-          {task.title || '(無題)'}
-        </span>
+        <>
+          <span
+            className={`wbs-title${urgency ? ` deadline-${urgency}` : ''}`}
+            onClick={() => setEditing(true)}
+            title={task.title || '(無題)'}
+          >
+            {task.title || '(無題)'}
+          </span>
+          {urgency && leftDays != null && (
+            <span className={`wbs-deadline-badge deadline-${urgency}`} title={`終了: ${formatMonthDayJP(endDate)}`}>
+              {urgency === 'overdue'
+                ? `${Math.abs(leftDays)}日超過`
+                : urgency === 'today'
+                  ? '今日'
+                  : `あと${leftDays}日`}
+            </span>
+          )}
+        </>
       )}
 
       <div className="wbs-actions">

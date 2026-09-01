@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import TaskItem from './TaskItem.jsx'
 import { useStore } from '../store/StoreContext.jsx'
 
@@ -16,6 +16,15 @@ export default function TaskList({
   const [dragId, setDragId] = useState(null)
   const [overId, setOverId] = useState(null)
 
+  useEffect(() => {
+    function clearDrag() {
+      setDragId(null)
+      setOverId(null)
+    }
+    document.addEventListener('dragend', clearDrag)
+    return () => document.removeEventListener('dragend', clearDrag)
+  }, [])
+
   function commitReorder(targetId) {
     if (!dragId || dragId === targetId) return
     const ids = tasks.map((t) => t.id)
@@ -27,7 +36,11 @@ export default function TaskList({
   }
 
   return (
-    <div>
+    <div
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setOverId(null)
+      }}
+    >
       {tasks.map((task) => (
         <TaskItem
           key={task.id}
