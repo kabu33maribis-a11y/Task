@@ -135,7 +135,7 @@ function Dashboard() {
       {view === 'wbs' ? (
         <div className="dashboard dashboard-full">
           <section className="pane pane-wbs">
-            <Wbs projectFilter={projectFilter} onSelectProject={setProjectFilter} />
+            <Wbs projectFilter={projectFilter} />
           </section>
         </div>
       ) : (
@@ -232,7 +232,7 @@ function Tabbed() {
 
       <main className="app-body">
         {view === 'wbs' ? (
-          <Wbs projectFilter={projectFilter} onSelectProject={setProjectFilter} />
+          <Wbs projectFilter={projectFilter} />
         ) : (
           <>
             {tab === 'today' && (

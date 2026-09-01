@@ -298,7 +298,7 @@ function reducer(state, action) {
       return {
         ...state,
         tasks: state.tasks.map((t) => {
-          if (t.project_id !== action.projectId) return t
+          if (!action.all && t.project_id !== action.projectId) return t
           const scheduled_date = t.start_date ?? null
           const console_end_date = t.end_date ?? null
           if (t.scheduled_date === scheduled_date && t.console_end_date === console_end_date) return t
@@ -611,6 +611,7 @@ export function StoreProvider({ children }) {
       }),
     moveToDate: (id, date) => dispatchWithSync({ type: 'MOVE_TO_DATE', id, date }),
     syncConsoleDates: (projectId) => dispatchWithSync({ type: 'SYNC_CONSOLE_DATES', projectId }),
+    syncAllConsoleDates: () => dispatchWithSync({ type: 'SYNC_CONSOLE_DATES', all: true }),
     reorder: (orderedIds) => dispatchWithSync({ type: 'REORDER', orderedIds }),
     addCategory: (name) => dispatchWithSync({ type: 'ADD_CATEGORY', name }),
     updateCategory: (id, patch) => dispatchWithSync({ type: 'UPDATE_CATEGORY', id, patch }),

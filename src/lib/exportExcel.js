@@ -23,7 +23,6 @@ const C = {
   trackSummary: 'FFCDC7B8', // 親の未達トラック（やや濃い）
 }
 
-const WEEKDAY_JP = ['日', '月', '火', '水', '木', '金', '土']
 const FONT = 'Yu Gothic'
 
 // 表側（左固定）の列構成
@@ -93,18 +92,27 @@ function sheetName(name) {
   return cleaned.slice(0, 31)
 }
 
-/**
- * @param {object}   opts
- * @param {object}   opts.project   選択中プロジェクト
- * @param {Array}    opts.roots     buildTree の結果（全ツリー）
- * @param {Map}      opts.catMap    category_id -> {name,...}
- * @param {string}   opts.today     'YYYY-MM-DD'
- */
-export async function buildWbsWorkbook({ project, roots, catMap, today }) {
-  const ExcelJS = (await import('exceljs')).default
+function uniqueSheetName(name, usedNames) {
+  const base = sheetName(name)
+  if (!usedNames.has(base)) {
+    usedNames.add(base)
+    return base
+  }
+  let i = 2
+  while (true) {
+    const suffix = ` (${i})`
+    const candidate = `${base.slice(0, 31 - suffix.length)}${suffix}`
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate)
+      return candidate
+    }
+    i += 1
+  }
+}
 
+function addWbsSheet(wb, { project, roots, catMap, today, range: externalRange, usedNames }) {
   const nodes = flattenVisible(roots, new Set()) // 折りたたみ無視＝全件展開
-  const range = computeRange(nodes, today)
+  const range = externalRange ?? computeRange(nodes, today)
   const totalDays = diffDays(range.start, range.end) + 1
   const HELPER_COL = TABLE_COLS + totalDays + 1 // 親/葉フラグ用の隠し列
 
@@ -128,10 +136,7 @@ export async function buildWbsWorkbook({ project, roots, catMap, today }) {
     else monthBands.push({ startCol: col, span: 1, y, m, label: `${m}月` })
   }
 
-  const wb = new ExcelJS.Workbook()
-  wb.creator = 'タスク管理'
-  wb.created = toJsDate(today) || undefined
-  const ws = wb.addWorksheet(sheetName(project.name), {
+  const ws = wb.addWorksheet(uniqueSheetName(project.name, usedNames), {
     views: [{ state: 'frozen', xSplit: TABLE_COLS, ySplit: 5, showGridLines: false }],
     properties: { defaultRowHeight: 20 },
   })
@@ -345,13 +350,53 @@ export async function buildWbsWorkbook({ project, roots, catMap, today }) {
   // 判定用フラグ列は隠す
   ws.getColumn(HELPER_COL).hidden = true
   ws.getColumn(HELPER_COL).width = 3
+}
+
+/**
+ * @param {object}   opts
+ * @param {object}   opts.project   選択中プロジェクト
+ * @param {Array}    opts.roots     buildTree の結果（全ツリー）
+ * @param {Map}      opts.catMap    category_id -> {name,...}
+ * @param {string}   opts.today     'YYYY-MM-DD'
+ */
+export async function buildWbsWorkbook({ project, roots, catMap, today }) {
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'タスク管理'
+  wb.created = toJsDate(today) || undefined
+  const usedNames = new Set()
+  addWbsSheet(wb, { project, roots, catMap, today, usedNames })
+  return wb
+}
+
+export async function buildAllProjectsWorkbook({ projectNodes, catMap, today }) {
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'タスク管理'
+  wb.created = toJsDate(today) || undefined
+  const usedNames = new Set()
+
+  const sheets = projectNodes.filter((pn) => pn.rollup.total > 0)
+  if (sheets.length === 0) return wb
+
+  const allNodes = sheets.flatMap((pn) => flattenVisible(pn.children, new Set()))
+  const sharedRange = computeRange(allNodes, today)
+
+  for (const pn of sheets) {
+    addWbsSheet(wb, {
+      project: pn.project,
+      roots: pn.children,
+      catMap,
+      today,
+      range: sharedRange,
+      usedNames,
+    })
+  }
 
   return wb
 }
 
-// ブラウザでダウンロードをトリガーする。
-export async function exportWbsToExcel(opts) {
-  const wb = await buildWbsWorkbook(opts)
+async function downloadWorkbook(wb, filename) {
   const buffer = await wb.xlsx.writeBuffer()
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -359,9 +404,20 @@ export async function exportWbsToExcel(opts) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${sheetName(opts.project.name)}_WBS_${opts.today}.xlsx`
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// ブラウザでダウンロードをトリガーする。
+export async function exportWbsToExcel(opts) {
+  const wb = await buildWbsWorkbook(opts)
+  await downloadWorkbook(wb, `${sheetName(opts.project.name)}_WBS_${opts.today}.xlsx`)
+}
+
+export async function exportAllWbsToExcel(opts) {
+  const wb = await buildAllProjectsWorkbook(opts)
+  await downloadWorkbook(wb, `全プロジェクト_WBS_${opts.today}.xlsx`)
 }

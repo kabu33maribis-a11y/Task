@@ -2641,23 +2641,6 @@ select {
   background: var(--washi-sink);
 }
 
-.wbs-picker {
-  padding: 40px 8px;
-  text-align: center;
-}
-.wbs-picker-title {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--sumi);
-  margin: 0 0 20px;
-}
-.wbs-picker .project-filter {
-  justify-content: center;
-  flex: none;
-}
-
 /* =====================================================================
    WBS + Gantt combined view — frozen-pane grid
    固定タスク列(左) + タイムライン(右) を1つのスクロール面に。
@@ -2827,6 +2810,13 @@ select {
 .gantt-matrix-row:hover .gantt-namecell {
   background: var(--washi-sink);
 }
+.gantt-matrix-row.project-row .gantt-namecell {
+  background: var(--washi-sink);
+  border-bottom: 1px solid var(--rule-strong);
+}
+.gantt-matrix-row.project-row:hover .gantt-namecell {
+  background: var(--washi-sink);
+}
 .gantt-name-inner {
   display: flex;
   align-items: center;
@@ -2847,6 +2837,22 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: normal;
+}
+.gantt-name-inner.is-project {
+  font-weight: 700;
+  gap: 8px;
+}
+.gantt-name-inner.is-project .wbs-project-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 700;
+}
+.wbs-project-progress {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--sumi-soft);
+  white-space: nowrap;
 }
 .gantt-matrix-row.done .wbs-title {
   color: var(--sumi-soft);
@@ -2967,6 +2973,18 @@ select {
   border-radius: 2px;
   background: var(--sumi-soft);
   cursor: default;
+}
+.gantt-bar.project {
+  top: 10px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--rule-strong);
+  cursor: default;
+  opacity: 0.92;
+}
+.gantt-bar.project .gantt-bar-fill {
+  background: var(--shu);
+  opacity: 0.85;
 }
 /* summary end caps (◇━◇) */
 .gantt-bar.summary::before,

@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore, useProjectMap, useCategoryMap } from '../store/StoreContext.jsx'
-import { buildTree, prevSibling, flattenVisible } from '../lib/wbs.js'
+import { buildTree, buildProjectTrees, prevSibling, flattenVisible } from '../lib/wbs.js'
 import { todayStr, addDays, diffDays, formatMonthDayJP } from '../lib/date.js'
-import { exportWbsToExcel } from '../lib/exportExcel.js'
+import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import AddTaskBar from '../components/AddTaskBar.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
@@ -18,43 +18,23 @@ const ZOOMS = {
   month: { label: '月', w: 7 },
 }
 
-export default function Wbs({ projectFilter = 'all', onSelectProject }) {
-  const { state } = useStore()
+export default function Wbs({ projectFilter = 'all' }) {
   const projMap = useProjectMap()
-  const project = projectFilter !== 'all' ? projMap.get(projectFilter) : null
+  const multi = projectFilter === 'all'
+  const project = multi ? null : projMap.get(projectFilter)
 
-  if (!project) {
-    const projects = [...state.projects].sort((a, b) => a.sort_order - b.sort_order)
+  if (!multi && !project) {
     return (
       <div className="wbs-root">
-        <div className="wbs-picker">
-          <h2 className="wbs-picker-title">WBS / ガント表示するプロジェクトを選択してください</h2>
-          {projects.length > 0 ? (
-            <div className="project-filter" role="list">
-              {projects.map((p) => (
-                <button
-                  key={p.id}
-                  className="proj-pill"
-                  onClick={() => onSelectProject?.(p.id)}
-                  style={p.color ? { borderColor: p.color, background: p.color + '22' } : undefined}
-                >
-                  {p.color && <span className="proj-dot" style={{ background: p.color }} />}
-                  {p.name}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="empty">プロジェクトがありません。設定から追加してください。</p>
-          )}
-        </div>
+        <p className="empty">プロジェクトが見つかりません。</p>
       </div>
     )
   }
 
-  return <WbsGantt project={project} />
+  return <WbsGantt project={project} multi={multi} />
 }
 
-function WbsGantt({ project }) {
+function WbsGantt({ project, multi }) {
   const { state, actions } = useStore()
   const catMap = useCategoryMap()
   const today = todayStr()
@@ -62,15 +42,21 @@ function WbsGantt({ project }) {
   const [syncToast, setSyncToast] = useState(false)
   const syncTimerRef = useRef(null)
 
-  const projectTasks = useMemo(
-    () => state.tasks.filter((t) => t.project_id === project.id),
-    [state.tasks, project.id],
+  const scopedTasks = useMemo(
+    () => (multi ? state.tasks : state.tasks.filter((t) => t.project_id === project.id)),
+    [state.tasks, multi, project?.id],
   )
-  const roots = useMemo(() => buildTree(projectTasks), [projectTasks])
+
+  const roots = useMemo(
+    () => (multi ? buildProjectTrees(state.tasks, state.projects) : buildTree(scopedTasks)),
+    [multi, state.tasks, state.projects, scopedTasks],
+  )
+
+  const scopeKey = multi ? 'all' : project.id
 
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [editingId, setEditingId] = useState(null)
-  const [addingChildOf, setAddingChildOf] = useState(null)
+  const [addingChildOf, setAddingChildOf] = useState(null) // task id or proj:* id
   const [datePopover, setDatePopover] = useState(null) // { taskId, x, y }
   const [zoom, setZoom] = useState('day')
   const [drag, setDrag] = useState(null) // {id, mode, start, end}
@@ -83,13 +69,22 @@ function WbsGantt({ project }) {
 
   const visible = useMemo(() => flattenVisible(roots, collapsed), [roots, collapsed])
 
+  const projectRowIds = useMemo(
+    () => roots.filter((n) => n.isProject).map((n) => n.task.id),
+    [roots],
+  )
+
   // 左右で共有する描画行リスト（子追加の入力欄も1行として挟む → 左右が常に整列）
   const rows = useMemo(() => {
     const out = []
     for (const node of visible) {
       out.push({ kind: 'node', node })
       if (addingChildOf === node.task.id) {
-        out.push({ kind: 'add', parentId: node.task.id, depth: node.depth + 1 })
+        if (node.isProject) {
+          out.push({ kind: 'add', projectId: node.project.id, depth: node.depth + 1 })
+        } else {
+          out.push({ kind: 'add', parentId: node.task.id, depth: node.depth + 1 })
+        }
       }
     }
     return out
@@ -146,7 +141,7 @@ function WbsGantt({ project }) {
     const todayX = leftW + diffDays(range.start, today) * dayW
     el.scrollLeft = Math.max(0, todayX - el.clientWidth * 0.5)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom, project.id])
+  }, [zoom, scopeKey])
 
   function scrollToToday() {
     const el = scrollRef.current
@@ -156,16 +151,36 @@ function WbsGantt({ project }) {
   }
 
   async function handleExport() {
-    if (exporting || roots.length === 0) return
+    if (exporting || overall.total === 0) return
     setExporting(true)
     try {
-      await exportWbsToExcel({ project, roots, catMap, today })
+      if (multi) {
+        await exportAllWbsToExcel({ projectNodes: roots, catMap, today })
+      } else {
+        await exportWbsToExcel({ project: project, roots, catMap, today })
+      }
     } catch (err) {
       console.error('Excel出力に失敗しました', err)
       alert('Excel出力に失敗しました。時間をおいて再度お試しください。')
     } finally {
       setExporting(false)
     }
+  }
+
+  function handleSyncDates() {
+    if (multi) actions.syncAllConsoleDates()
+    else actions.syncConsoleDates(project.id)
+    setSyncToast(true)
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => setSyncToast(false), 2500)
+  }
+
+  function collapseAllProjects() {
+    setCollapsed(new Set(projectRowIds))
+  }
+
+  function expandAllProjects() {
+    setCollapsed(new Set())
   }
 
   // ---- タスク列の幅をドラッグで調整 -----------------------------------
@@ -267,14 +282,21 @@ function WbsGantt({ project }) {
   }
 
   const pct = overall.total ? Math.round((overall.done / overall.total) * 100) : 0
-  const popTask = datePopover && projectTasks.find((t) => t.id === datePopover.taskId)
+  const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
+  const hasContent = multi ? state.projects.length > 0 : roots.length > 0
 
   return (
     <div className="wbs-root">
       <div className="wbs-head">
         <h1 className="screen-date wbs-title">
-          {project.color && <span className="proj-dot" style={{ background: project.color }} />}
-          {project.name}
+          {multi ? (
+            <>すべてのプロジェクト <span className="wbs-count-sub">({state.projects.length}件)</span></>
+          ) : (
+            <>
+              {project.color && <span className="proj-dot" style={{ background: project.color }} />}
+              {project.name}
+            </>
+          )}
         </h1>
         <div className="wbs-overall">
           <div className="wbs-bar wbs-bar-lg">
@@ -288,24 +310,29 @@ function WbsGantt({ project }) {
           <button
             className="btn btn-sm btn-export"
             onClick={handleExport}
-            disabled={exporting || roots.length === 0}
+            disabled={exporting || overall.total === 0}
             title="WBSとガントチャートをExcelに出力"
           >
             {exporting ? '出力中…' : 'Excel出力'}
           </button>
           <button
             className="btn btn-sm btn-primary"
-            onClick={() => {
-              actions.syncConsoleDates(project.id)
-              setSyncToast(true)
-              if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
-              syncTimerRef.current = setTimeout(() => setSyncToast(false), 2500)
-            }}
+            onClick={handleSyncDates}
             title="WBSの開始日〜終了日をカレンダーに反映する"
-            disabled={roots.length === 0}
+            disabled={overall.total === 0}
           >
             日程を更新
           </button>
+          {multi && projectRowIds.length > 0 && (
+            <>
+              <button className="btn btn-sm" onClick={expandAllProjects} title="全プロジェクトを展開">
+                全て展開
+              </button>
+              <button className="btn btn-sm" onClick={collapseAllProjects} title="全プロジェクトを折りたたむ">
+                全て折りたたむ
+              </button>
+            </>
+          )}
           <button className="btn btn-sm" onClick={scrollToToday}>今日</button>
           <div className="view-toggle wbs-zoom">
             {Object.entries(ZOOMS).map(([k, z]) => (
@@ -321,12 +348,22 @@ function WbsGantt({ project }) {
         defaultDate={null}
         projects={state.projects}
         categories={state.categories}
-        defaultProjectId={project.id}
-        placeholder="ルートタスクを追加（Enterで登録）"
+        defaultProjectId={multi ? null : project.id}
+        placeholder={
+          multi
+            ? 'タスクを追加（詳細でプロジェクトを選択）'
+            : 'ルートタスクを追加（Enterで登録）'
+        }
       />
 
-      {rows.length === 0 ? (
-        <p className="empty">タスクはまだありません。上のバーから追加してください。</p>
+      {!hasContent ? (
+        <p className="empty">
+          {multi
+            ? 'プロジェクトがありません。設定から追加してください。'
+            : 'タスクはまだありません。上のバーから追加してください。'}
+        </p>
+      ) : rows.length === 0 ? (
+        <p className="empty">タスクはまだありません。プロジェクト行の「＋子」または上のバーから追加してください。</p>
       ) : (
         <div className="gantt" ref={scrollRef}>
           <div
@@ -399,30 +436,64 @@ function WbsGantt({ project }) {
             {rows.map((row, i) => {
               const node = row.kind === 'node' ? row.node : null
               const span = node ? spanFor(node) : null
+              const rowKey =
+                row.kind === 'node'
+                  ? node.task.id
+                  : row.parentId
+                    ? `add-${row.parentId}-${i}`
+                    : `add-proj-${row.projectId ?? 'none'}-${i}`
               return (
                 <div
-                  key={row.kind === 'node' ? node.task.id : `add-${row.parentId}-${i}`}
-                  className={`gantt-matrix-row${node && (node.isLeaf ? node.task.status === 'DONE' : node.allDone) ? ' done' : ''}`}
+                  key={rowKey}
+                  className={`gantt-matrix-row${
+                    node?.isProject ? ' project-row' : ''
+                  }${
+                    node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)
+                      ? ' done'
+                      : ''
+                  }`}
                   style={{ height: ROW_H }}
                 >
                   <div className="gantt-namecell" style={{ width: leftW }}>
                     {row.kind === 'node' ? (
-                      <LeftRow
-                        node={node}
-                        projectTasks={projectTasks}
-                        collapsed={collapsed}
-                        editing={editingId === node.task.id}
-                        setEditing={(v) => setEditingId(v ? node.task.id : null)}
-                        onToggleCollapse={toggleCollapse}
-                        onExpand={expand}
-                        onOpenDatePopover={openDatePopover}
-                        onAddChild={() => {
-                          setAddingChildOf(node.task.id)
-                          expand(node.task.id)
-                        }}
+                      node.isProject ? (
+                        <ProjectLeftRow
+                          node={node}
+                          collapsed={collapsed}
+                          onToggleCollapse={toggleCollapse}
+                          onAddChild={() => {
+                            setAddingChildOf(node.task.id)
+                            expand(node.task.id)
+                          }}
+                        />
+                      ) : (
+                        <LeftRow
+                          node={node}
+                          projectTasks={scopedTasks.filter((t) => t.project_id === node.task.project_id)}
+                          collapsed={collapsed}
+                          editing={editingId === node.task.id}
+                          setEditing={(v) => setEditingId(v ? node.task.id : null)}
+                          onToggleCollapse={toggleCollapse}
+                          onExpand={expand}
+                          onOpenDatePopover={openDatePopover}
+                          onAddChild={() => {
+                            setAddingChildOf(node.task.id)
+                            expand(node.task.id)
+                          }}
+                        />
+                      )
+                    ) : row.parentId ? (
+                      <AddChildRow
+                        depth={row.depth}
+                        parentId={row.parentId}
+                        onClose={() => setAddingChildOf(null)}
                       />
                     ) : (
-                      <AddChildRow depth={row.depth} parentId={row.parentId} onClose={() => setAddingChildOf(null)} />
+                      <AddChildRow
+                        depth={row.depth}
+                        projectId={row.projectId}
+                        onClose={() => setAddingChildOf(null)}
+                      />
                     )}
                   </div>
                   <div className="gantt-track" style={{ width: canvasW }}>
@@ -461,23 +532,29 @@ function WbsGantt({ project }) {
 }
 
 function GanttBar({ node, span, rangeStart, dayW, today, dragging, onStartDrag }) {
-  const { rollup, isLeaf } = node
+  const { rollup, isLeaf, isProject, project } = node
   const left = diffDays(rangeStart, span.start) * dayW
   const width = (diffDays(span.start, span.end) + 1) * dayW
   const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
   const overdue = span.end < today && rollup.done < rollup.total
 
   const cls = ['gantt-bar']
-  cls.push(isLeaf ? 'leaf' : 'summary')
+  if (isProject) cls.push('project')
+  else cls.push(isLeaf ? 'leaf' : 'summary')
   if (overdue) cls.push('overdue')
   if (dragging) cls.push('dragging')
 
   const title = `${formatMonthDayJP(span.start)}〜${formatMonthDayJP(span.end)}・${pct}%`
+  const barStyle = { left, width }
+  if (isProject && project?.color) {
+    barStyle.background = project.color + '44'
+    barStyle.borderColor = project.color
+  }
 
   return (
     <div
       className={cls.join(' ')}
-      style={{ left, width }}
+      style={barStyle}
       title={title}
       onMouseDown={isLeaf ? (e) => onStartDrag(e, node, 'move') : undefined}
     >
@@ -488,6 +565,35 @@ function GanttBar({ node, span, rangeStart, dayW, today, dragging, onStartDrag }
           <span className="gantt-bar-handle right" onMouseDown={(e) => onStartDrag(e, node, 'end')} />
         </>
       )}
+    </div>
+  )
+}
+
+function ProjectLeftRow({ node, collapsed, onToggleCollapse, onAddChild }) {
+  const { project, rollup } = node
+  const isCollapsed = collapsed.has(node.task.id)
+  const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
+
+  return (
+    <div className="gantt-name-inner is-project">
+      <button
+        className="wbs-caret"
+        onClick={() => onToggleCollapse(node.task.id)}
+        tabIndex={0}
+        aria-label={isCollapsed ? '展開' : '折りたたむ'}
+      >
+        {isCollapsed ? '▸' : '▾'}
+      </button>
+      {project.color && <span className="proj-dot" style={{ background: project.color }} />}
+      <span className="wbs-title wbs-project-title" title={project.name}>
+        {project.name}
+      </span>
+      <span className="wbs-project-progress">
+        {pct}% <span className="wbs-count-sub">({rollup.done}/{rollup.total})</span>
+      </span>
+      <div className="wbs-actions">
+        <button className="wbs-act" onClick={onAddChild} title="ルートタスクを追加">＋子</button>
+      </div>
     </div>
   )
 }
@@ -671,7 +777,7 @@ function DatePopover({ task, x, y, onClose }) {
   )
 }
 
-function AddChildRow({ parentId, onClose }) {
+function AddChildRow({ parentId, projectId, depth, onClose }) {
   const { state, actions } = useStore()
   const [title, setTitle] = useState('')
   const ref = useRef(null)
@@ -682,14 +788,23 @@ function AddChildRow({ parentId, onClose }) {
   function submit() {
     const t = title.trim()
     if (!t) return
-    const parent = state.tasks.find((x) => x.id === parentId)
-    if (parent) actions.addSubtask(parent, t)
+    if (parentId) {
+      const parent = state.tasks.find((x) => x.id === parentId)
+      if (parent) actions.addSubtask(parent, t)
+    } else {
+      actions.addTask({
+        title: t,
+        project_id: projectId ?? null,
+        parent_id: null,
+        scheduled_date: null,
+      })
+    }
     setTitle('')
     ref.current?.focus()
   }
 
   return (
-    <div className="gantt-name-inner wbs-add-child">
+    <div className="gantt-name-inner wbs-add-child" style={{ paddingLeft: depth * 15 }}>
       <span className="wbs-no wbs-no-ghost">＋</span>
       <input
         ref={ref}
