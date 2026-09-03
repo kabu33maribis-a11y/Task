@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { useStore } from '../store/StoreContext.jsx'
 import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
 import { todayStr, formatMonthDayJP, normalizeConsoleDateRange } from '../lib/date.js'
+import { parseNaturalLanguageTask } from '../lib/ai/client.js'
 
 // Quick-add bar. Goal: title + Enter to register in ~3 seconds.
 // Optional "詳細" toggle reveals date/category without a modal.
@@ -19,6 +20,8 @@ const AddTaskBar = forwardRef(function AddTaskBar(
   const [priority, setPriority] = useState('')
   const [subtasks, setSubtasks] = useState([])
   const [subtaskInput, setSubtaskInput] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState('')
   const subtaskRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -66,7 +69,36 @@ const AddTaskBar = forwardRef(function AddTaskBar(
     setTitle('')
     setSubtasks([])
     setSubtaskInput('')
+    setAiError('')
     inputRef.current?.focus()
+  }
+
+  async function parseWithAi() {
+    const t = title.trim()
+    if (!t || aiLoading) return
+    setAiLoading(true)
+    setAiError('')
+    try {
+      const parsed = await parseNaturalLanguageTask(t)
+      setTitle(parsed.title || t)
+      if (parsed.scheduled_date) {
+        setDate(parsed.scheduled_date)
+        setEndDate(parsed.console_end_date ?? '')
+        setShowOpts(true)
+      }
+      if (parsed.priority) {
+        setPriority(parsed.priority)
+        setShowOpts(true)
+      }
+      if (parsed.subtasks?.length) {
+        setSubtasks(parsed.subtasks)
+        setShowOpts(true)
+      }
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   function submit() {
@@ -131,6 +163,14 @@ const AddTaskBar = forwardRef(function AddTaskBar(
         >
           詳細
         </button>
+        <button
+          className="addbar-action"
+          onClick={parseWithAi}
+          disabled={!title.trim() || aiLoading}
+          title="自然言語をAIで解析"
+        >
+          {aiLoading ? '解析中…' : 'AI'}
+        </button>
         {defaultDate !== null && (
           <button className="add-inbox" onClick={submitInbox} disabled={!title.trim()} title="Inboxに追加">
             Inbox
@@ -140,6 +180,7 @@ const AddTaskBar = forwardRef(function AddTaskBar(
           追加
         </button>
       </div>
+      {aiError && <p className="meta-note addbar-ai-error">{aiError}</p>}
       {showOpts && (
         <div className="addbar-opts">
           <ConsoleDateRangeFields

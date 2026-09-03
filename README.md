@@ -13,12 +13,35 @@
 
 ## 起動方法
 
+### デスクトップアプリ（Tauri・推奨）
+
+```bash
+npm install
+npm run tauri dev
+```
+
+Rust の初回ビルドには数分かかることがあります。ビルド完了後に **デスクトップアプリのウィンドウ** が開きます。
+
+> **注意:** `http://localhost:5173` をブラウザで直接開いても動作しません（DB 保存など Tauri API が必要なため）。必ず `npm run tauri dev` で起動したアプリウィンドウを使ってください。
+
+### ブラウザのみ（開発用・DB なし）
+
 ```bash
 npm install
 npm run dev
 ```
 
-ブラウザで表示された URL（既定 http://localhost:5173 ）を開きます。
+ブラウザで表示された URL（既定 http://localhost:5173）を開きます。Tauri 版とは別の起動方法です。
+
+### AI 機能
+
+自然言語タスク解析（AddTaskBar の **AI** ボタン）は Node.js サイドカー経由で OpenAI を呼び出します。
+
+1. `.env.example` を `.env` にコピーし、OpenAI の API キーを設定
+2. 別ターミナルで AI サーバーを起動: `npm run dev:ai`
+3. フロントエンドを起動: `npm run dev`（Vite が `/api/ai` をプロキシ）
+
+AI 解析を試す: `npm run ai:smoke "明日までにレポート提出"`（要 `OPENAI_API_KEY`）
 
 本番ビルド:
 

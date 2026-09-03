@@ -1,13 +1,17 @@
 {
   "name": "task-manager",
   "private": true,
-  "version": "0.1.18",
+  "version": "0.1.19",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ai": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "ai:smoke": "node server/scripts/smoke-test.js",
+    "events:api": "node server/cursor-events-api.js",
+    "cursor-events:smoke": "node server/scripts/cursor-events-smoke.js"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
@@ -19,7 +23,11 @@
     "@tauri-apps/plugin-store": "^2.4.4",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@tauri-apps/plugin-window-state": "^2.4.1",
+    "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "openai": "^7.8.0",
+    "pg": "^8.16.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

@@ -933,6 +933,10 @@ select {
   color: var(--sumi);
   font-weight: 600;
 }
+.addbar-ai-error {
+  margin: 6px 0 0;
+  color: var(--shu, #c0402e);
+}
 .addbar .add-inbox,
 .addbar .add-go {
   flex-shrink: 0;
@@ -2594,7 +2598,7 @@ select {
   margin-left: auto;
 }
 
-/* progress bar — 完了で朱に満ちる（色＝達成） */
+/* progress bar — 完了率をプロジェクト色で表示 */
 .wbs-bar {
   display: inline-block;
   width: 90px;
@@ -2645,7 +2649,7 @@ select {
   background: var(--hover-yellow);
 }
 .wbs-row.done .wbs-title {
-  color: var(--sumi-soft);
+  color: var(--text-muted);
   text-decoration: line-through;
   text-decoration-color: var(--border-strong);
 }
@@ -3008,9 +3012,21 @@ select {
   white-space: nowrap;
 }
 .gantt-matrix-row.done .wbs-title {
-  color: var(--sumi-soft);
+  color: var(--text-muted);
   text-decoration: line-through;
   text-decoration-color: var(--border-strong);
+}
+.gantt-matrix-row.done .wbs-no,
+.gantt-matrix-row.done .wbs-deadline-badge {
+  color: var(--text-muted);
+}
+.gantt-matrix-row.done .gantt-bar.leaf .gantt-bar-fill,
+.gantt-matrix-row.done .gantt-bar.summary .gantt-bar-fill {
+  background: var(--text-muted);
+}
+.gantt-matrix-row.done .gantt-bar.summary::before,
+.gantt-matrix-row.done .gantt-bar.summary::after {
+  background: var(--text-muted);
 }
 .gantt-name-inner .wbs-actions {
   opacity: 0;
@@ -3122,50 +3138,33 @@ select {
   border-color: var(--sumi);
 }
 
-/* deadline urgency — bars get more prominent as the end date approaches */
-.gantt-bar.deadline-near {
-  border-color: var(--amber-border);
-  background: var(--amber-bg);
+/* deadline urgency — fire icon grows as the end date approaches */
+.wbs-deadline-fire {
+  flex: 0 0 auto;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.gantt-bar.deadline-soon {
-  border-color: var(--amber);
-  background: var(--amber-bg);
-  box-shadow: 0 0 0 1px var(--amber-border);
+.wbs-deadline-fire--near {
+  font-size: 11px;
 }
-.gantt-bar.deadline-today {
-  border-color: var(--amber-deep);
-  background: var(--amber-bg);
-  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.35);
+.wbs-deadline-fire--soon {
+  font-size: 14px;
 }
-.gantt-bar.deadline-overdue {
-  border-color: var(--shu-deep);
-  background: rgba(220, 38, 38, 0.08);
-  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.25);
+.wbs-deadline-fire--today {
+  font-size: 17px;
 }
-.gantt-bar.summary.deadline-near,
-.gantt-bar.project.deadline-near {
-  background: var(--amber-bg);
-  border-color: var(--amber-border);
+.wbs-deadline-fire--overdue {
+  font-size: 21px;
 }
-.gantt-bar.summary.deadline-soon,
-.gantt-bar.project.deadline-soon {
-  background: var(--amber-bg);
-  border-color: var(--amber);
-}
-.gantt-bar.summary.deadline-today,
-.gantt-bar.project.deadline-today {
-  background: var(--amber-bg);
-  border-color: var(--amber-deep);
-  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.35);
-}
-.gantt-bar.summary.deadline-overdue,
-.gantt-bar.project.deadline-overdue {
-  background: rgba(220, 38, 38, 0.10);
-  border-color: var(--shu-deep);
-}
-.gantt-bar.deadline-today .gantt-bar-fill,
-.gantt-bar.deadline-overdue .gantt-bar-fill {
-  opacity: 1;
+.gantt-bar-fire {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translate(50%, -50%);
+  z-index: 5;
+  pointer-events: none;
 }
 
 .gantt-bar.summary {
@@ -3184,7 +3183,6 @@ select {
   opacity: 0.92;
 }
 .gantt-bar.project .gantt-bar-fill {
-  background: var(--shu);
   opacity: 0.85;
 }
 /* summary end caps (◇━◇) */
@@ -3237,46 +3235,6 @@ select {
   background: linear-gradient(var(--sumi), var(--sumi)) center / 2px 60% no-repeat;
 }
 
-/* deadline urgency — row & title highlights */
-.gantt-matrix-row.deadline-near .gantt-namecell {
-  box-shadow: inset 3px 0 0 var(--amber-border);
-}
-.gantt-matrix-row.deadline-soon .gantt-namecell {
-  box-shadow: inset 3px 0 0 var(--amber);
-  background: var(--amber-bg);
-}
-.gantt-matrix-row.deadline-today .gantt-namecell {
-  box-shadow: inset 4px 0 0 var(--amber-deep);
-  background: var(--amber-bg);
-}
-.gantt-matrix-row.deadline-overdue .gantt-namecell {
-  box-shadow: inset 4px 0 0 var(--shu-deep);
-  background: rgba(220, 38, 38, 0.06);
-}
-.gantt-matrix-row.deadline-near:hover .gantt-namecell,
-.gantt-matrix-row.deadline-soon:hover .gantt-namecell,
-.gantt-matrix-row.deadline-today:hover .gantt-namecell,
-.gantt-matrix-row.deadline-overdue:hover .gantt-namecell {
-  background: var(--hover-yellow);
-}
-.gantt-matrix-row.project-row.deadline-near .gantt-namecell,
-.gantt-matrix-row.project-row.deadline-soon .gantt-namecell,
-.gantt-matrix-row.project-row.deadline-today .gantt-namecell,
-.gantt-matrix-row.project-row.deadline-overdue .gantt-namecell {
-  background: var(--amber-bg);
-}
-.wbs-title.deadline-soon {
-  font-weight: 600;
-  color: var(--amber-deep);
-}
-.wbs-title.deadline-today {
-  font-weight: 700;
-  color: var(--amber-deep);
-}
-.wbs-title.deadline-overdue {
-  font-weight: 700;
-  color: var(--shu-deep);
-}
 .wbs-deadline-badge {
   flex: 0 0 auto;
   font-family: var(--font-mono);
@@ -3286,31 +3244,7 @@ select {
   border-radius: 4px;
   white-space: nowrap;
   line-height: 1.4;
-}
-.wbs-deadline-badge.deadline-near {
-  color: var(--amber-deep);
-  background: var(--amber-bg);
-  border: 1px solid var(--amber-border);
-}
-.wbs-deadline-badge.deadline-soon {
-  color: var(--amber-deep);
-  background: var(--amber-bg);
-  border: 1px solid var(--amber);
-}
-.wbs-deadline-badge.deadline-today {
-  color: #fff;
-  background: var(--amber-deep);
-  border: 1px solid var(--amber-deep);
-}
-.wbs-deadline-badge.deadline-overdue {
-  color: #fff;
-  background: var(--shu-deep);
-  border: 1px solid var(--shu-deep);
-}
-[data-theme="dark"] .gantt-bar.deadline-overdue {
-  background: rgba(224, 85, 85, 0.14);
-  box-shadow: 0 0 0 2px rgba(224, 85, 85, 0.30);
-}
-[data-theme="dark"] .gantt-matrix-row.deadline-overdue .gantt-namecell {
-  background: rgba(224, 85, 85, 0.10);
+  color: var(--text-muted);
+  background: var(--surface-2, var(--washi));
+  border: 1px solid var(--rule);
 }

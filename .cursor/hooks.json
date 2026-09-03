@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/audit.cmd"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": ".cursor/hooks/audit.cmd"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/audit.cmd"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": ".cursor/hooks/audit.cmd"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/audit.cmd"
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": ".cursor/hooks/audit.cmd"
+      }
+    ],
+    "subagentStart": [
+      {
+        "command": ".cursor/hooks/audit.cmd"
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": ".cursor/hooks/audit.cmd"
+      }
+    ]
+  }
+}

@@ -11,5 +11,16 @@ export default defineConfig({
     watch: {
       ignored: ['**/src-tauri/**'],
     },
+    proxy: {
+      '/api/ai': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/ai/, '/api/ai'),
+      },
+      '/health': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+      },
+    },
   },
 })

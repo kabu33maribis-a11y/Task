@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: cursor-ai
+    orgId: 1
+    folder: Cursor AI
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/dashboards

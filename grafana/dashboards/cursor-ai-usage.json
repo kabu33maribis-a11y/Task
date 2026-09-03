@@ -1,0 +1,530 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "概要",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(DISTINCT session_id) AS value\nFROM cursor_events\nWHERE event_type = 'sessionStart'\n  AND $__timeFilter(recorded_at)",
+          "refId": "A"
+        }
+      ],
+      "title": "Agent セッション数",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value\nFROM cursor_events\nWHERE event_type = 'postToolUse'\n  AND $__timeFilter(recorded_at)",
+          "refId": "A"
+        }
+      ],
+      "title": "Tool 実行回数",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value\nFROM cursor_events\nWHERE event_type = 'postToolUse'\n  AND tool_name = 'Shell'\n  AND $__timeFilter(recorded_at)",
+          "refId": "A"
+        }
+      ],
+      "title": "Shell 実行回数",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value\nFROM cursor_events\nWHERE event_type = 'afterFileEdit'\n  AND $__timeFilter(recorded_at)",
+          "refId": "A"
+        }
+      ],
+      "title": "ファイル編集数",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "semi-dark-green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(output_tokens), 0) AS value\nFROM cursor_events\nWHERE event_type = 'afterAgentResponse'\n  AND $__timeFilter(recorded_at)",
+          "refId": "A"
+        }
+      ],
+      "title": "出力トークン合計",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "semi-dark-blue", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(input_tokens), 0) AS value\nFROM cursor_events\nWHERE event_type = 'afterAgentResponse'\n  AND $__timeFilter(recorded_at)",
+          "refId": "A"
+        }
+      ],
+      "title": "入力トークン合計",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "推移",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(recorded_at, $__interval, 0),\n  event_type AS metric,\n  COUNT(*) AS value\nFROM cursor_events\nWHERE $__timeFilter(recorded_at)\n  AND event_type IS NOT NULL\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "イベント数（種別別）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(recorded_at, $__interval, 0),\n  tool_name AS metric,\n  COUNT(*) AS value\nFROM cursor_events\nWHERE event_type = 'postToolUse'\n  AND tool_name IS NOT NULL\n  AND $__timeFilter(recorded_at)\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Tool 利用（時間別）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "off" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "id": 9,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(recorded_at, $__interval, 0),\n  'input_tokens' AS metric,\n  COALESCE(SUM(input_tokens), 0) AS value\nFROM cursor_events\nWHERE event_type = 'afterAgentResponse'\n  AND $__timeFilter(recorded_at)\nGROUP BY 1\nUNION ALL\nSELECT\n  $__timeGroupAlias(recorded_at, $__interval, 0),\n  'output_tokens' AS metric,\n  COALESCE(SUM(output_tokens), 0) AS value\nFROM cursor_events\nWHERE event_type = 'afterAgentResponse'\n  AND $__timeFilter(recorded_at)\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "トークン消費（入力 / 出力）",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "id": 102,
+      "title": "内訳",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "id": 10,
+      "options": {
+        "barRadius": 0.1,
+        "barWidth": 0.8,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT tool_name, COUNT(*) AS count\nFROM cursor_events\nWHERE event_type = 'postToolUse'\n  AND tool_name IS NOT NULL\n  AND $__timeFilter(recorded_at)\nGROUP BY tool_name\nORDER BY count DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Tool 別利用回数",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "recorded_at" },
+            "properties": [{ "id": "custom.width", "value": 180 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 23 },
+      "id": 11,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "recorded_at" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  recorded_at,\n  event_type,\n  tool_name,\n  duration_ms,\n  input_tokens,\n  output_tokens,\n  LEFT(session_id, 8) AS session\nFROM cursor_events\nWHERE $__timeFilter(recorded_at)\nORDER BY recorded_at DESC\nLIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "直近イベント（50件）",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "id": 103,
+      "title": "セッション",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "id": 12,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "started_at" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres-cursor" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  s.session_id,\n  MIN(s.recorded_at) FILTER (WHERE s.event_type = 'sessionStart') AS started_at,\n  MAX(s.recorded_at) FILTER (WHERE s.event_type = 'sessionEnd') AS ended_at,\n  COUNT(*) FILTER (WHERE e.event_type = 'postToolUse') AS tool_calls,\n  COUNT(*) FILTER (WHERE e.event_type = 'postToolUse' AND e.tool_name = 'Shell') AS shell_calls,\n  COUNT(*) FILTER (WHERE e.event_type = 'afterFileEdit') AS file_edits,\n  COALESCE(SUM(e.output_tokens) FILTER (WHERE e.event_type = 'afterAgentResponse'), 0) AS output_tokens\nFROM cursor_events s\nLEFT JOIN cursor_events e ON e.session_id = s.session_id\nWHERE $__timeFilter(s.recorded_at)\nGROUP BY s.session_id\nHAVING MIN(s.recorded_at) FILTER (WHERE s.event_type = 'sessionStart') IS NOT NULL\nORDER BY started_at DESC\nLIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "セッション一覧",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["cursor", "ai-usage", "poc"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "AI開発利用状況 Dashboard",
+  "uid": "cursor-ai-usage",
+  "version": 1
+}

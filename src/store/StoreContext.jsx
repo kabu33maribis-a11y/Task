@@ -718,10 +718,17 @@ export function StoreProvider({ children }) {
   if (!ready) return null
 
   if (loadError) {
+    const inBrowser = typeof window !== 'undefined' && !window.__TAURI_INTERNALS__
     return (
-      <div style={{ padding: 32, maxWidth: 480, margin: '10vh auto', fontFamily: 'sans-serif' }}>
+      <div style={{ padding: 32, maxWidth: 520, margin: '10vh auto', fontFamily: 'sans-serif' }}>
         <h2 style={{ marginTop: 0 }}>データの読み込みに失敗しました</h2>
         <p style={{ color: '#666', lineHeight: 1.6 }}>{loadError}</p>
+        {inBrowser && (
+          <p style={{ color: '#666', lineHeight: 1.6 }}>
+            このアプリは Tauri デスクトップ版です。ターミナルで <code>npm run tauri dev</code> を実行し、
+            表示されるアプリウィンドウから開いてください（ブラウザの localhost タブでは動作しません）。
+          </p>
+        )}
         <button
           type="button"
           onClick={() => {

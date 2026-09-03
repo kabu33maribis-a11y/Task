@@ -1,0 +1,19 @@
+services:
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: cursor-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: light
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/cursor-ai-usage.json
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  grafana-data:

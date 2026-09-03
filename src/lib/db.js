@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { getDbPath, setDbPath } from './appConfig.js'
+import { waitForTauri } from './tauri.js'
 
 let _db = null
 
@@ -19,6 +20,7 @@ function createDbInterface() {
 }
 
 async function connectDb(customDir) {
+  await waitForTauri()
   const dir = customDir !== undefined ? customDir : await getDbPath()
   await invoke('app_db_close').catch(() => {})
   await invoke('app_db_connect', { customDir: dir })

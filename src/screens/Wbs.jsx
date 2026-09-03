@@ -560,9 +560,6 @@ function WbsGantt({ project, multi }) {
                     ? `add-${row.parentId}-${i}`
                     : `add-proj-${row.projectId ?? 'none'}-${i}`
               const rowDone = node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)
-              const rowUrgency = node?.span
-                ? deadlineUrgency(node.span.end, { today, completed: rowDone })
-                : null
               return (
                 <div
                   key={rowKey}
@@ -570,8 +567,6 @@ function WbsGantt({ project, multi }) {
                     node?.isProject ? ' project-row' : ''
                   }${
                     rowDone ? ' done' : ''
-                  }${
-                    rowUrgency ? ` deadline-${rowUrgency}` : ''
                   }`}
                   style={{ height: ROW_H }}
                 >
@@ -580,6 +575,7 @@ function WbsGantt({ project, multi }) {
                       node.isProject ? (
                         <ProjectLeftRow
                           node={node}
+                          today={today}
                           collapsed={collapsed}
                           onToggleCollapse={toggleCollapse}
                           onAddChild={() => {
@@ -674,22 +670,18 @@ function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag }) {
   const cls = ['gantt-bar']
   if (isProject) cls.push('project')
   else cls.push(isLeaf ? 'leaf' : 'summary')
-  if (urgency) cls.push(`deadline-${urgency}`)
   if (dragging) cls.push('dragging')
 
   const leftDays = daysUntil(span.end, today)
-  const deadlineNote = urgency === 'overdue'
-    ? `${Math.abs(leftDays)}日超過`
-    : urgency === 'today'
-      ? '本日期限'
-      : urgency
-        ? `あと${leftDays}日`
-        : ''
+  const deadlineNote = urgency ? deadlineNoteText(urgency, leftDays) : ''
   const title = `${formatMonthDayJP(span.start)}〜${formatMonthDayJP(span.end)}・${pct}%${deadlineNote ? `・${deadlineNote}` : ''}`
   const barStyle = { left, width }
-  if (isProject && project?.color) {
-    barStyle.background = project.color + '44'
-    barStyle.borderColor = project.color
+  const fillStyle = { width: `${pct}%` }
+  if (isProject) {
+    const c = project?.color || 'var(--primary)'
+    barStyle.background = project?.color ? project.color + '44' : undefined
+    barStyle.borderColor = project?.color || undefined
+    fillStyle.background = c
   }
 
   return (
@@ -699,21 +691,45 @@ function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag }) {
       title={title}
       onMouseDown={isLeaf ? (e) => onStartDrag(e, node, 'move') : undefined}
     >
-      <span className="gantt-bar-fill" style={{ width: `${pct}%` }} />
+      <span className="gantt-bar-fill" style={fillStyle} />
       {isLeaf && (
         <>
           <span className="gantt-bar-handle left" onMouseDown={(e) => onStartDrag(e, node, 'start')} />
           <span className="gantt-bar-handle right" onMouseDown={(e) => onStartDrag(e, node, 'end')} />
         </>
       )}
+      {urgency && <DeadlineFire urgency={urgency} className="gantt-bar-fire" title={deadlineNote} />}
     </div>
   )
 }
 
-function ProjectLeftRow({ node, collapsed, onToggleCollapse, onAddChild }) {
+function deadlineNoteText(urgency, leftDays) {
+  if (urgency === 'overdue') return `${Math.abs(leftDays)}日超過`
+  if (urgency === 'today') return '本日期限'
+  return `あと${leftDays}日`
+}
+
+function DeadlineFire({ urgency, title, className = '' }) {
+  if (!urgency) return null
+  return (
+    <span
+      className={`wbs-deadline-fire wbs-deadline-fire--${urgency}${className ? ` ${className}` : ''}`}
+      title={title}
+      aria-hidden="true"
+    >
+      🔥
+    </span>
+  )
+}
+
+function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }) {
   const { project, rollup } = node
   const isCollapsed = collapsed.has(node.task.id)
   const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
+  const urgency = node.span?.end
+    ? deadlineUrgency(node.span.end, { today, completed: node.allDone })
+    : null
+  const leftDays = urgency && node.span?.end ? daysUntil(node.span.end, today) : null
 
   return (
     <div className="gantt-name-inner is-project">
@@ -726,6 +742,9 @@ function ProjectLeftRow({ node, collapsed, onToggleCollapse, onAddChild }) {
         {isCollapsed ? '▸' : '▾'}
       </button>
       {project.color && <span className="proj-dot" style={{ background: project.color }} />}
+      {urgency && leftDays != null && (
+        <DeadlineFire urgency={urgency} title={deadlineNoteText(urgency, leftDays)} />
+      )}
       <span className="wbs-title wbs-project-title" title={project.name}>
         {project.name}
       </span>
@@ -826,15 +845,21 @@ function LeftRow({
         />
       ) : (
         <>
+          {urgency && leftDays != null && (
+            <DeadlineFire
+              urgency={urgency}
+              title={`終了: ${formatMonthDayJP(endDate)}・${deadlineNoteText(urgency, leftDays)}`}
+            />
+          )}
           <span
-            className={`wbs-title${urgency ? ` deadline-${urgency}` : ''}`}
+            className="wbs-title"
             onClick={() => setEditing(true)}
             title={task.title || '(無題)'}
           >
             {task.title || '(無題)'}
           </span>
           {urgency && leftDays != null && (
-            <span className={`wbs-deadline-badge deadline-${urgency}`} title={`終了: ${formatMonthDayJP(endDate)}`}>
+            <span className="wbs-deadline-badge" title={`終了: ${formatMonthDayJP(endDate)}`}>
               {urgency === 'overdue'
                 ? `${Math.abs(leftDays)}日超過`
                 : urgency === 'today'
