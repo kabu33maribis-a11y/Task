@@ -94,6 +94,7 @@ export default function SettingsModal({ onClose }) {
       categories: state.categories,
       projects: state.projects,
       activities: state.activities,
+      checklistItems: state.checklistItems ?? [],
     }
   }
 

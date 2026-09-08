@@ -83,6 +83,7 @@ function WbsGantt({ project, multi }) {
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [editingId, setEditingId] = useState(null)
   const [addingChildOf, setAddingChildOf] = useState(null) // task id or proj:* id
+  const [addingChecklistOf, setAddingChecklistOf] = useState(null) // task id
   const [datePopover, setDatePopover] = useState(null) // { taskId, x, y }
   const [zoom, setZoom] = useState('day')
   const [showWeekends, setShowWeekends] = useState(() => {
@@ -97,6 +98,17 @@ function WbsGantt({ project, multi }) {
   const scrollRef = useRef(null)
   const dayW = ZOOMS[zoom].w
 
+  const itemsByTask = useMemo(() => {
+    const map = new Map()
+    for (const item of state.checklistItems ?? []) {
+      const list = map.get(item.task_id)
+      if (list) list.push(item)
+      else map.set(item.task_id, [item])
+    }
+    for (const list of map.values()) list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    return map
+  }, [state.checklistItems])
+
   const visible = useMemo(() => flattenVisible(roots, collapsed), [roots, collapsed])
 
   const projectRowIds = useMemo(
@@ -108,7 +120,8 @@ function WbsGantt({ project, multi }) {
     const ids = []
     const walk = (nodes) => {
       for (const n of nodes) {
-        if (n.children.length) {
+        const hasCheck = !n.isProject && (itemsByTask.get(n.task.id)?.length ?? 0) > 0
+        if (n.children.length || hasCheck) {
           ids.push(n.task.id)
           walk(n.children)
         }
@@ -116,15 +129,25 @@ function WbsGantt({ project, multi }) {
     }
     walk(roots)
     return ids
-  }, [roots])
+  }, [roots, itemsByTask])
 
   const collapseTargetIds = multi ? projectRowIds : collapsibleRowIds
 
-  // 左右で共有する描画行リスト（子追加の入力欄も1行として挟む → 左右が常に整列）
+  // 左右で共有する描画行リスト（子追加・チェック項目の入力欄も1行として挟む → 左右が常に整列）
   const rows = useMemo(() => {
     const out = []
     for (const node of visible) {
       out.push({ kind: 'node', node })
+      const folded = collapsed.has(node.task.id)
+      if (!node.isProject && !folded) {
+        const items = itemsByTask.get(node.task.id) ?? []
+        for (const item of items) {
+          out.push({ kind: 'checklist', item, depth: node.depth + 1 })
+        }
+        if (addingChecklistOf === node.task.id) {
+          out.push({ kind: 'add-checklist', parentId: node.task.id, depth: node.depth + 1 })
+        }
+      }
       if (addingChildOf === node.task.id) {
         if (node.isProject) {
           out.push({ kind: 'add', projectId: node.project.id, depth: node.depth + 1 })
@@ -134,7 +157,7 @@ function WbsGantt({ project, multi }) {
       }
     }
     return out
-  }, [visible, addingChildOf])
+  }, [visible, addingChildOf, addingChecklistOf, collapsed, itemsByTask])
 
   const overall = useMemo(
     () => roots.reduce(
@@ -556,10 +579,17 @@ function WbsGantt({ project, multi }) {
               const rowKey =
                 row.kind === 'node'
                   ? node.task.id
-                  : row.parentId
-                    ? `add-${row.parentId}-${i}`
-                    : `add-proj-${row.projectId ?? 'none'}-${i}`
-              const rowDone = node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)
+                  : row.kind === 'checklist'
+                    ? `cl-${row.item.id}`
+                    : row.kind === 'add-checklist'
+                      ? `add-cl-${row.parentId}-${i}`
+                      : row.parentId
+                        ? `add-${row.parentId}-${i}`
+                        : `add-proj-${row.projectId ?? 'none'}-${i}`
+              const rowDone =
+                (node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)) ||
+                (row.kind === 'checklist' && row.item.done)
+              const isCheckRow = row.kind === 'checklist' || row.kind === 'add-checklist'
               return (
                 <div
                   key={rowKey}
@@ -567,6 +597,8 @@ function WbsGantt({ project, multi }) {
                     node?.isProject ? ' project-row' : ''
                   }${
                     rowDone ? ' done' : ''
+                  }${
+                    isCheckRow ? ' checklist-row' : ''
                   }`}
                   style={{ height: ROW_H }}
                 >
@@ -587,6 +619,7 @@ function WbsGantt({ project, multi }) {
                         <LeftRow
                           node={node}
                           projectTasks={scopedTasks.filter((t) => t.project_id === node.task.project_id)}
+                          checklistItems={itemsByTask.get(node.task.id) ?? []}
                           collapsed={collapsed}
                           editing={editingId === node.task.id}
                           setEditing={(v) => setEditingId(v ? node.task.id : null)}
@@ -597,8 +630,20 @@ function WbsGantt({ project, multi }) {
                             setAddingChildOf(node.task.id)
                             expand(node.task.id)
                           }}
+                          onAddChecklist={() => {
+                            setAddingChecklistOf(node.task.id)
+                            expand(node.task.id)
+                          }}
                         />
                       )
+                    ) : row.kind === 'checklist' ? (
+                      <ChecklistRow item={row.item} depth={row.depth} />
+                    ) : row.kind === 'add-checklist' ? (
+                      <AddChecklistRow
+                        parentId={row.parentId}
+                        depth={row.depth}
+                        onClose={() => setAddingChecklistOf(null)}
+                      />
                     ) : row.parentId ? (
                       <AddChildRow
                         depth={row.depth}
@@ -698,7 +743,6 @@ function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag }) {
           <span className="gantt-bar-handle right" onMouseDown={(e) => onStartDrag(e, node, 'end')} />
         </>
       )}
-      {urgency && <DeadlineFire urgency={urgency} className="gantt-bar-fire" title={deadlineNote} />}
     </div>
   )
 }
@@ -709,11 +753,11 @@ function deadlineNoteText(urgency, leftDays) {
   return `あと${leftDays}日`
 }
 
-function DeadlineFire({ urgency, title, className = '' }) {
+function DeadlineFire({ urgency, title }) {
   if (!urgency) return null
   return (
     <span
-      className={`wbs-deadline-fire wbs-deadline-fire--${urgency}${className ? ` ${className}` : ''}`}
+      className={`wbs-deadline-fire wbs-deadline-fire--${urgency}`}
       title={title}
       aria-hidden="true"
     >
@@ -761,6 +805,7 @@ function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }
 function LeftRow({
   node,
   projectTasks,
+  checklistItems,
   collapsed,
   editing,
   setEditing,
@@ -768,10 +813,14 @@ function LeftRow({
   onExpand,
   onOpenDatePopover,
   onAddChild,
+  onAddChecklist,
 }) {
   const { actions } = useStore()
   const { task, depth, wbsNo, allDone, isLeaf } = node
   const hasChildren = !isLeaf
+  const checkTotal = checklistItems.length
+  const checkDone = checklistItems.filter((i) => i.done).length
+  const canCollapse = hasChildren || checkTotal > 0
   const isCollapsed = collapsed.has(task.id)
   const [draft, setDraft] = useState(task.title)
   const editRef = useRef(null)
@@ -814,14 +863,24 @@ function LeftRow({
     <div className="gantt-name-inner">
       <span className="gantt-indent" style={{ width: depth * 15 }} />
       <button
-        className={`wbs-caret${hasChildren ? '' : ' empty'}`}
-        onClick={() => hasChildren && onToggleCollapse(task.id)}
-        tabIndex={hasChildren ? 0 : -1}
+        className={`wbs-caret${canCollapse ? '' : ' empty'}`}
+        onClick={() => canCollapse && onToggleCollapse(task.id)}
+        tabIndex={canCollapse ? 0 : -1}
         aria-label={isCollapsed ? '展開' : '折りたたむ'}
       >
-        {hasChildren ? (isCollapsed ? '▸' : '▾') : ''}
+        {canCollapse ? (isCollapsed ? '▸' : '▾') : ''}
       </button>
-      <span className="wbs-no">{wbsNo}</span>
+      <span className="wbs-no-group">
+        <span className="wbs-no-fire">
+          {urgency && leftDays != null && (
+            <DeadlineFire
+              urgency={urgency}
+              title={`終了: ${formatMonthDayJP(endDate)}・${deadlineNoteText(urgency, leftDays)}`}
+            />
+          )}
+        </span>
+        <span className="wbs-no">{wbsNo}</span>
+      </span>
       <button
         className={`check ${done ? 'done' : ''}`}
         onClick={toggleDone}
@@ -845,12 +904,6 @@ function LeftRow({
         />
       ) : (
         <>
-          {urgency && leftDays != null && (
-            <DeadlineFire
-              urgency={urgency}
-              title={`終了: ${formatMonthDayJP(endDate)}・${deadlineNoteText(urgency, leftDays)}`}
-            />
-          )}
           <span
             className="wbs-title"
             onClick={() => setEditing(true)}
@@ -867,11 +920,17 @@ function LeftRow({
                   : `あと${leftDays}日`}
             </span>
           )}
+          {checkTotal > 0 && (
+            <span className="wbs-check-badge" title={`チェックリスト ${checkDone}/${checkTotal}`}>
+              {checkDone}/{checkTotal}
+            </span>
+          )}
         </>
       )}
 
       <div className="wbs-actions">
         <button className="wbs-act" onClick={onAddChild} title="子タスクを追加">＋子</button>
+        <button className="wbs-act" onClick={onAddChecklist} title="チェック項目を追加">＋☑</button>
         <button className="wbs-act" onClick={indent} title="階層を下げる">→</button>
         <button className="wbs-act" onClick={outdent} title="階層を上げる" disabled={task.parent_id == null}>
           ←
@@ -995,6 +1054,106 @@ function AddChildRow({ parentId, projectId, depth, onClose }) {
         className="wbs-edit"
         value={title}
         placeholder="子タスク名（Enter追加 / Esc閉じる）"
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit()
+          if (e.key === 'Escape') onClose()
+        }}
+        onBlur={() => !title.trim() && onClose()}
+      />
+    </div>
+  )
+}
+
+function ChecklistRow({ item, depth }) {
+  const { actions } = useStore()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(item.title)
+  const editRef = useRef(null)
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(item.title)
+      editRef.current?.focus()
+    }
+  }, [editing, item.title])
+
+  function commitTitle() {
+    const t = draft.trim()
+    if (t && t !== item.title) actions.updateChecklistItem(item.id, { title: t })
+    setEditing(false)
+  }
+
+  return (
+    <div className="gantt-name-inner wbs-checklist-row" style={{ paddingLeft: depth * 15 }}>
+      <span className="wbs-checklist-tag" title="チェック項目（タスクではありません）">項</span>
+      <button
+        className={`check ${item.done ? 'done' : ''}`}
+        onClick={() => actions.toggleChecklistItem(item.id)}
+        title={item.done ? '未完了に戻す' : '完了にする'}
+        aria-label={item.done ? '未完了に戻す' : '完了にする'}
+      >
+        {item.done ? '✓' : ''}
+      </button>
+      {editing ? (
+        <input
+          ref={editRef}
+          className="wbs-edit"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitTitle}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitTitle()
+            if (e.key === 'Escape') setEditing(false)
+          }}
+        />
+      ) : (
+        <span
+          className={`wbs-title wbs-checklist-title${item.done ? ' is-done' : ''}`}
+          onClick={() => setEditing(true)}
+          title={item.title || '(無題)'}
+        >
+          {item.title || '(無題)'}
+        </span>
+      )}
+      <div className="wbs-actions">
+        <button
+          className="wbs-act wbs-act-del"
+          onClick={() => actions.deleteChecklistItem(item.id)}
+          title="チェック項目を削除"
+          aria-label="チェック項目を削除"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AddChecklistRow({ parentId, depth, onClose }) {
+  const { actions } = useStore()
+  const [title, setTitle] = useState('')
+  const ref = useRef(null)
+  useEffect(() => {
+    ref.current?.focus()
+  }, [])
+
+  function submit() {
+    const t = title.trim()
+    if (!t) return
+    actions.addChecklistItem(parentId, t)
+    setTitle('')
+    ref.current?.focus()
+  }
+
+  return (
+    <div className="gantt-name-inner wbs-add-child wbs-checklist-row" style={{ paddingLeft: depth * 15 }}>
+      <span className="wbs-checklist-tag">項</span>
+      <input
+        ref={ref}
+        className="wbs-edit"
+        value={title}
+        placeholder="チェック項目（Enter追加 / Esc閉じる）"
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') submit()

@@ -17,17 +17,18 @@ function makeInitialState() {
     created_at: now,
     updated_at: now,
   }))
-  return { version: 1, tasks: [], categories, projects: [], activities: [] }
+  return { version: 1, tasks: [], categories, projects: [], activities: [], checklistItems: [] }
 }
 
 async function loadState() {
   try {
     const db = await getDb()
-    const [tasks, categories, projects, activities] = await Promise.all([
+    const [tasks, categories, projects, activities, checklistItems] = await Promise.all([
       db.select('SELECT * FROM tasks'),
       db.select('SELECT * FROM categories'),
       db.select('SELECT * FROM projects'),
       db.select('SELECT * FROM activities'),
+      db.select('SELECT * FROM checklist_items'),
     ])
 
     // 初回起動: カテゴリが空ならデフォルトを挿入
@@ -39,7 +40,7 @@ async function loadState() {
           [c.id, c.name, c.sort_order, c.created_at, c.updated_at, c.color ?? null],
         )
       }
-      return { ...initial, tasks: [], projects: [], activities: [] }
+      return { ...initial, tasks: [], projects: [], activities: [], checklistItems: [] }
     }
 
     return {
@@ -61,6 +62,7 @@ async function loadState() {
         hidden: Boolean(p.hidden),
       })),
       activities,
+      checklistItems: (checklistItems ?? []).map(normalizeChecklistItem),
     }
   } catch (e) {
     console.error('loadState error', e)
@@ -73,6 +75,28 @@ async function loadState() {
 function nextSortOrder(tasks, predicate) {
   const group = tasks.filter(predicate)
   return group.length ? Math.max(...group.map((t) => t.sort_order ?? 0)) + 1 : 0
+}
+
+function normalizeChecklistItem(item) {
+  return {
+    ...item,
+    title: item.title ?? '',
+    done: Boolean(item.done),
+    sort_order: item.sort_order ?? 0,
+  }
+}
+
+function makeChecklistItem(taskId, title, items) {
+  const now = new Date().toISOString()
+  return {
+    id: uid('cl'),
+    task_id: taskId,
+    title: title.trim(),
+    done: false,
+    sort_order: nextSortOrder(items, (i) => i.task_id === taskId),
+    created_at: now,
+    updated_at: now,
+  }
 }
 
 function makeTask(input, tasks) {
@@ -135,6 +159,15 @@ async function dbUpsertActivity(db, a) {
   )
 }
 
+async function dbUpsertChecklistItem(db, item) {
+  await db.execute(
+    `INSERT OR REPLACE INTO checklist_items
+     (id, task_id, title, done, sort_order, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?)`,
+    [item.id, item.task_id, item.title, item.done ? 1 : 0, item.sort_order, item.created_at, item.updated_at ?? null],
+  )
+}
+
 // ---- reducer -----------------------------------------------------------
 
 function reducer(state, action) {
@@ -165,6 +198,7 @@ function reducer(state, action) {
           .filter((t) => t.id !== action.id)
           .map((t) => (t.parent_id === action.id ? { ...t, parent_id: newParent, updated_at: stamp() } : t)),
         activities: state.activities.filter((a) => a.task_id !== action.id),
+        checklistItems: (state.checklistItems ?? []).filter((i) => i.task_id !== action.id),
       }
     }
 
@@ -235,9 +269,50 @@ function reducer(state, action) {
       return { ...state, activities: state.activities.filter((a) => a.id !== action.id) }
     }
 
+    case 'ADD_CHECKLIST_ITEM': {
+      const item = makeChecklistItem(action.taskId, action.title, state.checklistItems)
+      return { ...state, checklistItems: [...state.checklistItems, item] }
+    }
+
+    case 'UPDATE_CHECKLIST_ITEM': {
+      return {
+        ...state,
+        checklistItems: state.checklistItems.map((i) =>
+          i.id === action.id ? { ...i, ...action.patch, updated_at: stamp() } : i,
+        ),
+      }
+    }
+
+    case 'TOGGLE_CHECKLIST_ITEM': {
+      return {
+        ...state,
+        checklistItems: state.checklistItems.map((i) =>
+          i.id === action.id ? { ...i, done: !i.done, updated_at: stamp() } : i,
+        ),
+      }
+    }
+
+    case 'DELETE_CHECKLIST_ITEM': {
+      return { ...state, checklistItems: state.checklistItems.filter((i) => i.id !== action.id) }
+    }
+
     case 'RESTORE_TASK': {
       if (state.tasks.some((t) => t.id === action.task.id)) return state
-      return { ...state, tasks: [...state.tasks, action.task] }
+      const restoredItems = (action.checklistItems ?? []).filter(
+        (i) => !state.checklistItems.some((x) => x.id === i.id),
+      )
+      return {
+        ...state,
+        tasks: [...state.tasks, action.task],
+        checklistItems: [...state.checklistItems, ...restoredItems],
+      }
+    }
+
+    case 'IMPORT': {
+      return {
+        ...action.state,
+        checklistItems: (action.state.checklistItems ?? []).map(normalizeChecklistItem),
+      }
     }
 
     case 'TOGGLE_COMPLETE': {
@@ -390,8 +465,6 @@ function reducer(state, action) {
       return { ...state, tasks }
     }
 
-    case 'IMPORT': return action.state
-
     case 'RESET': {
       const initial = makeInitialState()
       return { ...initial }
@@ -467,6 +540,7 @@ async function doSyncToDb(prevState, nextState, action) {
         case 'DELETE_TASK': {
           await db.execute('DELETE FROM tasks WHERE id = ?', [action.id])
           await db.execute('DELETE FROM activities WHERE task_id = ?', [action.id])
+          await db.execute('DELETE FROM checklist_items WHERE task_id = ?', [action.id])
           // 子タスクの parent_id 更新
           const reparented = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
@@ -477,6 +551,22 @@ async function doSyncToDb(prevState, nextState, action) {
         }
         case 'RESTORE_TASK': {
           await dbUpsertTask(db, action.task)
+          for (const item of action.checklistItems ?? []) await dbUpsertChecklistItem(db, item)
+          break
+        }
+        case 'ADD_CHECKLIST_ITEM': {
+          const item = nextState.checklistItems.find((i) => !prevState.checklistItems.some((p) => p.id === i.id))
+          if (item) await dbUpsertChecklistItem(db, item)
+          break
+        }
+        case 'UPDATE_CHECKLIST_ITEM':
+        case 'TOGGLE_CHECKLIST_ITEM': {
+          const item = nextState.checklistItems.find((i) => i.id === action.id)
+          if (item) await dbUpsertChecklistItem(db, item)
+          break
+        }
+        case 'DELETE_CHECKLIST_ITEM': {
+          await db.execute('DELETE FROM checklist_items WHERE id = ?', [action.id])
           break
         }
         case 'ADD_ACTIVITY': {
@@ -538,6 +628,7 @@ async function doSyncToDb(prevState, nextState, action) {
           break
         }
         case 'IMPORT': {
+          await db.execute('DELETE FROM checklist_items')
           await db.execute('DELETE FROM activities')
           await db.execute('DELETE FROM tasks')
           await db.execute('DELETE FROM categories')
@@ -546,9 +637,11 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const c of nextState.categories) await dbUpsertCategory(db, c)
           for (const p of nextState.projects) await dbUpsertProject(db, p)
           for (const a of nextState.activities) await dbUpsertActivity(db, a)
+          for (const item of nextState.checklistItems) await dbUpsertChecklistItem(db, item)
           break
         }
         case 'RESET': {
+          await db.execute('DELETE FROM checklist_items')
           await db.execute('DELETE FROM activities')
           await db.execute('DELETE FROM tasks')
           await db.execute('DELETE FROM categories')
@@ -584,7 +677,7 @@ function flushSyncWithTimeout(ms = CLOSE_FLUSH_TIMEOUT_MS) {
 const StoreContext = createContext(null)
 
 export function StoreProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, { version: 1, tasks: [], categories: [], projects: [], activities: [] })
+  const [state, dispatch] = useReducer(reducer, { version: 1, tasks: [], categories: [], projects: [], activities: [], checklistItems: [] })
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState(null)
   const [toast, setToast] = useState(null)
@@ -701,6 +794,10 @@ export function StoreProvider({ children }) {
     addActivity: (taskId, body) => dispatchWithSync({ type: 'ADD_ACTIVITY', taskId, body }),
     updateActivity: (id, body) => dispatchWithSync({ type: 'UPDATE_ACTIVITY', id, body }),
     deleteActivity: (id) => dispatchWithSync({ type: 'DELETE_ACTIVITY', id }),
+    addChecklistItem: (taskId, title) => dispatchWithSync({ type: 'ADD_CHECKLIST_ITEM', taskId, title }),
+    updateChecklistItem: (id, patch) => dispatchWithSync({ type: 'UPDATE_CHECKLIST_ITEM', id, patch }),
+    toggleChecklistItem: (id) => dispatchWithSync({ type: 'TOGGLE_CHECKLIST_ITEM', id }),
+    deleteChecklistItem: (id) => dispatchWithSync({ type: 'DELETE_CHECKLIST_ITEM', id }),
     togglePriority: (task) => {
       dispatchWithSync({
         type: 'UPDATE_TASK',
@@ -709,8 +806,11 @@ export function StoreProvider({ children }) {
       })
     },
     deleteTask: (task) => {
+      const checklistItems = (prevStateRef.current.checklistItems ?? []).filter((i) => i.task_id === task.id)
       dispatchWithSync({ type: 'DELETE_TASK', id: task.id })
-      showToast('タスクを削除しました', () => dispatchWithSync({ type: 'RESTORE_TASK', task }))
+      showToast('タスクを削除しました', () =>
+        dispatchWithSync({ type: 'RESTORE_TASK', task, checklistItems }),
+      )
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [])

@@ -57,6 +57,15 @@ function getTaskColor(t, projMap, catMap) {
   )
 }
 
+/** Project/category tint; DONE uses a lighter alpha of the same color. */
+function taskCalStyle(color, status, { borderLeft = true } = {}) {
+  if (!color) return undefined
+  const done = status === 'DONE'
+  const st = { backgroundColor: color + (done ? '22' : '55') }
+  if (borderLeft) st.borderLeft = `3px solid ${color}${done ? '66' : ''}`
+  return st
+}
+
 function priorityCls(t, color) {
   return !color && t.status !== 'DONE' && t.priority ? ` priority-${t.priority}` : ''
 }
@@ -402,9 +411,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                           const color = getTaskColor(t, projMap, catMap)
                           const isResizing = resize?.id === t.id
                           const cls2 = `cal-task-label cal-task-draggable${draggingTaskId === t.id ? ' dragging' : ''}${isResizing ? ' resizing' : ''}${t.status === 'DONE' ? ' done' : ''}${priorityCls(t, color)}`
-                          const st = color && t.status !== 'DONE'
-                            ? { backgroundColor: color + '55', borderLeft: `3px solid ${color}` }
-                            : undefined
+                          const st = taskCalStyle(color, t.status)
                           return (
                             <span
                               key={t.id}
@@ -443,10 +450,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                         borderTopRightRadius: isBarEnd ? 4 : 0,
                         borderBottomRightRadius: isBarEnd ? 4 : 0,
                       }
-                      if (color && t.status !== 'DONE') {
-                        st.backgroundColor = color + '55'
-                        if (isBarStart) st.borderLeft = `3px solid ${color}`
-                      }
+                      Object.assign(st, taskCalStyle(color, t.status, { borderLeft: isBarStart }) || {})
                       return (
                         <div
                           key={t.id}
@@ -503,9 +507,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                   {tasks.length > 0 ? tasks.map(({ task: t, band }) => {
                     const color = getTaskColor(t, projMap, catMap)
                     const cont = band === 'mid' || band === 'end'
-                    const st = color && t.status !== 'DONE'
-                      ? { backgroundColor: color + '55', borderLeft: `3px solid ${color}` }
-                      : undefined
+                    const st = taskCalStyle(color, t.status)
                     return (
                       <span
                         key={t.id}

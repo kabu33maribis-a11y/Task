@@ -10,6 +10,7 @@ const MIGRATION_001: &str = include_str!("../migrations/001_init.sql");
 const MIGRATION_002: &str = include_str!("../migrations/002_add_console_end_date.sql");
 const MIGRATION_003: &str = include_str!("../migrations/003_add_category_color.sql");
 const MIGRATION_004: &str = include_str!("../migrations/004_add_project_hidden.sql");
+const MIGRATION_005: &str = include_str!("../migrations/005_add_checklist_items.sql");
 
 pub struct AppDb(Mutex<Option<Pool<Sqlite>>>);
 
@@ -46,7 +47,12 @@ async fn run_sql_script(pool: &Pool<Sqlite>, script: &str) -> Result<(), String>
 
 async fn column_exists(pool: &Pool<Sqlite>, table: &str, column: &str) -> Result<bool, String> {
     // pragma_table_info はテーブル名のバインドが使えないため、許可リストのみ受け付ける
-    if table != "tasks" && table != "categories" && table != "projects" && table != "activities" {
+    if table != "tasks"
+        && table != "categories"
+        && table != "projects"
+        && table != "activities"
+        && table != "checklist_items"
+    {
         return Err(format!("invalid table: {table}"));
     }
     let sql = format!("SELECT count(*) FROM pragma_table_info('{table}') WHERE name = ?");
@@ -55,6 +61,17 @@ async fn column_exists(pool: &Pool<Sqlite>, table: &str, column: &str) -> Result
         .fetch_one(pool)
         .await
         .map_err(|e| e.to_string())?;
+    Ok(count.0 > 0)
+}
+
+async fn table_exists(pool: &Pool<Sqlite>, table: &str) -> Result<bool, String> {
+    let count: (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+    )
+    .bind(table)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(count.0 > 0)
 }
 
@@ -71,6 +88,10 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), String> {
 
     if !column_exists(pool, "projects", "hidden").await? {
         run_sql_script(pool, MIGRATION_004).await?;
+    }
+
+    if !table_exists(pool, "checklist_items").await? {
+        run_sql_script(pool, MIGRATION_005).await?;
     }
 
     Ok(())

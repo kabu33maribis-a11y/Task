@@ -399,9 +399,6 @@
   background: var(--washi-sink);
 }
 
-[data-theme="wabi-dark"] .cal-band-bar.done {
-  opacity: 0.55;
-}
 
 [data-theme="dark"] .cal-cell {
   background: var(--surface);
@@ -1055,6 +1052,12 @@ select {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--rule);
+}
+.checklist-section + .subtask-section {
+  margin-top: 8px;
+}
+.checklist-section .subtask-list {
+  border-left-style: dashed;
 }
 .subtask-toggle {
   display: flex;
@@ -1814,7 +1817,6 @@ select {
   border-left-color: var(--amber);
 }
 .cal-task-label.done {
-  background: transparent;
   color: var(--sumi-faint);
   text-decoration: line-through;
   text-decoration-color: var(--border-strong);
@@ -2049,11 +2051,9 @@ select {
   filter: brightness(0.92);
 }
 .cal-band-bar.done {
-  background: transparent;
   color: var(--sumi-faint);
   text-decoration: line-through;
   text-decoration-color: var(--border-strong);
-  border-left-color: transparent !important;
 }
 .cal-band-bar.priority-high {
   border-left-color: #E8A000 !important;
@@ -2061,9 +2061,6 @@ select {
 [data-theme="dark"] .cal-band-bar {
   background: var(--surface-raised, var(--surface));
   color: var(--sumi);
-}
-[data-theme="dark"] .cal-band-bar.done {
-  background: transparent;
 }
 
 /* =====================================================================
@@ -2671,6 +2668,20 @@ select {
 .wbs-caret.empty {
   cursor: default;
 }
+.wbs-no-group {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-width: 60px;
+}
+.wbs-no-fire {
+  flex: 0 0 16px;
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
 .wbs-no {
   flex: 0 0 auto;
   min-width: 44px;
@@ -3158,15 +3169,6 @@ select {
 .wbs-deadline-fire--overdue {
   font-size: 21px;
 }
-.gantt-bar-fire {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translate(50%, -50%);
-  z-index: 5;
-  pointer-events: none;
-}
-
 .gantt-bar.summary {
   top: 14px;
   height: 10px;
@@ -3235,7 +3237,8 @@ select {
   background: linear-gradient(var(--sumi), var(--sumi)) center / 2px 60% no-repeat;
 }
 
-.wbs-deadline-badge {
+.wbs-deadline-badge,
+.wbs-check-badge {
   flex: 0 0 auto;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -3247,4 +3250,30 @@ select {
   color: var(--text-muted);
   background: var(--surface-2, var(--washi));
   border: 1px solid var(--rule);
+}
+.wbs-check-badge {
+  color: var(--sumi-soft);
+}
+.wbs-checklist-tag {
+  flex: 0 0 auto;
+  min-width: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--sumi-faint);
+  text-align: center;
+}
+.wbs-checklist-title.is-done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
+.gantt-matrix-row.checklist-row .gantt-namecell {
+  background: var(--washi);
+}
+.gantt-matrix-row.checklist-row:hover .gantt-namecell {
+  background: var(--hover-yellow);
+}
+.gantt-matrix-row.done .wbs-check-badge {
+  color: var(--text-muted);
 }

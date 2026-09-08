@@ -22,8 +22,11 @@ export default function TaskItem({
   const [activityOpen, setActivityOpen] = useState(false)
   const [addingSubtask, setAddingSubtask] = useState(false)
   const [subtaskTitle, setSubtaskTitle] = useState('')
+  const [addingChecklist, setAddingChecklist] = useState(false)
+  const [checklistTitle, setChecklistTitle] = useState('')
   const menuRef = useRef(null)
   const subtaskInputRef = useRef(null)
+  const checklistInputRef = useRef(null)
 
   function submitSubtask() {
     const t = subtaskTitle.trim()
@@ -37,6 +40,18 @@ export default function TaskItem({
     setSubtaskTitle('')
   }
 
+  function submitChecklist() {
+    const t = checklistTitle.trim()
+    if (t) actions.addChecklistItem(task.id, t)
+    setChecklistTitle('')
+    checklistInputRef.current?.focus()
+  }
+
+  function closeChecklistInput() {
+    setAddingChecklist(false)
+    setChecklistTitle('')
+  }
+
   const activityCount = state.activities.filter((a) => a.task_id === task.id).length
 
   const subtasks = useMemo(
@@ -48,9 +63,22 @@ export default function TaskItem({
   const doneSubtaskCount = subtasks.filter((t) => t.status === 'DONE').length
   const [subtasksOpen, setSubtasksOpen] = useState(true)
 
+  const checklistItems = useMemo(
+    () => (state.checklistItems ?? [])
+      .filter((i) => i.task_id === task.id)
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+    [state.checklistItems, task.id],
+  )
+  const doneCheckCount = checklistItems.filter((i) => i.done).length
+  const [checklistOpen, setChecklistOpen] = useState(true)
+
   useEffect(() => {
     if (addingSubtask) setSubtasksOpen(true)
   }, [addingSubtask])
+
+  useEffect(() => {
+    if (addingChecklist) setChecklistOpen(true)
+  }, [addingChecklist])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -228,6 +256,15 @@ export default function TaskItem({
               >
                 子タスクを追加
               </button>
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  setAddingChecklist(true)
+                  setTimeout(() => checklistInputRef.current?.focus(), 0)
+                }}
+              >
+                チェック項目を追加
+              </button>
               {task.scheduled_date && (
                 <button
                   onClick={() => {
@@ -244,6 +281,54 @@ export default function TaskItem({
       </div>
 
       {activityOpen && <ActivityPanel task={task} />}
+
+      {(checklistItems.length > 0 || addingChecklist) && (
+        <div className="subtask-section checklist-section">
+          {checklistItems.length > 0 && (
+            <button
+              className="subtask-toggle"
+              onClick={() => setChecklistOpen((o) => !o)}
+            >
+              <span className="subtask-toggle-caret" aria-hidden>
+                {checklistOpen ? '▾' : '▸'}
+              </span>
+              チェックリスト {doneCheckCount}/{checklistItems.length}
+            </button>
+          )}
+          {(checklistOpen || addingChecklist) && (
+            <div className="subtask-list">
+              {checklistItems.map((item) => (
+                <ChecklistItemRow key={item.id} item={item} />
+              ))}
+              {addingChecklist && (
+                <div className="subtask-adder">
+                  <span className="addbar-subtask-prefix" aria-hidden>☐</span>
+                  <input
+                    ref={checklistInputRef}
+                    type="text"
+                    value={checklistTitle}
+                    placeholder="チェック項目"
+                    onChange={(e) => setChecklistTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') submitChecklist()
+                      if (e.key === 'Escape') closeChecklistInput()
+                    }}
+                    onBlur={(e) => {
+                      if (!e.currentTarget.parentElement?.contains(e.relatedTarget)) closeChecklistInput()
+                    }}
+                  />
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={submitChecklist}
+                    disabled={!checklistTitle.trim()}
+                  >追加</button>
+                  <button className="btn btn-sm" onClick={closeChecklistInput}>×</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {(subtasks.length > 0 || addingSubtask) && (
         <div className="subtask-section">
@@ -292,6 +377,71 @@ export default function TaskItem({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function ChecklistItemRow({ item }) {
+  const { actions } = useStore()
+  const [editing, setEditing] = useState(false)
+  const [title, setTitle] = useState(item.title)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (!editing) setTitle(item.title)
+  }, [item.title, editing])
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
+
+  function commitTitle() {
+    const t = title.trim()
+    if (t && t !== item.title) actions.updateChecklistItem(item.id, { title: t })
+    else setTitle(item.title)
+    setEditing(false)
+  }
+
+  return (
+    <div className="subtask-row">
+      <button
+        className={`check ${item.done ? 'done' : ''}`}
+        onClick={() => actions.toggleChecklistItem(item.id)}
+        title={item.done ? '未完了に戻す' : '完了にする'}
+        aria-label={item.done ? '未完了に戻す' : '完了にする'}
+      >
+        {item.done ? '✓' : ''}
+      </button>
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="subtask-edit-input"
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitTitle()
+            if (e.key === 'Escape') { setTitle(item.title); setEditing(false) }
+          }}
+          onBlur={commitTitle}
+        />
+      ) : (
+        <span
+          className={`subtask-title${item.done ? ' done' : ''}`}
+          onClick={() => setEditing(true)}
+          title="クリックで編集"
+        >
+          {item.title || '(無題)'}
+        </span>
+      )}
+      <button
+        className="task-del"
+        onClick={() => actions.deleteChecklistItem(item.id)}
+        title="削除"
+        aria-label="チェック項目を削除"
+      >
+        ✕
+      </button>
     </div>
   )
 }
