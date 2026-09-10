@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react'
 import { uid } from '../lib/id.js'
-import { todayStr, normalizeConsoleDateRange } from '../lib/date.js'
+import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, syncDatePatch } from '../lib/date.js'
 import { getDb } from '../lib/db.js'
 
 // ---- initial data ------------------------------------------------------
@@ -43,16 +43,31 @@ async function loadState() {
       return { ...initial, tasks: [], projects: [], activities: [], checklistItems: [] }
     }
 
+    const mappedTasks = tasks.map((t) => ({
+      ...t,
+      parent_id: t.parent_id ?? null,
+      start_date: t.start_date ?? null,
+      end_date: t.end_date ?? null,
+      console_end_date: t.console_end_date ?? null,
+      sort_order: t.sort_order ?? 0,
+    }))
+    const unifiedTasks = mappedTasks.map(unifyTaskDates)
+    for (let i = 0; i < unifiedTasks.length; i++) {
+      const next = unifiedTasks[i]
+      const prev = mappedTasks[i]
+      if (
+        prev.scheduled_date !== next.scheduled_date ||
+        prev.console_end_date !== next.console_end_date ||
+        prev.start_date !== next.start_date ||
+        prev.end_date !== next.end_date
+      ) {
+        await dbUpsertTask(db, next)
+      }
+    }
+
     return {
       version: 1,
-      tasks: tasks.map((t) => ({
-        ...t,
-        parent_id: t.parent_id ?? null,
-        start_date: t.start_date ?? null,
-        end_date: t.end_date ?? null,
-        console_end_date: t.console_end_date ?? null,
-        sort_order: t.sort_order ?? 0,
-      })),
+      tasks: unifiedTasks,
       categories: categories.map((c) => ({
         ...c,
         color: c.color ?? null,
@@ -101,23 +116,22 @@ function makeChecklistItem(taskId, title, items) {
 
 function makeTask(input, tasks) {
   const now = new Date().toISOString()
-  const scheduled_date = input.scheduled_date ?? null
+  const dates = input.scheduled_date || input.console_end_date
+    ? syncedDateFields(input.scheduled_date, input.console_end_date)
+    : syncedDateFields(input.start_date, input.end_date)
   return {
     id: uid('t'),
     title: input.title.trim(),
     status: 'TODO',
-    scheduled_date,
+    ...dates,
     completed_at: null,
     category_id: input.category_id ?? null,
     project_id: input.project_id ?? null,
     parent_id: input.parent_id ?? null,
-    start_date: input.start_date ?? null,
-    end_date: input.end_date ?? null,
-    console_end_date: input.console_end_date ?? null,
     priority: input.priority ?? null,
     sort_order: input.parent_id
       ? nextSortOrder(tasks, (t) => t.parent_id === input.parent_id)
-      : nextSortOrder(tasks, (t) => t.scheduled_date === scheduled_date),
+      : nextSortOrder(tasks, (t) => t.scheduled_date === dates.scheduled_date),
     recurrence: input.recurrence ?? null,
     created_at: now,
     updated_at: now,
@@ -184,7 +198,9 @@ function reducer(state, action) {
       return {
         ...state,
         tasks: state.tasks.map((t) =>
-          t.id === action.id ? { ...t, ...action.patch, updated_at: stamp() } : t,
+          t.id === action.id
+            ? { ...t, ...syncDatePatch(t, action.patch), updated_at: stamp() }
+            : t,
         ),
       }
     }
@@ -303,7 +319,7 @@ function reducer(state, action) {
       )
       return {
         ...state,
-        tasks: [...state.tasks, action.task],
+        tasks: [...state.tasks, unifyTaskDates(action.task)],
         checklistItems: [...state.checklistItems, ...restoredItems],
       }
     }
@@ -311,6 +327,7 @@ function reducer(state, action) {
     case 'IMPORT': {
       return {
         ...action.state,
+        tasks: (action.state.tasks ?? []).map(unifyTaskDates),
         checklistItems: (action.state.checklistItems ?? []).map(normalizeChecklistItem),
       }
     }
@@ -338,43 +355,10 @@ function reducer(state, action) {
           if (t.id !== action.id) return t
           return {
             ...t,
-            scheduled_date: action.date,
-            console_end_date: null,
+            ...syncedDateFields(action.date, null),
             sort_order: nextSortOrder(state.tasks, (x) => x.scheduled_date === action.date && x.id !== t.id),
             updated_at: stamp(),
           }
-        }),
-      }
-    }
-
-    // WBS の計画日程（start_date/end_date）を、コンソール用の期間
-    // （scheduled_date/console_end_date）へ一括コピーする。プロジェクト単位。
-    case 'SYNC_CONSOLE_DATES': {
-      const now = stamp()
-      return {
-        ...state,
-        tasks: state.tasks.map((t) => {
-          if (!action.all && t.project_id !== action.projectId) return t
-          const scheduled_date = t.start_date ?? null
-          const console_end_date = t.end_date ?? null
-          if (t.scheduled_date === scheduled_date && t.console_end_date === console_end_date) return t
-          return { ...t, scheduled_date, console_end_date, updated_at: now }
-        }),
-      }
-    }
-
-    // コンソール用の期間（scheduled_date/console_end_date）を、
-    // WBS の計画日程（start_date/end_date）へ一括コピーする。プロジェクト単位。
-    case 'SYNC_WBS_DATES': {
-      const now = stamp()
-      return {
-        ...state,
-        tasks: state.tasks.map((t) => {
-          if (!action.all && t.project_id !== action.projectId) return t
-          const start_date = t.scheduled_date ?? null
-          const end_date = t.console_end_date ?? null
-          if (t.start_date === start_date && t.end_date === end_date) return t
-          return { ...t, start_date, end_date, updated_at: now }
         }),
       }
     }
@@ -514,29 +498,6 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const t of changed) await dbUpsertTask(db, t)
           break
         }
-        case 'SYNC_CONSOLE_DATES': {
-          const changed = nextState.tasks.filter((t) => {
-            const prev = prevState.tasks.find((p) => p.id === t.id)
-            return (
-              prev &&
-              (prev.scheduled_date !== t.scheduled_date ||
-                prev.console_end_date !== t.console_end_date)
-            )
-          })
-          for (const t of changed) await dbUpsertTask(db, t)
-          break
-        }
-        case 'SYNC_WBS_DATES': {
-          const changed = nextState.tasks.filter((t) => {
-            const prev = prevState.tasks.find((p) => p.id === t.id)
-            return (
-              prev &&
-              (prev.start_date !== t.start_date || prev.end_date !== t.end_date)
-            )
-          })
-          for (const t of changed) await dbUpsertTask(db, t)
-          break
-        }
         case 'DELETE_TASK': {
           await db.execute('DELETE FROM tasks WHERE id = ?', [action.id])
           await db.execute('DELETE FROM activities WHERE task_id = ?', [action.id])
@@ -550,7 +511,8 @@ async function doSyncToDb(prevState, nextState, action) {
           break
         }
         case 'RESTORE_TASK': {
-          await dbUpsertTask(db, action.task)
+          const task = nextState.tasks.find((t) => t.id === action.task.id)
+          if (task) await dbUpsertTask(db, task)
           for (const item of action.checklistItems ?? []) await dbUpsertChecklistItem(db, item)
           break
         }
@@ -777,10 +739,6 @@ export function StoreProvider({ children }) {
       const patch = normalizeConsoleDateRange(start, end)
       dispatchWithSync({ type: 'UPDATE_TASK', id, patch })
     },
-    syncConsoleDates: (projectId) => dispatchWithSync({ type: 'SYNC_CONSOLE_DATES', projectId }),
-    syncAllConsoleDates: () => dispatchWithSync({ type: 'SYNC_CONSOLE_DATES', all: true }),
-    syncWbsDates: (projectId) => dispatchWithSync({ type: 'SYNC_WBS_DATES', projectId }),
-    syncAllWbsDates: () => dispatchWithSync({ type: 'SYNC_WBS_DATES', all: true }),
     reorder: (orderedIds) => dispatchWithSync({ type: 'REORDER', orderedIds }),
     addCategory: (name) => dispatchWithSync({ type: 'ADD_CATEGORY', name }),
     updateCategory: (id, patch) => dispatchWithSync({ type: 'UPDATE_CATEGORY', id, patch }),

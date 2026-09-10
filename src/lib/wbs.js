@@ -5,13 +5,28 @@ import { minDate, maxDate } from './date.js'
 
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
 
+function taskStart(task) {
+  return task.start_date ?? task.scheduled_date ?? null
+}
+
+// Default WBS sibling order: earliest start first; no start date goes last.
+const byStartDate = (a, b) => {
+  const sa = taskStart(a)
+  const sb = taskStart(b)
+  if (!sa && !sb) return bySort(a, b)
+  if (!sa) return 1
+  if (!sb) return -1
+  if (sa !== sb) return sa < sb ? -1 : 1
+  return bySort(a, b)
+}
+
 const UNASSIGNED_PROJECT = { id: null, name: 'プロジェクト未設定', color: null, sort_order: Infinity }
 
 // Gantt span for a LEAF task. Falls back to scheduled_date as a 1-day bar.
 // Returns { start, end } ('YYYY-MM-DD') or null when the task has no dates.
 function leafSpan(task) {
-  const start = task.start_date ?? task.scheduled_date ?? null
-  const end = task.end_date ?? task.start_date ?? task.scheduled_date ?? null
+  const start = taskStart(task)
+  const end = task.end_date ?? task.console_end_date ?? task.start_date ?? task.scheduled_date ?? null
   if (!start) return null
   return { start, end: end && end >= start ? end : start }
 }
@@ -33,7 +48,7 @@ function aggregateChildren(children) {
 
 // Build a WBS tree from a flat, single-project task list.
 // Each node: { task, children, depth, wbsNo, rollup: {done, total}, allDone }
-// - wbsNo: '1', '1.1', '1.1.2' … (siblings ordered by sort_order)
+// - wbsNo: '1', '1.1', '1.1.2' … (siblings ordered by start date, undated last)
 // - rollup: leaf counts. A leaf is total=1, done=(DONE?1:0). Parents aggregate.
 export function buildTree(tasks, baseDepth = 0) {
   const byParent = new Map()
@@ -44,7 +59,7 @@ export function buildTree(tasks, baseDepth = 0) {
   }
 
   function make(task, prefix, depth) {
-    const kids = (byParent.get(task.id) ?? []).slice().sort(bySort)
+    const kids = (byParent.get(task.id) ?? []).slice().sort(byStartDate)
     const children = kids.map((child, i) => make(child, `${prefix}.${i + 1}`, depth + 1))
 
     let done, total, span
@@ -71,7 +86,7 @@ export function buildTree(tasks, baseDepth = 0) {
     }
   }
 
-  const roots = (byParent.get('__root__') ?? []).slice().sort(bySort)
+  const roots = (byParent.get('__root__') ?? []).slice().sort(byStartDate)
   return roots.map((t, i) => make(t, String(i + 1), baseDepth))
 }
 
@@ -108,12 +123,12 @@ export function buildProjectTrees(tasks, projects) {
   })
 }
 
-// Previous sibling of `task` within the same project + same parent (by sort_order).
+// Previous sibling of `task` within the same project + same parent (by start date).
 // Used by "indent" — the task becomes a child of its previous sibling.
 export function prevSibling(task, tasks) {
   const siblings = tasks
     .filter((t) => (t.parent_id ?? null) === (task.parent_id ?? null))
-    .sort(bySort)
+    .sort(byStartDate)
   const idx = siblings.findIndex((t) => t.id === task.id)
   return idx > 0 ? siblings[idx - 1] : null
 }

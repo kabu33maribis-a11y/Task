@@ -189,7 +189,7 @@ export default function TaskItem({
                   <ConsoleDateRangeFields
                     start={task.scheduled_date}
                     end={task.console_end_date}
-                    onChange={({ scheduled_date, console_end_date }) =>
+                    onCommit={({ scheduled_date, console_end_date }) =>
                       actions.setConsoleDateRange(task.id, scheduled_date, console_end_date)
                     }
                   />
@@ -539,10 +539,15 @@ function InlineEditor({ task, categories, onClose }) {
       className="editor"
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) {
+        if (e.currentTarget.contains(e.relatedTarget)) return
+        if (e.relatedTarget?.closest?.('[data-slot="popover-content"]')) return
+        window.setTimeout(() => {
+          const ae = document.activeElement
+          if (ae?.closest?.('[data-slot="popover-content"]')) return
+          if (document.querySelector('[data-slot="popover-content"]')) return
           commitTitle()
           onClose()
-        }
+        }, 0)
       }}
     >
       <input
@@ -561,7 +566,7 @@ function InlineEditor({ task, categories, onClose }) {
         <ConsoleDateRangeFields
           start={task.scheduled_date}
           end={task.console_end_date}
-          onChange={({ scheduled_date, console_end_date }) =>
+          onCommit={({ scheduled_date, console_end_date }) =>
             save({ scheduled_date, console_end_date })
           }
         />

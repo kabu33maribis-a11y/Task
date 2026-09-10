@@ -4,7 +4,7 @@ import { buildTree, buildProjectTrees, prevSibling, flattenVisible } from '../li
 import { todayStr, addDays, diffDays, formatMonthDayJP, fromDateStr, deadlineUrgency, daysUntil } from '../lib/date.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import AddTaskBar from '../components/AddTaskBar.jsx'
-import ConfirmDialog from '../components/ConfirmDialog.jsx'
+import DatePicker from '../components/DatePicker.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
 const HEAD_H = 46 // 軸ヘッダー高
@@ -61,9 +61,6 @@ function WbsGantt({ project, multi }) {
   const hiddenIds = useHiddenProjectIds()
   const today = todayStr()
   const [exporting, setExporting] = useState(false)
-  const [syncToast, setSyncToast] = useState(null) // string | null
-  const [confirm, setConfirm] = useState(null)
-  const syncTimerRef = useRef(null)
 
   const scopedTasks = useMemo(
     () => {
@@ -258,40 +255,6 @@ function WbsGantt({ project, multi }) {
     }
   }
 
-  function showSyncToast(message) {
-    setSyncToast(message)
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
-    syncTimerRef.current = setTimeout(() => setSyncToast(null), 2500)
-  }
-
-  function handleSyncDates() {
-    setConfirm({
-      message: 'WBS → カレンダー',
-      detail: 'WBSの開始日〜終了日を、カレンダーの予定日〜終了日に反映します。',
-      okLabel: '反映する',
-      onOk: () => {
-        setConfirm(null)
-        if (multi) actions.syncAllConsoleDates()
-        else actions.syncConsoleDates(project.id)
-        showSyncToast('WBSをカレンダーに反映しました')
-      },
-    })
-  }
-
-  function handleSyncFromConsole() {
-    setConfirm({
-      message: 'カレンダー → WBS',
-      detail: 'カレンダーの予定日〜終了日を、WBSの開始日〜終了日に反映します。',
-      okLabel: '反映する',
-      onOk: () => {
-        setConfirm(null)
-        if (multi) actions.syncAllWbsDates()
-        else actions.syncWbsDates(project.id)
-        showSyncToast('カレンダーをWBSに反映しました')
-      },
-    })
-  }
-
   function collapseAllProjects() {
     setCollapsed(new Set(collapseTargetIds))
   }
@@ -448,24 +411,6 @@ function WbsGantt({ project, multi }) {
           >
             {exporting ? '出力中…' : 'Excel出力'}
           </button>
-          <div className="wbs-sync-group">
-            <button
-              className="btn btn-sm btn-sync"
-              onClick={handleSyncFromConsole}
-              title="カレンダーの予定日〜終了日をWBSの開始日〜終了日に反映する"
-              disabled={overall.total === 0}
-            >
-              カレンダ→WBS
-            </button>
-            <button
-              className="btn btn-sm btn-sync"
-              onClick={handleSyncDates}
-              title="WBSの開始日〜終了日をカレンダーの予定日〜終了日に反映する"
-              disabled={overall.total === 0}
-            >
-              WBS→カレンダー
-            </button>
-          </div>
           <button
             className={`btn btn-sm${showWeekends ? ' btn-primary' : ''}`}
             onClick={toggleWeekends}
@@ -684,18 +629,6 @@ function WbsGantt({ project, multi }) {
           x={datePopover.x}
           y={datePopover.y}
           onClose={() => setDatePopover(null)}
-        />
-      )}
-      {syncToast && (
-        <div className="toast toast-top-right" role="status">{syncToast}</div>
-      )}
-      {confirm && (
-        <ConfirmDialog
-          message={confirm.message}
-          detail={confirm.detail}
-          okLabel={confirm.okLabel}
-          onOk={confirm.onOk}
-          onCancel={() => setConfirm(null)}
         />
       )}
     </div>
@@ -961,10 +894,11 @@ function DatePopover({ task, x, y, onClose }) {
   const { actions } = useStore()
   const ref = useRef(null)
   const start = task.start_date ?? task.scheduled_date ?? ''
-  const end = task.end_date ?? ''
+  const end = task.end_date ?? task.console_end_date ?? ''
 
   useEffect(() => {
     function onDoc(e) {
+      if (e.target.closest('[data-slot="popover-content"]')) return
       if (ref.current && !ref.current.contains(e.target)) onClose()
     }
     function onKey(e) {
@@ -978,30 +912,29 @@ function DatePopover({ task, x, y, onClose }) {
     }
   }, [onClose])
 
-  function setStart(v) {
-    const s = v || null
-    const e = end && s && end < s ? s : end || null
+  function setRange(nextStart, nextEnd) {
+    const s = nextStart || null
+    const e = nextEnd && s && nextEnd < s ? s : nextEnd || null
     actions.setTaskDates(task.id, s, e)
-  }
-  function setEnd(v) {
-    const e = v || null
-    actions.setTaskDates(task.id, start || null, e && start && e < start ? start : e)
   }
 
   return (
     <div
       className="wbs-date-pop"
       ref={ref}
-      style={{ top: Math.min(y + 6, window.innerHeight - 150), left: x }}
+      style={{ top: Math.max(8, Math.min(y + 6, window.innerHeight - 380)), left: x }}
     >
-      <label className="wbs-date-field">
-        <span>開始</span>
-        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-      </label>
-      <label className="wbs-date-field">
-        <span>終了</span>
-        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
-      </label>
+      <DatePicker
+        inline
+        value={start}
+        endValue={end}
+        onRangeChange={setRange}
+        allowClear={false}
+      />
+      <div className="wbs-date-summary">
+        <span>開始 {start ? formatMonthDayJP(start) : '未設定'}</span>
+        <span>終了 {(end || start) ? formatMonthDayJP(end || start) : '未設定'}</span>
+      </div>
       <div className="wbs-date-actions">
         <button
           className="btn btn-sm"

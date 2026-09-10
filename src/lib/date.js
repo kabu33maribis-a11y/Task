@@ -103,6 +103,45 @@ export function normalizeConsoleDateRange(start, end) {
   return { scheduled_date, console_end_date }
 }
 
+/** Calendar and WBS share one range: start/end map onto both field pairs. */
+export function syncedDateFields(start, end) {
+  const { scheduled_date, console_end_date } = normalizeConsoleDateRange(start, end)
+  return {
+    scheduled_date,
+    console_end_date,
+    start_date: scheduled_date,
+    end_date: console_end_date,
+  }
+}
+
+/** Align calendar and WBS dates. Console wins when scheduled_date is set. */
+export function unifyTaskDates(task) {
+  if (task.scheduled_date) {
+    return { ...task, ...syncedDateFields(task.scheduled_date, task.console_end_date) }
+  }
+  if (task.start_date) {
+    return { ...task, ...syncedDateFields(task.start_date, task.end_date) }
+  }
+  return { ...task, ...syncedDateFields(null, null) }
+}
+
+/** Merge a task patch so any date write updates both calendar and WBS fields. */
+export function syncDatePatch(prev, patch) {
+  const writesWbs = 'start_date' in patch || 'end_date' in patch
+  const writesConsole = 'scheduled_date' in patch || 'console_end_date' in patch
+  if (!writesWbs && !writesConsole) return patch
+  let start
+  let end
+  if (writesWbs && !writesConsole) {
+    start = 'start_date' in patch ? patch.start_date : prev.start_date
+    end = 'end_date' in patch ? patch.end_date : prev.end_date
+  } else {
+    start = 'scheduled_date' in patch ? patch.scheduled_date : prev.scheduled_date
+    end = 'console_end_date' in patch ? patch.console_end_date : prev.console_end_date
+  }
+  return { ...patch, ...syncedDateFields(start, end) }
+}
+
 /** Display label for a console date span. */
 export function formatConsoleDateRange(task) {
   const start = task.scheduled_date

@@ -1,0 +1,18 @@
+---
+description: 「バンプ」「リリース」などの一言で version bump → commit → push → tag → GitHub Release まで実行する
+alwaysApply: true
+---
+
+# リリース（一言で完了）
+
+「バンプ」「push バンプして」「リリース」など、リリース意図の短い指示が来たら、確認せず次を全部やる。
+
+1. patch を 1 上げる（例: `0.1.18` → `0.1.19`）
+2. 同期するファイル: `package.json`, `package-lock.json`（ルート version のみ）, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`（`name = "app"` の version）, `src-tauri/tauri.conf.json`
+3. 未コミットの機能変更も同じコミットに含める（`logs/` は入れない）
+4. コミットメッセージは既存スタイル: `feat|fix|chore: …し vX.Y.Z にバンプ`
+5. `git push origin HEAD`
+6. `git tag vX.Y.Z` → `git push origin vX.Y.Z`（これがデプロイ。`.github/workflows/release.yml` が Windows ビルド・GitHub Release・updater の `latest.json` を作る）
+7. `gh run watch` で Release ワークフロー完了まで待ち、失敗したら直す
+
+タグ push までがデプロイ。push だけ、タグなし、は完了ではない。
