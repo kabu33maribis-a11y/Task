@@ -3,6 +3,11 @@ import { useStore, flushSync } from '../store/StoreContext.jsx'
 import { reconnectDb, resetDbConnection } from '../lib/db.js'
 import { getDbPath, pickDbFolder, setDbPath } from '../lib/appConfig.js'
 import { applyTheme as setThemeOnDocument, getSavedTheme, THEMES } from '../lib/theme.js'
+import {
+  applyGanttBarColor as setGanttBarColorOnDocument,
+  DEFAULT_GANTT_BAR_SWATCH,
+  getSavedGanttBarColor,
+} from '../lib/ganttBarColor.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
 
@@ -72,13 +77,19 @@ export default function SettingsModal({ onClose }) {
   const { state, actions } = useStore()
   const [newCat, setNewCat] = useState('')
   const [newProj, setNewProj] = useState('')
+  const [newTag, setNewTag] = useState('')
   const [dbDir, setDbDir] = useState(null)
   const [dbMsg, setDbMsg] = useState('')
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
   const [theme, setTheme] = useState(getSavedTheme)
+  const [ganttBarColor, setGanttBarColor] = useState(getSavedGanttBarColor)
 
   function applyTheme(t) {
     setTheme(setThemeOnDocument(t))
+  }
+
+  function applyGanttBarColor(c) {
+    setGanttBarColor(setGanttBarColorOnDocument(c))
   }
 
   const closeConfirm = () => setConfirm(null)
@@ -95,6 +106,8 @@ export default function SettingsModal({ onClose }) {
       projects: state.projects,
       activities: state.activities,
       checklistItems: state.checklistItems ?? [],
+      dependencies: state.dependencies ?? [],
+      tags: state.tags ?? [],
     }
   }
 
@@ -132,6 +145,7 @@ export default function SettingsModal({ onClose }) {
 
   const sortedCats = [...state.categories].sort((a, b) => a.sort_order - b.sort_order)
   const sortedProjs = [...state.projects].sort((a, b) => a.sort_order - b.sort_order)
+  const sortedTags = [...(state.tags ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
   return (
     <>
@@ -149,6 +163,24 @@ export default function SettingsModal({ onClose }) {
             <button className={theme === THEMES.dark ? 'active' : ''} onClick={() => applyTheme(THEMES.dark)}>ダーク</button>
             <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
             <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
+          </div>
+          <div className="section-title">WBSガントバー</div>
+          <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+            日付上のタスクバーの色です。未設定時はテーマのアクセント色を使います。
+          </p>
+          <div className="cat-edit-row" style={{ alignItems: 'center' }}>
+            <ColorPickerSwatch
+              color={ganttBarColor || DEFAULT_GANTT_BAR_SWATCH}
+              onChange={(c) => applyGanttBarColor(c)}
+            />
+            <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-soft)' }}>
+              {ganttBarColor || 'デフォルト'}
+            </span>
+            {ganttBarColor && (
+              <button className="btn btn-sm" type="button" onClick={() => applyGanttBarColor(null)}>
+                リセット
+              </button>
+            )}
           </div>
         </div>
 
@@ -181,6 +213,43 @@ export default function SettingsModal({ onClose }) {
                 if (newProj.trim()) {
                   actions.addProject(newProj)
                   setNewProj('')
+                }
+              }}
+            >
+              追加
+            </button>
+          </div>
+        </div>
+
+        <div className="modal-section">
+          <div className="section-title" style={{ marginTop: 0 }}>
+            タグ
+          </div>
+          <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+            WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。子に別のタグを付けるとその配下だけ色が変わります。
+          </p>
+          {sortedTags.map((t) => (
+            <TagRow key={t.id} tag={t} />
+          ))}
+          <div className="cat-edit-row">
+            <input
+              type="text"
+              value={newTag}
+              placeholder="新しいタグ（例: 本番）"
+              onChange={(e) => setNewTag(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newTag.trim()) {
+                  actions.addTag(newTag)
+                  setNewTag('')
+                }
+              }}
+            />
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => {
+                if (newTag.trim()) {
+                  actions.addTag(newTag)
+                  setNewTag('')
                 }
               }}
             >
@@ -283,6 +352,58 @@ export default function SettingsModal({ onClose }) {
         onOk={confirm.onOk}
         onCancel={closeConfirm}
       />
+    )}
+    </>
+  )
+}
+
+function TagRow({ tag }) {
+  const { actions } = useStore()
+  const [name, setName] = useState(tag.name)
+  const [confirm, setConfirm] = useState(null)
+  const color = tag.color || ''
+
+  return (
+    <>
+    <div className="cat-edit-row">
+      <ColorPickerSwatch
+        color={color}
+        onChange={(c) => actions.updateTag(tag.id, { color: c })}
+      />
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={() => {
+          const n = name.trim()
+          if (n && n !== tag.name) actions.updateTag(tag.id, { name: n })
+          else setName(tag.name)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            const n = name.trim()
+            if (n && n !== tag.name) actions.updateTag(tag.id, { name: n })
+            e.target.blur()
+          }
+        }}
+      />
+      <button
+        className="btn btn-sm"
+        onClick={() =>
+          setConfirm({
+            message: `「${tag.name}」を削除しますか？`,
+            detail: 'このタグのタスクはタグなしになります。',
+            okLabel: '削除する',
+            danger: true,
+            onOk: () => { setConfirm(null); actions.deleteTag(tag.id) },
+          })
+        }
+      >
+        削除
+      </button>
+    </div>
+    {confirm && (
+      <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />
     )}
     </>
   )

@@ -2,10 +2,12 @@ import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useS
 import { uid } from '../lib/id.js'
 import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, syncDatePatch } from '../lib/date.js'
 import { getDb } from '../lib/db.js'
+import { hasLink, wouldCreateCycle } from '../lib/dependencies.js'
 
 // ---- initial data ------------------------------------------------------
 
 const DEFAULT_CATEGORY_NAMES = ['開発']
+const DEFAULT_TAGS = [{ name: '本番', color: '#C0402E' }]
 
 function makeInitialState() {
   const now = new Date().toISOString()
@@ -17,18 +19,28 @@ function makeInitialState() {
     created_at: now,
     updated_at: now,
   }))
-  return { version: 1, tasks: [], categories, projects: [], activities: [], checklistItems: [] }
+  const tags = DEFAULT_TAGS.map((t, i) => ({
+    id: uid('g'),
+    name: t.name,
+    color: t.color,
+    sort_order: i,
+    created_at: now,
+    updated_at: now,
+  }))
+  return { version: 1, tasks: [], categories, projects: [], activities: [], checklistItems: [], dependencies: [], tags }
 }
 
 async function loadState() {
   try {
     const db = await getDb()
-    const [tasks, categories, projects, activities, checklistItems] = await Promise.all([
+    const [tasks, categories, projects, activities, checklistItems, dependencies, tags] = await Promise.all([
       db.select('SELECT * FROM tasks'),
       db.select('SELECT * FROM categories'),
       db.select('SELECT * FROM projects'),
       db.select('SELECT * FROM activities'),
       db.select('SELECT * FROM checklist_items'),
+      db.select('SELECT * FROM task_dependencies'),
+      db.select('SELECT * FROM tags'),
     ])
 
     // 初回起動: カテゴリが空ならデフォルトを挿入
@@ -40,7 +52,24 @@ async function loadState() {
           [c.id, c.name, c.sort_order, c.created_at, c.updated_at, c.color ?? null],
         )
       }
-      return { ...initial, tasks: [], projects: [], activities: [], checklistItems: [] }
+      for (const tag of initial.tags) {
+        await dbUpsertTag(db, tag)
+      }
+      return { ...initial, tasks: [], projects: [], activities: [], checklistItems: [], dependencies: [] }
+    }
+
+    let loadedTags = (tags ?? []).map(normalizeTag)
+    if (loadedTags.length === 0) {
+      const now = new Date().toISOString()
+      loadedTags = DEFAULT_TAGS.map((t, i) => ({
+        id: uid('g'),
+        name: t.name,
+        color: t.color,
+        sort_order: i,
+        created_at: now,
+        updated_at: now,
+      }))
+      for (const tag of loadedTags) await dbUpsertTag(db, tag)
     }
 
     const mappedTasks = tasks.map((t) => ({
@@ -49,6 +78,7 @@ async function loadState() {
       start_date: t.start_date ?? null,
       end_date: t.end_date ?? null,
       console_end_date: t.console_end_date ?? null,
+      tag_id: t.tag_id ?? null,
       sort_order: t.sort_order ?? 0,
     }))
     const unifiedTasks = mappedTasks.map(unifyTaskDates)
@@ -78,6 +108,8 @@ async function loadState() {
       })),
       activities,
       checklistItems: (checklistItems ?? []).map(normalizeChecklistItem),
+      dependencies: (dependencies ?? []).map(normalizeDependency),
+      tags: loadedTags,
     }
   } catch (e) {
     console.error('loadState error', e)
@@ -98,6 +130,35 @@ function normalizeChecklistItem(item) {
     title: item.title ?? '',
     done: Boolean(item.done),
     sort_order: item.sort_order ?? 0,
+  }
+}
+
+function normalizeDependency(d) {
+  return {
+    id: d.id,
+    predecessor_id: d.predecessor_id,
+    successor_id: d.successor_id,
+    created_at: d.created_at ?? null,
+  }
+}
+
+function makeDependency(predecessorId, successorId) {
+  return {
+    id: uid('dep'),
+    predecessor_id: predecessorId,
+    successor_id: successorId,
+    created_at: new Date().toISOString(),
+  }
+}
+
+function normalizeTag(tag) {
+  return {
+    id: tag.id,
+    name: tag.name ?? '',
+    color: tag.color ?? null,
+    sort_order: tag.sort_order ?? 0,
+    created_at: tag.created_at ?? null,
+    updated_at: tag.updated_at ?? null,
   }
 }
 
@@ -128,6 +189,7 @@ function makeTask(input, tasks) {
     category_id: input.category_id ?? null,
     project_id: input.project_id ?? null,
     parent_id: input.parent_id ?? null,
+    tag_id: input.tag_id ?? null,
     priority: input.priority ?? null,
     sort_order: input.parent_id
       ? nextSortOrder(tasks, (t) => t.parent_id === input.parent_id)
@@ -144,11 +206,11 @@ async function dbUpsertTask(db, t) {
   await db.execute(
     `INSERT OR REPLACE INTO tasks
      (id,title,status,scheduled_date,completed_at,category_id,project_id,
-      parent_id,start_date,end_date,console_end_date,priority,sort_order,recurrence,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      parent_id,start_date,end_date,console_end_date,priority,sort_order,recurrence,created_at,updated_at,tag_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [t.id, t.title, t.status, t.scheduled_date, t.completed_at, t.category_id,
      t.project_id, t.parent_id, t.start_date, t.end_date, t.console_end_date, t.priority,
-     t.sort_order, t.recurrence, t.created_at, t.updated_at],
+     t.sort_order, t.recurrence, t.created_at, t.updated_at, t.tag_id ?? null],
   )
 }
 
@@ -179,6 +241,21 @@ async function dbUpsertChecklistItem(db, item) {
      (id, task_id, title, done, sort_order, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?)`,
     [item.id, item.task_id, item.title, item.done ? 1 : 0, item.sort_order, item.created_at, item.updated_at ?? null],
+  )
+}
+
+async function dbUpsertTag(db, tag) {
+  await db.execute(
+    'INSERT OR REPLACE INTO tags (id,name,color,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)',
+    [tag.id, tag.name, tag.color ?? null, tag.sort_order, tag.created_at, tag.updated_at ?? null],
+  )
+}
+
+async function dbUpsertDependency(db, d) {
+  await db.execute(
+    `INSERT OR REPLACE INTO task_dependencies (id, predecessor_id, successor_id, created_at)
+     VALUES (?,?,?,?)`,
+    [d.id, d.predecessor_id, d.successor_id, d.created_at ?? null],
   )
 }
 
@@ -215,6 +292,9 @@ function reducer(state, action) {
           .map((t) => (t.parent_id === action.id ? { ...t, parent_id: newParent, updated_at: stamp() } : t)),
         activities: state.activities.filter((a) => a.task_id !== action.id),
         checklistItems: (state.checklistItems ?? []).filter((i) => i.task_id !== action.id),
+        dependencies: (state.dependencies ?? []).filter(
+          (d) => d.predecessor_id !== action.id && d.successor_id !== action.id,
+        ),
       }
     }
 
@@ -285,6 +365,44 @@ function reducer(state, action) {
       return { ...state, activities: state.activities.filter((a) => a.id !== action.id) }
     }
 
+    case 'CONVERT_ACTIVITY_TO_TASK': {
+      const activity = state.activities.find((a) => a.id === action.activityId)
+      if (!activity) return state
+      const parent = state.tasks.find((t) => t.id === activity.task_id)
+      if (!parent) return state
+
+      const lines = activity.body.split('\n')
+      let title = ''
+      let restStart = 0
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim()) {
+          title = lines[i].trim()
+          restStart = i + 1
+          break
+        }
+      }
+      if (!title) return state
+
+      const rest = lines.slice(restStart).join('\n').trim()
+      const task = makeTask(
+        {
+          title,
+          project_id: parent.project_id ?? null,
+          parent_id: parent.id,
+          scheduled_date: null,
+        },
+        state.tasks,
+      )
+      let activities = state.activities.filter((a) => a.id !== activity.id)
+      if (rest) {
+        activities = [
+          ...activities,
+          { id: uid('a'), task_id: task.id, body: rest, created_at: stamp() },
+        ]
+      }
+      return { ...state, tasks: [...state.tasks, task], activities }
+    }
+
     case 'ADD_CHECKLIST_ITEM': {
       const item = makeChecklistItem(action.taskId, action.title, state.checklistItems)
       return { ...state, checklistItems: [...state.checklistItems, item] }
@@ -317,10 +435,17 @@ function reducer(state, action) {
       const restoredItems = (action.checklistItems ?? []).filter(
         (i) => !state.checklistItems.some((x) => x.id === i.id),
       )
+      const existingDepKeys = new Set(
+        (state.dependencies ?? []).map((d) => `${d.predecessor_id}->${d.successor_id}`),
+      )
+      const restoredDeps = (action.dependencies ?? []).filter(
+        (d) => !existingDepKeys.has(`${d.predecessor_id}->${d.successor_id}`),
+      )
       return {
         ...state,
         tasks: [...state.tasks, unifyTaskDates(action.task)],
         checklistItems: [...state.checklistItems, ...restoredItems],
+        dependencies: [...(state.dependencies ?? []), ...restoredDeps],
       }
     }
 
@@ -329,6 +454,8 @@ function reducer(state, action) {
         ...action.state,
         tasks: (action.state.tasks ?? []).map(unifyTaskDates),
         checklistItems: (action.state.checklistItems ?? []).map(normalizeChecklistItem),
+        dependencies: (action.state.dependencies ?? []).map(normalizeDependency),
+        tags: (action.state.tags ?? []).map(normalizeTag),
       }
     }
 
@@ -436,6 +563,37 @@ function reducer(state, action) {
       }
     }
 
+    case 'ADD_TAG': {
+      const now = stamp()
+      const tag = {
+        id: uid('g'),
+        name: action.name.trim(),
+        color: action.color ?? '#C0402E',
+        sort_order: (state.tags ?? []).length,
+        created_at: now,
+        updated_at: now,
+      }
+      return { ...state, tags: [...(state.tags ?? []), tag] }
+    }
+
+    case 'UPDATE_TAG': {
+      const patch = typeof action.patch === 'string' ? { name: action.patch.trim() } : action.patch
+      return {
+        ...state,
+        tags: (state.tags ?? []).map((t) =>
+          t.id === action.id ? { ...t, ...patch, updated_at: stamp() } : t,
+        ),
+      }
+    }
+
+    case 'DELETE_TAG': {
+      return {
+        ...state,
+        tags: (state.tags ?? []).filter((t) => t.id !== action.id),
+        tasks: state.tasks.map((t) => (t.tag_id === action.id ? { ...t, tag_id: null, updated_at: stamp() } : t)),
+      }
+    }
+
     case 'ADD_TASK_WITH_CHILDREN': {
       const parent = makeTask(action.parentInput, state.tasks)
       let tasks = [...state.tasks, parent]
@@ -447,6 +605,49 @@ function reducer(state, action) {
         tasks = [...tasks, child]
       }
       return { ...state, tasks }
+    }
+
+    case 'ADD_DEPENDENCY': {
+      const predecessorId = action.predecessorId
+      const successorId = action.successorId
+      const deps = state.dependencies ?? []
+      if (hasLink(deps, predecessorId, successorId)) return state
+      if (wouldCreateCycle(deps, predecessorId, successorId)) return state
+      if (!state.tasks.some((t) => t.id === predecessorId) || !state.tasks.some((t) => t.id === successorId)) {
+        return state
+      }
+      return { ...state, dependencies: [...deps, makeDependency(predecessorId, successorId)] }
+    }
+
+    case 'REMOVE_DEPENDENCY': {
+      return {
+        ...state,
+        dependencies: (state.dependencies ?? []).filter(
+          (d) => !(d.predecessor_id === action.predecessorId && d.successor_id === action.successorId),
+        ),
+      }
+    }
+
+    case 'ADD_SUCCESSOR_TASK': {
+      const predecessor = state.tasks.find((t) => t.id === action.predecessorId)
+      if (!predecessor) return state
+      const title = (action.title ?? '').trim()
+      if (!title) return state
+      const task = makeTask(
+        {
+          title,
+          project_id: predecessor.project_id ?? null,
+          parent_id: predecessor.parent_id ?? null,
+          scheduled_date: null,
+        },
+        state.tasks,
+      )
+      const dep = makeDependency(predecessor.id, task.id)
+      return {
+        ...state,
+        tasks: [...state.tasks, task],
+        dependencies: [...(state.dependencies ?? []), dep],
+      }
     }
 
     case 'RESET': {
@@ -502,6 +703,10 @@ async function doSyncToDb(prevState, nextState, action) {
           await db.execute('DELETE FROM tasks WHERE id = ?', [action.id])
           await db.execute('DELETE FROM activities WHERE task_id = ?', [action.id])
           await db.execute('DELETE FROM checklist_items WHERE task_id = ?', [action.id])
+          await db.execute(
+            'DELETE FROM task_dependencies WHERE predecessor_id = ? OR successor_id = ?',
+            [action.id, action.id],
+          )
           // 子タスクの parent_id 更新
           const reparented = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
@@ -514,6 +719,7 @@ async function doSyncToDb(prevState, nextState, action) {
           const task = nextState.tasks.find((t) => t.id === action.task.id)
           if (task) await dbUpsertTask(db, task)
           for (const item of action.checklistItems ?? []) await dbUpsertChecklistItem(db, item)
+          for (const dep of action.dependencies ?? []) await dbUpsertDependency(db, dep)
           break
         }
         case 'ADD_CHECKLIST_ITEM': {
@@ -545,9 +751,38 @@ async function doSyncToDb(prevState, nextState, action) {
           await db.execute('DELETE FROM activities WHERE id = ?', [action.id])
           break
         }
+        case 'CONVERT_ACTIVITY_TO_TASK': {
+          const task = nextState.tasks.find((t) => !prevState.tasks.some((p) => p.id === t.id))
+          if (task) await dbUpsertTask(db, task)
+          await db.execute('DELETE FROM activities WHERE id = ?', [action.activityId])
+          const newActs = nextState.activities.filter(
+            (a) => !prevState.activities.some((p) => p.id === a.id),
+          )
+          for (const act of newActs) await dbUpsertActivity(db, act)
+          break
+        }
         case 'ADD_TASK_WITH_CHILDREN': {
           const newTasks = nextState.tasks.filter((t) => !prevState.tasks.some((p) => p.id === t.id))
           for (const t of newTasks) await dbUpsertTask(db, t)
+          break
+        }
+        case 'ADD_DEPENDENCY': {
+          const dep = (nextState.dependencies ?? []).find((d) => !(prevState.dependencies ?? []).some((p) => p.id === d.id))
+          if (dep) await dbUpsertDependency(db, dep)
+          break
+        }
+        case 'REMOVE_DEPENDENCY': {
+          await db.execute(
+            'DELETE FROM task_dependencies WHERE predecessor_id = ? AND successor_id = ?',
+            [action.predecessorId, action.successorId],
+          )
+          break
+        }
+        case 'ADD_SUCCESSOR_TASK': {
+          const task = nextState.tasks.find((t) => !prevState.tasks.some((p) => p.id === t.id))
+          if (task) await dbUpsertTask(db, task)
+          const dep = (nextState.dependencies ?? []).find((d) => !(prevState.dependencies ?? []).some((p) => p.id === d.id))
+          if (dep) await dbUpsertDependency(db, dep)
           break
         }
         case 'ADD_CATEGORY': {
@@ -589,26 +824,52 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const t of updated) await dbUpsertTask(db, t)
           break
         }
+        case 'ADD_TAG': {
+          const tag = (nextState.tags ?? []).find((t) => !(prevState.tags ?? []).some((p) => p.id === t.id))
+          if (tag) await dbUpsertTag(db, tag)
+          break
+        }
+        case 'UPDATE_TAG': {
+          const tag = (nextState.tags ?? []).find((t) => t.id === action.id)
+          if (tag) await dbUpsertTag(db, tag)
+          break
+        }
+        case 'DELETE_TAG': {
+          await db.execute('DELETE FROM tags WHERE id = ?', [action.id])
+          const updated = nextState.tasks.filter((t) => {
+            const prev = prevState.tasks.find((p) => p.id === t.id)
+            return prev && prev.tag_id !== t.tag_id
+          })
+          for (const t of updated) await dbUpsertTask(db, t)
+          break
+        }
         case 'IMPORT': {
+          await db.execute('DELETE FROM task_dependencies')
           await db.execute('DELETE FROM checklist_items')
           await db.execute('DELETE FROM activities')
           await db.execute('DELETE FROM tasks')
           await db.execute('DELETE FROM categories')
           await db.execute('DELETE FROM projects')
+          await db.execute('DELETE FROM tags')
+          for (const tag of nextState.tags ?? []) await dbUpsertTag(db, tag)
           for (const t of nextState.tasks) await dbUpsertTask(db, t)
           for (const c of nextState.categories) await dbUpsertCategory(db, c)
           for (const p of nextState.projects) await dbUpsertProject(db, p)
           for (const a of nextState.activities) await dbUpsertActivity(db, a)
           for (const item of nextState.checklistItems) await dbUpsertChecklistItem(db, item)
+          for (const dep of nextState.dependencies ?? []) await dbUpsertDependency(db, dep)
           break
         }
         case 'RESET': {
+          await db.execute('DELETE FROM task_dependencies')
           await db.execute('DELETE FROM checklist_items')
           await db.execute('DELETE FROM activities')
           await db.execute('DELETE FROM tasks')
           await db.execute('DELETE FROM categories')
           await db.execute('DELETE FROM projects')
+          await db.execute('DELETE FROM tags')
           for (const c of nextState.categories) await dbUpsertCategory(db, c)
+          for (const tag of nextState.tags ?? []) await dbUpsertTag(db, tag)
           break
         }
         default: break
@@ -639,7 +900,7 @@ function flushSyncWithTimeout(ms = CLOSE_FLUSH_TIMEOUT_MS) {
 const StoreContext = createContext(null)
 
 export function StoreProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, { version: 1, tasks: [], categories: [], projects: [], activities: [], checklistItems: [] })
+  const [state, dispatch] = useReducer(reducer, { version: 1, tasks: [], categories: [], projects: [], activities: [], checklistItems: [], dependencies: [], tags: [] })
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState(null)
   const [toast, setToast] = useState(null)
@@ -746,16 +1007,27 @@ export function StoreProvider({ children }) {
     addProject: (name, color) => dispatchWithSync({ type: 'ADD_PROJECT', name, color }),
     updateProject: (id, patch) => dispatchWithSync({ type: 'UPDATE_PROJECT', id, patch }),
     deleteProject: (id) => dispatchWithSync({ type: 'DELETE_PROJECT', id }),
+    addTag: (name, color) => dispatchWithSync({ type: 'ADD_TAG', name, color }),
+    updateTag: (id, patch) => dispatchWithSync({ type: 'UPDATE_TAG', id, patch }),
+    deleteTag: (id) => dispatchWithSync({ type: 'DELETE_TAG', id }),
     importState: (s) => dispatchWithSync({ type: 'IMPORT', state: s }),
     resetAllData: () => dispatchWithSync({ type: 'RESET' }),
     reloadFromDb,
     addActivity: (taskId, body) => dispatchWithSync({ type: 'ADD_ACTIVITY', taskId, body }),
     updateActivity: (id, body) => dispatchWithSync({ type: 'UPDATE_ACTIVITY', id, body }),
     deleteActivity: (id) => dispatchWithSync({ type: 'DELETE_ACTIVITY', id }),
+    convertActivityToTask: (activityId) =>
+      dispatchWithSync({ type: 'CONVERT_ACTIVITY_TO_TASK', activityId }),
     addChecklistItem: (taskId, title) => dispatchWithSync({ type: 'ADD_CHECKLIST_ITEM', taskId, title }),
     updateChecklistItem: (id, patch) => dispatchWithSync({ type: 'UPDATE_CHECKLIST_ITEM', id, patch }),
     toggleChecklistItem: (id) => dispatchWithSync({ type: 'TOGGLE_CHECKLIST_ITEM', id }),
     deleteChecklistItem: (id) => dispatchWithSync({ type: 'DELETE_CHECKLIST_ITEM', id }),
+    addDependency: (predecessorId, successorId) =>
+      dispatchWithSync({ type: 'ADD_DEPENDENCY', predecessorId, successorId }),
+    removeDependency: (predecessorId, successorId) =>
+      dispatchWithSync({ type: 'REMOVE_DEPENDENCY', predecessorId, successorId }),
+    addSuccessorTask: (predecessor, title) =>
+      dispatchWithSync({ type: 'ADD_SUCCESSOR_TASK', predecessorId: predecessor.id, title }),
     togglePriority: (task) => {
       dispatchWithSync({
         type: 'UPDATE_TASK',
@@ -765,9 +1037,12 @@ export function StoreProvider({ children }) {
     },
     deleteTask: (task) => {
       const checklistItems = (prevStateRef.current.checklistItems ?? []).filter((i) => i.task_id === task.id)
+      const dependencies = (prevStateRef.current.dependencies ?? []).filter(
+        (d) => d.predecessor_id === task.id || d.successor_id === task.id,
+      )
       dispatchWithSync({ type: 'DELETE_TASK', id: task.id })
       showToast('タスクを削除しました', () =>
-        dispatchWithSync({ type: 'RESTORE_TASK', task, checklistItems }),
+        dispatchWithSync({ type: 'RESTORE_TASK', task, checklistItems, dependencies }),
       )
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -836,6 +1111,15 @@ export function useProjectMap() {
     for (const p of state.projects) m.set(p.id, p)
     return m
   }, [state.projects])
+}
+
+export function useTagMap() {
+  const { state } = useStore()
+  return useMemo(() => {
+    const m = new Map()
+    for (const t of state.tags ?? []) m.set(t.id, t)
+    return m
+  }, [state.tags])
 }
 
 /** Projects that should appear in console / WBS / filters (not hidden). */

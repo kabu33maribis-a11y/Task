@@ -11,6 +11,8 @@ const MIGRATION_002: &str = include_str!("../migrations/002_add_console_end_date
 const MIGRATION_003: &str = include_str!("../migrations/003_add_category_color.sql");
 const MIGRATION_004: &str = include_str!("../migrations/004_add_project_hidden.sql");
 const MIGRATION_005: &str = include_str!("../migrations/005_add_checklist_items.sql");
+const MIGRATION_006: &str = include_str!("../migrations/006_add_task_dependencies.sql");
+const MIGRATION_007: &str = include_str!("../migrations/007_add_tags.sql");
 
 pub struct AppDb(Mutex<Option<Pool<Sqlite>>>);
 
@@ -52,6 +54,7 @@ async fn column_exists(pool: &Pool<Sqlite>, table: &str, column: &str) -> Result
         && table != "projects"
         && table != "activities"
         && table != "checklist_items"
+        && table != "tags"
     {
         return Err(format!("invalid table: {table}"));
     }
@@ -92,6 +95,21 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), String> {
 
     if !table_exists(pool, "checklist_items").await? {
         run_sql_script(pool, MIGRATION_005).await?;
+    }
+
+    if !table_exists(pool, "task_dependencies").await? {
+        run_sql_script(pool, MIGRATION_006).await?;
+    }
+
+    if !table_exists(pool, "tags").await? {
+        run_sql_script(pool, MIGRATION_007).await?;
+    }
+
+    if !column_exists(pool, "tasks", "tag_id").await? {
+        sqlx::query("ALTER TABLE tasks ADD COLUMN tag_id TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())

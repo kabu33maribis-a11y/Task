@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.jsx'
 import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays } from '../lib/date.js'
+import { unfinishedPredecessors, successorsOf } from '../lib/dependencies.js'
+import { ownTag } from '../lib/tags.js'
 import ActivityPanel from './ActivityPanel.jsx'
 import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
+import TaskPicker from './TaskPicker.jsx'
 
 export const TASK_DND_TYPE = 'application/x-task-id'
 
@@ -24,9 +27,13 @@ export default function TaskItem({
   const [subtaskTitle, setSubtaskTitle] = useState('')
   const [addingChecklist, setAddingChecklist] = useState(false)
   const [checklistTitle, setChecklistTitle] = useState('')
+  const [addingSuccessor, setAddingSuccessor] = useState(false)
+  const [successorTitle, setSuccessorTitle] = useState('')
+  const [pickingSuccessor, setPickingSuccessor] = useState(false)
   const menuRef = useRef(null)
   const subtaskInputRef = useRef(null)
   const checklistInputRef = useRef(null)
+  const successorInputRef = useRef(null)
 
   function submitSubtask() {
     const t = subtaskTitle.trim()
@@ -52,6 +59,18 @@ export default function TaskItem({
     setChecklistTitle('')
   }
 
+  function submitSuccessor() {
+    const t = successorTitle.trim()
+    if (t) actions.addSuccessorTask(task, t)
+    setSuccessorTitle('')
+    successorInputRef.current?.focus()
+  }
+
+  function closeSuccessorInput() {
+    setAddingSuccessor(false)
+    setSuccessorTitle('')
+  }
+
   const activityCount = state.activities.filter((a) => a.task_id === task.id).length
 
   const subtasks = useMemo(
@@ -72,6 +91,16 @@ export default function TaskItem({
   const doneCheckCount = checklistItems.filter((i) => i.done).length
   const [checklistOpen, setChecklistOpen] = useState(true)
 
+  const waitingPreds = useMemo(
+    () => unfinishedPredecessors(task.id, state.dependencies, state.tasks),
+    [task.id, state.dependencies, state.tasks],
+  )
+  const successors = useMemo(
+    () => successorsOf(task.id, state.dependencies, state.tasks),
+    [task.id, state.dependencies, state.tasks],
+  )
+  const waiting = waitingPreds.length > 0
+
   useEffect(() => {
     if (addingSubtask) setSubtasksOpen(true)
   }, [addingSubtask])
@@ -79,6 +108,10 @@ export default function TaskItem({
   useEffect(() => {
     if (addingChecklist) setChecklistOpen(true)
   }, [addingChecklist])
+
+  useEffect(() => {
+    if (addingSuccessor) successorInputRef.current?.focus()
+  }, [addingSuccessor])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -92,6 +125,7 @@ export default function TaskItem({
   const done = task.status === 'DONE'
   const category = task.category_id ? catMap.get(task.category_id) : null
   const project = task.project_id ? projMap.get(task.project_id) : null
+  const tag = ownTag(task, state.tags)
   const isHighPriority = task.priority === 'high'
 
   function handleDragStart(e) {
@@ -103,6 +137,7 @@ export default function TaskItem({
 
   const classes = ['task']
   if (done) classes.push('done')
+  if (waiting && !done) classes.push('waiting')
   if (isHighPriority && !done) classes.push('priority-high')
   if (dnd?.isDragging) classes.push('dragging')
   if (dnd?.isOver) classes.push('drag-over')
@@ -164,6 +199,14 @@ export default function TaskItem({
                   </span>
                 )}
                 {category && <span className="chip">{category.name}</span>}
+                {tag && (
+                  <span
+                    className="chip chip-tag"
+                    style={tag.color ? { background: tag.color + '33', borderColor: tag.color, color: tag.color } : undefined}
+                  >
+                    [{tag.name}]
+                  </span>
+                )}
                 {showDate && task.scheduled_date && (
                   <span className="meta-note">{formatConsoleDateRange(task)}</span>
                 )}
@@ -172,21 +215,57 @@ export default function TaskItem({
                     完了 {formatMonthDayJP(task.completed_at.slice(0, 10))}
                   </span>
                 )}
+                {waitingPreds.map((p) => (
+                  <span key={`wait-${p.id}`} className="chip chip-waiting" title={`前: ${p.title || '(無題)'}`}>
+                    <span className="chip-label">待ち: {p.title || '(無題)'}</span>
+                    <button
+                      type="button"
+                      className="chip-x"
+                      title="後続リンクを解除"
+                      aria-label="後続リンクを解除"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        actions.removeDependency(p.id, task.id)
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {successors.slice(0, 2).map((s) => (
+                  <span key={`next-${s.id}`} className="chip chip-next" title={s.title || '(無題)'}>
+                    <span className="chip-label">次 → {s.title || '(無題)'}</span>
+                    <button
+                      type="button"
+                      className="chip-x"
+                      title="後続リンクを解除"
+                      aria-label="後続リンクを解除"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        actions.removeDependency(task.id, s.id)
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {successors.length > 2 && (
+                  <span className="chip chip-next">ほか{successors.length - 2}</span>
+                )}
               </div>
               {showDateActions && (
-                <div style={{ marginTop: 8 }}>
-                  <div className="editor-row">
-                    <button className="btn btn-sm" onClick={() => actions.setConsoleDateRange(task.id, todayStr(), null)}>
-                      今日
-                    </button>
-                    <button
-                      className="btn btn-sm"
-                      onClick={() => actions.setConsoleDateRange(task.id, addDays(todayStr(), 1), null)}
-                    >
-                      明日
-                    </button>
-                  </div>
+                <div className="editor-row" style={{ marginTop: 8 }}>
+                  <button className="btn btn-sm" onClick={() => actions.setConsoleDateRange(task.id, todayStr(), null)}>
+                    今日
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => actions.setConsoleDateRange(task.id, addDays(todayStr(), 1), null)}
+                  >
+                    明日
+                  </button>
                   <ConsoleDateRangeFields
+                    className="date-range-inline"
                     start={task.scheduled_date}
                     end={task.console_end_date}
                     onCommit={({ scheduled_date, console_end_date }) =>
@@ -265,6 +344,23 @@ export default function TaskItem({
               >
                 チェック項目を追加
               </button>
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  setPickingSuccessor(true)
+                }}
+              >
+                後続を設定
+              </button>
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  setAddingSuccessor(true)
+                  setTimeout(() => successorInputRef.current?.focus(), 0)
+                }}
+              >
+                このあとやるタスクを追加
+              </button>
               {task.scheduled_date && (
                 <button
                   onClick={() => {
@@ -281,6 +377,40 @@ export default function TaskItem({
       </div>
 
       {activityOpen && <ActivityPanel task={task} />}
+
+      {pickingSuccessor && (
+        <TaskPicker predecessorId={task.id} onClose={() => setPickingSuccessor(false)} />
+      )}
+
+      {addingSuccessor && (
+        <div className="subtask-section successor-section">
+          <div className="subtask-list">
+            <div className="subtask-adder">
+              <span className="addbar-subtask-prefix" aria-hidden>→</span>
+              <input
+                ref={successorInputRef}
+                type="text"
+                value={successorTitle}
+                placeholder="このあとやるタスク"
+                onChange={(e) => setSuccessorTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitSuccessor()
+                  if (e.key === 'Escape') closeSuccessorInput()
+                }}
+                onBlur={(e) => {
+                  if (!e.currentTarget.parentElement?.contains(e.relatedTarget)) closeSuccessorInput()
+                }}
+              />
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={submitSuccessor}
+                disabled={!successorTitle.trim()}
+              >追加</button>
+              <button className="btn btn-sm" onClick={closeSuccessorInput}>×</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(checklistItems.length > 0 || addingChecklist) && (
         <div className="subtask-section checklist-section">
@@ -600,6 +730,24 @@ function InlineEditor({ task, categories, onClose }) {
             ))}
           </select>
         </label>
+        {(state.tags ?? []).length > 0 && (
+          <label>
+            タグ
+            <select
+              value={task.tag_id ?? ''}
+              onChange={(e) => save({ tag_id: e.target.value || null })}
+            >
+              <option value="">なし</option>
+              {[...(state.tags ?? [])]
+                .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
       </div>
     </div>
   )

@@ -2,9 +2,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import { buildTree, buildProjectTrees, prevSibling, flattenVisible } from '../lib/wbs.js'
 import { todayStr, addDays, diffDays, formatMonthDayJP, fromDateStr, deadlineUrgency, daysUntil } from '../lib/date.js'
+import { getJapaneseHolidays } from '../lib/holidays.js'
+import { isWaiting, successorIds } from '../lib/dependencies.js'
+import { ownTag, tagForWbsRow } from '../lib/tags.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import AddTaskBar from '../components/AddTaskBar.jsx'
 import DatePicker from '../components/DatePicker.jsx'
+import TaskPicker from '../components/TaskPicker.jsx'
+import TagPicker from '../components/TagPicker.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
 const HEAD_H = 46 // 軸ヘッダー高
@@ -18,6 +23,11 @@ const ZOOMS = {
   day: { label: '日', w: 34 },
   week: { label: '週', w: 16 },
   month: { label: '月', w: 7 },
+}
+
+function depPath(x1, y1, x2, y2) {
+  const dx = Math.max(28, Math.abs(x2 - x1) * 0.35)
+  return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
 }
 
 function isWeekendDate(str) {
@@ -82,6 +92,8 @@ function WbsGantt({ project, multi }) {
   const [addingChildOf, setAddingChildOf] = useState(null) // task id or proj:* id
   const [addingChecklistOf, setAddingChecklistOf] = useState(null) // task id
   const [datePopover, setDatePopover] = useState(null) // { taskId, x, y }
+  const [linkPopover, setLinkPopover] = useState(null) // { taskId, x, y }
+  const [tagPopover, setTagPopover] = useState(null) // { taskId, x, y }
   const [zoom, setZoom] = useState('day')
   const [showWeekends, setShowWeekends] = useState(() => {
     const s = localStorage.getItem(SHOW_WEEKENDS_KEY)
@@ -183,6 +195,16 @@ function WbsGantt({ project, multi }) {
 
   const totalDays = diffDays(range.start, range.end) + 1
 
+  const holidayMap = useMemo(() => {
+    const years = new Set()
+    for (let i = 0; i < totalDays; i++) {
+      years.add(Number(addDays(range.start, i).slice(0, 4)))
+    }
+    const map = new Map()
+    for (const y of years) for (const [d, name] of getJapaneseHolidays(y)) map.set(d, name)
+    return map
+  }, [range.start, totalDays])
+
   const axis = useMemo(() => {
     const months = []
     const ticks = []
@@ -195,10 +217,10 @@ function WbsGantt({ project, multi }) {
       const last = months[months.length - 1]
       if (last && last.key === key) last.days += 1
       else months.push({ key, label: `${m}月`, days: 1 })
-      ticks.push({ d, dayNum: day, dow, isToday: d === today })
+      ticks.push({ d, dayNum: day, dow, isToday: d === today, holiday: holidayMap.get(d) || null })
     }
     return { months, ticks }
-  }, [range.start, totalDays, today, showWeekends])
+  }, [range.start, totalDays, today, showWeekends, holidayMap])
 
   const canvasW = axis.ticks.length * dayW
 
@@ -365,6 +387,46 @@ function WbsGantt({ project, multi }) {
     setDatePopover({ taskId, x: rect.right, y: rect.bottom })
   }
 
+  function openLinkPopover(taskId, rect) {
+    setLinkPopover({ taskId, x: Math.max(8, rect.right - 280), y: rect.bottom + 4 })
+  }
+
+  function openTagPopover(taskId, rect) {
+    setTagPopover({ taskId, x: Math.max(8, rect.right - 220), y: rect.bottom + 4 })
+  }
+
+  const depLinks = useMemo(() => {
+    const deps = state.dependencies ?? []
+    if (!deps.length) return []
+    const indexById = new Map()
+    rows.forEach((row, i) => {
+      if (row.kind === 'node' && row.node && !row.node.isProject) {
+        indexById.set(row.node.task.id, i)
+      }
+    })
+    const out = []
+    for (const dep of deps) {
+      const i1 = indexById.get(dep.predecessor_id)
+      const i2 = indexById.get(dep.successor_id)
+      if (i1 == null || i2 == null) continue
+      const n1 = rows[i1].node
+      const n2 = rows[i2].node
+      const s1 = drag && drag.id === n1.task.id ? { start: drag.start, end: drag.end } : n1.span
+      const s2 = drag && drag.id === n2.task.id ? { start: drag.start, end: drag.end } : n2.span
+      if (!s1 || !s2) continue
+      const x1 = (colOf(s1.end) + 1) * dayW
+      const y1 = i1 * ROW_H + ROW_H / 2
+      const x2 = colOf(s2.start) * dayW
+      const y2 = i2 * ROW_H + ROW_H / 2
+      out.push({
+        id: dep.id,
+        d: depPath(x1, y1, x2, y2),
+        overlap: s2.start < s1.end,
+      })
+    }
+    return out
+  }, [rows, state.dependencies, drag, dayW, colOf])
+
   const pct = overall.total ? Math.round((overall.done / overall.total) * 100) : 0
   const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
   const hasContent = multi ? visibleProjects.length > 0 : roots.length > 0
@@ -478,13 +540,15 @@ function WbsGantt({ project, multi }) {
                 <div className="gantt-axis-days">
                   {axis.ticks.map((t) => {
                     const weekend = t.dow === 0 || t.dow === 6
+                    const holiday = !!t.holiday
                     const showNum =
                       zoom === 'day' ? true : zoom === 'week' ? t.dow === 1 : t.dayNum === 1
                     return (
                       <div
                         key={t.d}
-                        className={`gantt-axis-day${weekend ? ' weekend' : ''}${t.isToday ? ' today' : ''}`}
+                        className={`gantt-axis-day${weekend ? ' weekend' : ''}${holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}`}
                         style={{ width: dayW }}
+                        title={t.holiday || undefined}
                       >
                         {showNum ? t.dayNum : ''}
                       </div>
@@ -505,6 +569,17 @@ function WbsGantt({ project, multi }) {
                     style={{ left: leftW + colOf(t.d) * dayW, width: dayW }}
                   />
                 ))}
+
+            {/* 祝日列シェーディング */}
+            {axis.ticks
+              .filter((t) => t.holiday)
+              .map((t) => (
+                <div
+                  key={`hol-${t.d}`}
+                  className="gantt-holiday-col"
+                  style={{ left: leftW + colOf(t.d) * dayW, width: dayW }}
+                />
+              ))}
 
             {/* 今日ライン（本文のみ） */}
             {axis.ticks.some((t) => t.d === today) && (
@@ -535,6 +610,11 @@ function WbsGantt({ project, multi }) {
                 (node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)) ||
                 (row.kind === 'checklist' && row.item.done)
               const isCheckRow = row.kind === 'checklist' || row.kind === 'add-checklist'
+              const waiting =
+                node && !node.isProject && isWaiting(node.task.id, state.dependencies, state.tasks)
+              const rowTag = tagForWbsRow(row, state.tasks, state.tags)
+              const rowStyle = { height: ROW_H }
+              if (rowTag?.color) rowStyle['--row-tag-color'] = rowTag.color
               return (
                 <div
                   key={rowKey}
@@ -543,9 +623,13 @@ function WbsGantt({ project, multi }) {
                   }${
                     rowDone ? ' done' : ''
                   }${
+                    waiting && !rowDone ? ' waiting' : ''
+                  }${
                     isCheckRow ? ' checklist-row' : ''
+                  }${
+                    rowTag?.color ? ' has-tag' : ''
                   }`}
-                  style={{ height: ROW_H }}
+                  style={rowStyle}
                 >
                   <div className="gantt-namecell" style={{ width: leftW }}>
                     {row.kind === 'node' ? (
@@ -571,6 +655,8 @@ function WbsGantt({ project, multi }) {
                           onToggleCollapse={toggleCollapse}
                           onExpand={expand}
                           onOpenDatePopover={openDatePopover}
+                          onOpenLinkPopover={openLinkPopover}
+                          onOpenTagPopover={openTagPopover}
                           onAddChild={() => {
                             setAddingChildOf(node.task.id)
                             expand(node.task.id)
@@ -603,7 +689,21 @@ function WbsGantt({ project, multi }) {
                       />
                     )}
                   </div>
-                  <div className="gantt-track" style={{ width: canvasW }}>
+                  <div
+                    className="gantt-track"
+                    style={{ width: canvasW }}
+                    onDoubleClick={
+                      node && !node.isProject && node.isLeaf && !span
+                        ? (e) => {
+                            const col = Math.floor(
+                              (e.clientX - e.currentTarget.getBoundingClientRect().left) / dayW,
+                            )
+                            const d = axis.ticks[col]?.d
+                            if (d) actions.setTaskDates(node.task.id, d, d)
+                          }
+                        : undefined
+                    }
+                  >
                     {span && (
                       <GanttBar
                         node={node}
@@ -613,12 +713,38 @@ function WbsGantt({ project, multi }) {
                         colOf={colOf}
                         dragging={drag?.id === node.task.id}
                         onStartDrag={startDrag}
+                        tagColor={node.isProject ? null : rowTag?.color}
                       />
                     )}
                   </div>
                 </div>
               )
             })}
+            {depLinks.length > 0 && (
+              <svg
+                className="gantt-dep-overlay"
+                style={{ left: leftW, top: HEAD_H, width: canvasW, height: rows.length * ROW_H }}
+                viewBox={`0 0 ${canvasW} ${rows.length * ROW_H}`}
+                aria-hidden
+              >
+                <defs>
+                  <marker id="gantt-dep-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="var(--primary-deep)" />
+                  </marker>
+                  <marker id="gantt-dep-arrow-overlap" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="var(--shu)" />
+                  </marker>
+                </defs>
+                {depLinks.map((l) => (
+                  <path
+                    key={l.id}
+                    d={l.d}
+                    className={`gantt-dep-path${l.overlap ? ' overlap' : ''}`}
+                    markerEnd={l.overlap ? 'url(#gantt-dep-arrow-overlap)' : 'url(#gantt-dep-arrow)'}
+                  />
+                ))}
+              </svg>
+            )}
           </div>
         </div>
       )}
@@ -631,11 +757,27 @@ function WbsGantt({ project, multi }) {
           onClose={() => setDatePopover(null)}
         />
       )}
+      {linkPopover && (
+        <TaskPicker
+          predecessorId={linkPopover.taskId}
+          onClose={() => setLinkPopover(null)}
+          fixed
+          style={{ left: linkPopover.x, top: linkPopover.y }}
+        />
+      )}
+      {tagPopover && (
+        <TagPicker
+          taskId={tagPopover.taskId}
+          onClose={() => setTagPopover(null)}
+          fixed
+          style={{ left: tagPopover.x, top: tagPopover.y }}
+        />
+      )}
     </div>
   )
 }
 
-function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag }) {
+function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag, tagColor }) {
   const { rollup, isLeaf, isProject, project } = node
   const startCol = colOf(span.start)
   const endCol = colOf(span.end)
@@ -660,6 +802,10 @@ function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag }) {
     barStyle.background = project?.color ? project.color + '44' : undefined
     barStyle.borderColor = project?.color || undefined
     fillStyle.background = c
+  } else if (tagColor) {
+    barStyle.borderColor = tagColor
+    if (isLeaf) barStyle.background = tagColor + '33'
+    fillStyle.background = tagColor
   }
 
   return (
@@ -745,10 +891,12 @@ function LeftRow({
   onToggleCollapse,
   onExpand,
   onOpenDatePopover,
+  onOpenLinkPopover,
+  onOpenTagPopover,
   onAddChild,
   onAddChecklist,
 }) {
-  const { actions } = useStore()
+  const { state, actions } = useStore()
   const { task, depth, wbsNo, allDone, isLeaf } = node
   const hasChildren = !isLeaf
   const checkTotal = checklistItems.length
@@ -769,6 +917,9 @@ function LeftRow({
   const endDate = node.span?.end ?? null
   const urgency = deadlineUrgency(endDate, { completed: done })
   const leftDays = endDate ? daysUntil(endDate) : null
+  const waiting = !done && isWaiting(task.id, state.dependencies, state.tasks)
+  const hasSuccessor = successorIds(task.id, state.dependencies).length > 0
+  const tag = ownTag(task, state.tags)
 
   function commitTitle() {
     const t = draft.trim()
@@ -858,12 +1009,40 @@ function LeftRow({
               {checkDone}/{checkTotal}
             </span>
           )}
+          {waiting && (
+            <span className="wbs-waiting-badge" title="前のタスクが未完了">
+              待ち
+            </span>
+          )}
+          {tag && (
+            <span
+              className="wbs-tag-badge"
+              title={`タグ: ${tag.name}`}
+              style={tag.color ? { borderColor: tag.color, color: tag.color, background: tag.color + '22' } : undefined}
+            >
+              [{tag.name}]
+            </span>
+          )}
         </>
       )}
 
       <div className="wbs-actions">
         <button className="wbs-act" onClick={onAddChild} title="子タスクを追加">＋子</button>
         <button className="wbs-act" onClick={onAddChecklist} title="チェック項目を追加">＋☑</button>
+        <button
+          className={`wbs-act${tag ? ' set' : ''}`}
+          onClick={(e) => onOpenTagPopover(task.id, e.currentTarget.getBoundingClientRect())}
+          title="タグを設定"
+        >
+          タグ
+        </button>
+        <button
+          className={`wbs-act${hasSuccessor ? ' set' : ''}`}
+          onClick={(e) => onOpenLinkPopover(task.id, e.currentTarget.getBoundingClientRect())}
+          title="後続を設定"
+        >
+          後続
+        </button>
         <button className="wbs-act" onClick={indent} title="階層を下げる">→</button>
         <button className="wbs-act" onClick={outdent} title="階層を上げる" disabled={task.parent_id == null}>
           ←

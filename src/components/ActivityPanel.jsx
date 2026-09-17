@@ -58,6 +58,14 @@ function ActivityItem({ activity }) {
         </span>
       )}
       <button
+        className="activity-to-task"
+        onClick={() => actions.convertActivityToTask(activity.id)}
+        title="タスクにする"
+        aria-label="タスクにする"
+      >
+        ↗
+      </button>
+      <button
         className="activity-del"
         onClick={() => actions.deleteActivity(activity.id)}
         aria-label="削除"
