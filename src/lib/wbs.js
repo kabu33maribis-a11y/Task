@@ -9,15 +9,21 @@ function taskStart(task) {
   return task.start_date ?? task.scheduled_date ?? null
 }
 
-// Default WBS sibling order: earliest start first; no start date goes last.
+const byTitle = (a, b) => {
+  const cmp = (a.title || '').localeCompare(b.title || '', 'ja')
+  return cmp !== 0 ? cmp : bySort(a, b)
+}
+
+// Default WBS sibling order: earliest start first; no start date goes last;
+// same start (or both undated) → title ascending.
 const byStartDate = (a, b) => {
   const sa = taskStart(a)
   const sb = taskStart(b)
-  if (!sa && !sb) return bySort(a, b)
+  if (!sa && !sb) return byTitle(a, b)
   if (!sa) return 1
   if (!sb) return -1
   if (sa !== sb) return sa < sb ? -1 : 1
-  return bySort(a, b)
+  return byTitle(a, b)
 }
 
 const UNASSIGNED_PROJECT = { id: null, name: 'プロジェクト未設定', color: null, sort_order: Infinity }
