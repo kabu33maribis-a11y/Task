@@ -3935,15 +3935,132 @@ select {
   z-index: -1; /* behind rows: hidden under the frozen name column, shows through the transparent track */
   pointer-events: none;
 }
+.gantt-now-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.gantt-now-badge {
+  position: sticky;
+  top: 6px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--washi);
+  background: var(--primary);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--primary) 45%, transparent);
+  white-space: nowrap;
+}
 .gantt-now-line {
   position: absolute;
+  top: 0;
   bottom: 0;
+  left: 0;
   width: 2px;
   margin-left: -1px;
   background: var(--primary);
-  opacity: 0.65;
-  z-index: -1;
+  opacity: 0.55;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.gantt-matrix.hour-dragging .gantt-now-line {
+  width: 3px;
+  margin-left: -1.5px;
+  opacity: 0.85;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent),
+    0 0 10px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.gantt-matrix.hour-dragging .gantt-now-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.gantt-time-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 6;
   pointer-events: none;
+}
+.gantt-time-guide::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--headh) - 2px);
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent, #d97706);
+  opacity: 0.75;
+}
+.gantt-time-guide.is-active::before {
+  width: 3px;
+  margin-left: -1.5px;
+  opacity: 1;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent, #d97706) 30%, transparent),
+    0 0 12px color-mix(in srgb, var(--accent, #d97706) 45%, transparent);
+}
+.gantt-time-guide--start::before {
+  background: #059669;
+}
+.gantt-time-guide--start.is-active::before {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #059669 30%, transparent),
+    0 0 12px color-mix(in srgb, #059669 45%, transparent);
+}
+.gantt-time-guide--end::before {
+  background: #dc2626;
+}
+.gantt-time-guide--end.is-active::before {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #dc2626 30%, transparent),
+    0 0 12px color-mix(in srgb, #dc2626 45%, transparent);
+}
+.gantt-time-guide-label {
+  position: sticky;
+  top: calc(var(--headh) - 24px);
+  transform: translateX(-50%);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 6px;
+  border-radius: var(--r);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  background: var(--washi-raised);
+  border: 1px solid var(--rule-strong);
+  box-shadow: 0 2px 8px rgba(33, 32, 27, 0.14);
+  white-space: nowrap;
+}
+.gantt-time-guide.is-active .gantt-time-guide-label {
+  font-weight: 600;
+  border-width: 2px;
+}
+.gantt-time-guide--start .gantt-time-guide-label {
+  border-color: #059669;
+}
+.gantt-time-guide--end .gantt-time-guide-label {
+  border-color: #dc2626;
+}
+.gantt-time-guide-time {
+  font-size: 12px;
+  color: var(--text);
+}
+.gantt-time-guide-date {
+  font-size: 9px;
+  color: var(--sumi-soft);
 }
 
 /* Hour zoom axis */
@@ -3952,16 +4069,24 @@ select {
   height: 28px;
 }
 .gantt-axis-hour-day {
+  position: sticky;
+  left: var(--leftw);
+  z-index: 2;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-left: 8px;
   box-sizing: border-box;
   border-right: 1px solid var(--rule-strong);
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text);
-  background: var(--washi);
+  background: var(--washi-sink);
+  overflow: hidden;
+}
+.gantt-axis-hour-day-label {
+  white-space: nowrap;
 }
 .gantt-axis-hour-day.focus {
   background: color-mix(in srgb, var(--primary) 12%, var(--washi));
@@ -4003,6 +4128,14 @@ select {
 .gantt-axis-hour.night {
   background: rgba(100, 116, 139, 0.06);
 }
+.gantt-axis-hour.off-block {
+  font-size: 9px;
+  color: var(--sumi-faint);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  padding: 0 1px;
+  overflow: hidden;
+}
 .gantt-axis-hour.biz {
   background: transparent;
 }
@@ -4016,6 +4149,9 @@ select {
 }
 .gantt-hour-col.night {
   background: rgba(100, 116, 139, 0.05);
+}
+.gantt-hour-col.off-block {
+  background: rgba(100, 116, 139, 0.08);
 }
 .gantt-hour-col.biz {
   background: color-mix(in srgb, var(--primary) 4%, transparent);

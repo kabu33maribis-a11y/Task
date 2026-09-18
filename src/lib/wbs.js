@@ -1,7 +1,16 @@
 // WBS (Work Breakdown Structure) helpers.
 // Pure functions over a flat task list (single-project or multi-project).
 
-import { resolveTaskTimes, compareDateTime } from './date.js'
+import {
+  resolveTaskTimes,
+  compareDateTime,
+  diffDays,
+  addDays,
+  timeToMinutes,
+  minutesToTime,
+  toAbsoluteMinutes,
+  snapMinutes,
+} from './date.js'
 
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
 
@@ -227,6 +236,97 @@ export function filterCompletedTree(roots) {
     return out
   }
   return prune(roots)
+}
+
+// Hour zoom layout (9–18h full width, off-hours compressed) ----------------
+
+export const HOUR_BIZ_START = 9
+export const HOUR_BIZ_END = 18
+export const HOUR_OFF_HOUR_W = 12
+
+/** @param {number} [bizHourW=28] full width per business hour */
+export function createHourLayout(bizHourW = 28, offHourW = HOUR_OFF_HOUR_W) {
+  const offEarlyHours = HOUR_BIZ_START
+  const bizHours = HOUR_BIZ_END - HOUR_BIZ_START
+  const offLateHours = 24 - HOUR_BIZ_END
+  const offEarlyWidth = offEarlyHours * offHourW
+  const bizWidth = bizHours * bizHourW
+  const offLateWidth = offLateHours * offHourW
+  const dayWidth = offEarlyWidth + bizWidth + offLateWidth
+  return {
+    bizHourW,
+    offHourW,
+    offEarlyWidth,
+    offLateWidth,
+    bizWidth,
+    dayWidth,
+    bizHours,
+  }
+}
+
+const BIZ_START_MINS = HOUR_BIZ_START * 60
+const BIZ_END_MINS = HOUR_BIZ_END * 60
+
+export function minsInDayToHourX(mins, layout) {
+  const m = Math.max(0, Math.min(1440, mins))
+  const { offEarlyWidth, bizWidth, offLateWidth } = layout
+  if (m <= BIZ_START_MINS) return (m / BIZ_START_MINS) * offEarlyWidth
+  if (m <= BIZ_END_MINS) {
+    return offEarlyWidth + ((m - BIZ_START_MINS) / (BIZ_END_MINS - BIZ_START_MINS)) * bizWidth
+  }
+  return offEarlyWidth + bizWidth + ((m - BIZ_END_MINS) / (1440 - BIZ_END_MINS)) * offLateWidth
+}
+
+export function hourXInDayToMins(x, layout) {
+  const { offEarlyWidth, bizWidth, offLateWidth, dayWidth } = layout
+  const clamped = Math.max(0, Math.min(dayWidth, x))
+  if (clamped <= offEarlyWidth) return (clamped / offEarlyWidth) * BIZ_START_MINS
+  if (clamped <= offEarlyWidth + bizWidth) {
+    return BIZ_START_MINS + ((clamped - offEarlyWidth) / bizWidth) * (BIZ_END_MINS - BIZ_START_MINS)
+  }
+  return BIZ_END_MINS + ((clamped - offEarlyWidth - bizWidth) / offLateWidth) * (1440 - BIZ_END_MINS)
+}
+
+export function hourXOf(date, time, rangeStart, layout) {
+  const dayOff = diffDays(rangeStart, date)
+  return dayOff * layout.dayWidth + minsInDayToHourX(timeToMinutes(time), layout)
+}
+
+export function hourXToSchedule(x, rangeStart, layout) {
+  const dayOff = Math.max(0, Math.floor(x / layout.dayWidth))
+  const xInDay = x - dayOff * layout.dayWidth
+  const mins = snapMinutes(hourXInDayToMins(xInDay, layout))
+  return { date: addDays(rangeStart, dayOff), time: minutesToTime(mins) }
+}
+
+export function absoluteMinutesToHourX(absMins, rangeStart, layout) {
+  const base = toAbsoluteMinutes(rangeStart, '00:00')
+  const rel = absMins - base
+  const dayOff = Math.floor(rel / 1440)
+  const minsInDay = ((rel % 1440) + 1440) % 1440
+  return dayOff * layout.dayWidth + minsInDayToHourX(minsInDay, layout)
+}
+
+export function hourAxisPattern(layout) {
+  const segs = []
+  for (let h = 0; h < 24; h++) {
+    const biz = h >= HOUR_BIZ_START && h < HOUR_BIZ_END
+    segs.push({
+      key: String(h),
+      kind: biz ? 'biz' : 'off',
+      hour: h,
+      width: biz ? layout.bizHourW : layout.offHourW,
+      biz,
+      night: !biz,
+    })
+  }
+  return segs
+}
+
+export function hourSegmentOffset(segments, index) {
+  let x = 0
+  for (let i = 0; i < index; i++) x += segments[i].width
+  return x
 }
 
 // Gantt axis header ------------------------------------------------------

@@ -11,8 +11,14 @@ import {
   filterCompletedTree,
   ganttHeadH,
   ganttAxisCellLabels,
+  createHourLayout,
+  hourXOf,
+  hourXToSchedule,
+  absoluteMinutesToHourX,
+  hourAxisPattern,
+  hourSegmentOffset,
 } from '../lib/wbs.js'
-import { todayStr, addDays, diffDays, formatMonthDayJP, formatWeekdayJP, fromDateStr, deadlineInfo, dateTimeKey, snapMinutes, timeToMinutes, minutesToTime, addMinutesToDateTime, TIME_SNAP_MINUTES, DEFAULT_START_TIME, DEFAULT_END_TIME, normalizeTimeStr } from '../lib/date.js'
+import { todayStr, addDays, diffDays, formatMonthDayJP, formatWeekdayJP, fromDateStr, deadlineInfo, dateTimeKey, timeToMinutes, minutesToTime, addMinutesToDateTime, toAbsoluteMinutes, TIME_SNAP_MINUTES, DEFAULT_START_TIME, DEFAULT_END_TIME, normalizeTimeStr } from '../lib/date.js'
 import { getJapaneseHolidays, monthBusinessDayStats } from '../lib/holidays.js'
 import {
   isWaiting,
@@ -50,14 +56,6 @@ const ZOOMS = {
 }
 
 const HOUR_RANGE_PAD = 1 // focus ±1 day → 3 days
-const BIZ_HOUR_START = 9
-const BIZ_HOUR_END = 18
-
-/** Pixel X for a date+time on the hour canvas (rangeStart = leftmost day). */
-function hourXOf(date, time, rangeStart, hourW) {
-  const dayOff = diffDays(rangeStart, date)
-  return (dayOff * 1440 + timeToMinutes(time)) * (hourW / 60)
-}
 
 function spansOverlap(s1, s2) {
   if (!s1 || !s2) return false
@@ -169,6 +167,7 @@ function WbsGantt({ project, multi }) {
     return s === null ? true : s === '1'
   })
   const [drag, setDrag] = useState(null) // {id, mode, start, end}
+  const [now, setNow] = useState(() => new Date())
   const [selectedId, setSelectedId] = useState(null)
   const [hoveredId, setHoveredId] = useState(null)
   const [hoveredLinkId, setHoveredLinkId] = useState(null)
@@ -181,10 +180,23 @@ function WbsGantt({ project, multi }) {
   const matrixRef = useRef(null)
   const linkDragRef = useRef(null)
   const isHourZoom = zoom === 'hour'
-  const hourW = isHourZoom ? ZOOMS.hour.hourW : 0
-  const dayW = isHourZoom ? hourW * 24 : ZOOMS[zoom].w
-  const pxPerMin = isHourZoom ? hourW / 60 : 0
+  const hourLayout = useMemo(
+    () => (isHourZoom ? createHourLayout(ZOOMS.hour.hourW) : null),
+    [isHourZoom],
+  )
+  const hourSegments = useMemo(
+    () => (hourLayout ? hourAxisPattern(hourLayout) : []),
+    [hourLayout],
+  )
+  const dayW = isHourZoom ? hourLayout.dayWidth : ZOOMS[zoom].w
   const headH = ganttHeadH(showWeekdays, zoom)
+
+  useEffect(() => {
+    if (!isHourZoom) return undefined
+    setNow(new Date())
+    const id = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(id)
+  }, [isHourZoom])
 
   const itemsByTask = useMemo(() => {
     const map = new Map()
@@ -301,7 +313,6 @@ function WbsGantt({ project, multi }) {
   const axis = useMemo(() => {
     if (isHourZoom) {
       const days = []
-      const hours = []
       for (let i = 0; i < totalDays; i++) {
         const d = addDays(range.start, i)
         const [y, m, day] = d.split('-').map(Number)
@@ -316,17 +327,8 @@ function WbsGantt({ project, multi }) {
           weekend: dow === 0 || dow === 6,
           holiday: holidayMap.get(d) || null,
         })
-        for (let h = 0; h < 24; h++) {
-          hours.push({
-            d,
-            hour: h,
-            key: `${d}T${String(h).padStart(2, '0')}`,
-            biz: h >= BIZ_HOUR_START && h < BIZ_HOUR_END,
-            isMajor: h % 3 === 0,
-          })
-        }
       }
-      return { months: [], ticks: days, days, hours }
+      return { months: [], ticks: days, days, hours: [], hourSegments }
     }
     const months = []
     const ticks = []
@@ -342,9 +344,15 @@ function WbsGantt({ project, multi }) {
       ticks.push({ d, dayNum: day, dow, isToday: d === today, holiday: holidayMap.get(d) || null })
     }
     return { months, ticks, days: ticks, hours: [] }
-  }, [range.start, totalDays, today, showWeekends, holidayMap, isHourZoom, focusDate])
+  }, [range.start, totalDays, today, showWeekends, holidayMap, isHourZoom, focusDate, hourSegments])
 
-  const canvasW = isHourZoom ? totalDays * 24 * hourW : axis.ticks.length * dayW
+  const canvasW = isHourZoom ? totalDays * hourLayout.dayWidth : axis.ticks.length * dayW
+
+  const nowTimeStr = minutesToTime(now.getHours() * 60 + now.getMinutes())
+  const showNowLine = isHourZoom && axis.days.some((t) => t.d === today)
+  const nowLineX = showNowLine
+    ? leftW + hourXOf(today, nowTimeStr, range.start, hourLayout)
+    : 0
 
   const colOf = useMemo(() => {
     const map = new Map()
@@ -366,11 +374,11 @@ function WbsGantt({ project, multi }) {
   }, [axis.ticks])
 
   const xOfSpanStart = (span) => {
-    if (isHourZoom) return hourXOf(span.start, span.startTime, range.start, hourW)
+    if (isHourZoom) return hourXOf(span.start, span.startTime, range.start, hourLayout)
     return colOf(span.start) * dayW
   }
   const xOfSpanEnd = (span) => {
-    if (isHourZoom) return hourXOf(span.end, span.endTime, range.start, hourW)
+    if (isHourZoom) return hourXOf(span.end, span.endTime, range.start, hourLayout)
     return (colOf(span.end) + 1) * dayW
   }
 
@@ -382,7 +390,7 @@ function WbsGantt({ project, multi }) {
       const now = new Date()
       const scrollDate = focusDate === today ? today : focusDate
       const mins = focusDate === today ? now.getHours() * 60 + now.getMinutes() : 9 * 60
-      const x = leftW + hourXOf(scrollDate, minutesToTime(mins), range.start, hourW)
+      const x = leftW + hourXOf(scrollDate, minutesToTime(mins), range.start, hourLayout)
       el.scrollLeft = Math.max(0, x - el.clientWidth * 0.35)
     } else {
       const todayX = leftW + colOf(today) * dayW
@@ -530,12 +538,22 @@ function WbsGantt({ project, multi }) {
     if (!drag) return
     function onMove(e) {
       if (drag.unit === 'hour') {
-        const deltaMins = snapMinutes((e.clientX - drag.startX) / pxPerMin)
+        const deltaPx = e.clientX - drag.startX
         setDrag((d) => {
           if (!d) return d
+          const origStartX = absoluteMinutesToHourX(
+            toAbsoluteMinutes(d.origStart, d.origStartTime),
+            range.start,
+            hourLayout,
+          )
+          const origEndX = absoluteMinutesToHourX(
+            toAbsoluteMinutes(d.origEnd, d.origEndTime),
+            range.start,
+            hourLayout,
+          )
           if (d.mode === 'move') {
-            const ns = addMinutesToDateTime(d.origStart, d.origStartTime, deltaMins)
-            const ne = addMinutesToDateTime(d.origEnd, d.origEndTime, deltaMins)
+            const ns = hourXToSchedule(origStartX + deltaPx, range.start, hourLayout)
+            const ne = hourXToSchedule(origEndX + deltaPx, range.start, hourLayout)
             return {
               ...d,
               start: ns.date,
@@ -545,7 +563,7 @@ function WbsGantt({ project, multi }) {
             }
           }
           if (d.mode === 'start') {
-            const ns = addMinutesToDateTime(d.origStart, d.origStartTime, deltaMins)
+            const ns = hourXToSchedule(origStartX + deltaPx, range.start, hourLayout)
             const startKey = dateTimeKey(ns.date, ns.time)
             const endKey = dateTimeKey(d.origEnd, d.origEndTime)
             const minEnd = addMinutesToDateTime(d.origEnd, d.origEndTime, -TIME_SNAP_MINUTES)
@@ -560,7 +578,7 @@ function WbsGantt({ project, multi }) {
             }
             return { ...d, start: ns.date, startTime: ns.time, end: d.origEnd, endTime: d.origEndTime }
           }
-          const ne = addMinutesToDateTime(d.origEnd, d.origEndTime, deltaMins)
+          const ne = hourXToSchedule(origEndX + deltaPx, range.start, hourLayout)
           const startKey = dateTimeKey(d.origStart, d.origStartTime)
           const endKey = dateTimeKey(ne.date, ne.time)
           if (endKey <= startKey) {
@@ -615,7 +633,7 @@ function WbsGantt({ project, multi }) {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
-  }, [drag, dayW, pxPerMin, actions, showWeekends])
+  }, [drag, dayW, hourLayout, range.start, actions, showWeekends])
 
   function startDrag(e, node, mode) {
     e.preventDefault()
@@ -738,7 +756,7 @@ function WbsGantt({ project, multi }) {
     }
     return buildGanttDepPaths(raw, { rowH: ROW_H, maxX: canvasW })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, state.dependencies, drag, dayW, hourW, colOf, canvasW, isHourZoom, range.start])
+  }, [rows, state.dependencies, drag, dayW, hourLayout, colOf, canvasW, isHourZoom, range.start])
 
   const selectedRelated = useMemo(
     () => relatedTaskIds(selectedId, state.dependencies),
@@ -785,7 +803,7 @@ function WbsGantt({ project, multi }) {
     }
     return { d: `M ${linkDrag.x1} ${linkDrag.y1} L ${linkDrag.x2} ${linkDrag.y2}`, snapped: false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkDrag, rows, state.dependencies, drag, dayW, hourW, colOf, canvasW, isHourZoom, range.start])
+  }, [linkDrag, rows, state.dependencies, drag, dayW, hourLayout, colOf, canvasW, isHourZoom, range.start])
 
   useEffect(() => {
     linkDragRef.current = linkDrag
@@ -1043,13 +1061,14 @@ function WbsGantt({ project, multi }) {
         <div className="gantt" ref={scrollRef}>
           <div
             ref={matrixRef}
-            className={`gantt-matrix${selectedId ? ' dep-focus' : ''}${linkDrag ? ' dep-linking' : ''}`}
+            className={`gantt-matrix${selectedId ? ' dep-focus' : ''}${linkDrag ? ' dep-linking' : ''}${isHourZoom ? ' hour-zoom' : ''}${drag?.unit === 'hour' ? ' hour-dragging' : ''}`}
             data-link-side={linkDrag?.fromSide || undefined}
             style={{
               width: leftW + canvasW,
               '--dayw': `${dayW}px`,
-              '--hourw': `${hourW || 28}px`,
+              '--hourw': `${hourLayout?.bizHourW || 28}px`,
               '--leftw': `${leftW}px`,
+              '--headh': `${headH}px`,
               '--rowh': `${ROW_H}px`,
             }}
           >
@@ -1074,7 +1093,7 @@ function WbsGantt({ project, multi }) {
                         <div
                           key={t.d}
                           className={`gantt-axis-hour-day${t.weekend ? ' weekend' : ''}${t.holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}${t.isFocus ? ' focus' : ''}`}
-                          style={{ width: 24 * hourW }}
+                          style={{ width: hourLayout.dayWidth }}
                           title={t.holiday || undefined}
                         >
                           <span className="gantt-axis-hour-day-label">
@@ -1085,15 +1104,17 @@ function WbsGantt({ project, multi }) {
                       ))}
                     </div>
                     <div className="gantt-axis-hours">
-                      {axis.hours.map((h) => (
-                        <div
-                          key={h.key}
-                          className={`gantt-axis-hour${h.biz ? ' biz' : ' night'}${h.isMajor ? ' major' : ''}`}
-                          style={{ width: hourW }}
-                        >
-                          {h.isMajor ? h.hour : ''}
-                        </div>
-                      ))}
+                      {axis.days.flatMap((t) =>
+                        hourSegments.map((seg) => (
+                          <div
+                            key={`${t.d}-${seg.key}`}
+                            className={`gantt-axis-hour${seg.biz ? ' biz' : ' night off-block'}`}
+                            style={{ width: seg.width }}
+                          >
+                            {seg.hour}
+                          </div>
+                        )),
+                      )}
                     </div>
                   </>
                 ) : (
@@ -1142,13 +1163,18 @@ function WbsGantt({ project, multi }) {
 
             {/* 時間ビュー: 業務時間 / 夜間シェーディング */}
             {isHourZoom &&
-              axis.hours.map((h) => (
-                <div
-                  key={`hg-${h.key}`}
-                  className={`gantt-hour-col${h.biz ? ' biz' : ' night'}`}
-                  style={{ left: leftW + hourXOf(h.d, minutesToTime(h.hour * 60), range.start, hourW), width: hourW }}
-                />
-              ))}
+              axis.days.flatMap((t, dayIdx) =>
+                hourSegments.map((seg, segIdx) => (
+                  <div
+                    key={`hg-${t.d}-${seg.key}`}
+                    className={`gantt-hour-col${seg.biz ? ' biz' : ' night off-block'}`}
+                    style={{
+                      left: leftW + dayIdx * hourLayout.dayWidth + hourSegmentOffset(hourSegments, segIdx),
+                      width: seg.width,
+                    }}
+                  />
+                )),
+              )}
 
             {/* 週末列シェーディング */}
             {!isHourZoom &&
@@ -1175,26 +1201,27 @@ function WbsGantt({ project, multi }) {
                   />
                 ))}
 
-            {/* 今日ライン / 現在時刻ライン */}
-            {isHourZoom && axis.days.some((t) => t.d === today) && (
-              <div
-                className="gantt-now-line"
-                style={{
-                  left: (() => {
-                    const now = new Date()
-                    return (
-                      leftW +
-                      hourXOf(
-                        today,
-                        minutesToTime(now.getHours() * 60 + now.getMinutes()),
-                        range.start,
-                        hourW,
-                      )
-                    )
-                  })(),
-                  top: headH,
-                }}
-              />
+            {/* 現在時刻ライン（時間ズーム） / 今日ライン */}
+            {showNowLine && (
+              <GanttNowMarker left={nowLineX} time={nowTimeStr} />
+            )}
+            {drag?.unit === 'hour' && (
+              <>
+                <GanttTimeGuide
+                  left={leftW + hourXOf(drag.start, drag.startTime, range.start, hourLayout)}
+                  label={drag.startTime}
+                  sub={formatMonthDayJP(drag.start)}
+                  active={drag.mode === 'start' || drag.mode === 'move'}
+                  kind="start"
+                />
+                <GanttTimeGuide
+                  left={leftW + hourXOf(drag.end, drag.endTime, range.start, hourLayout)}
+                  label={drag.endTime}
+                  sub={formatMonthDayJP(drag.end)}
+                  active={drag.mode === 'end' || drag.mode === 'move'}
+                  kind="end"
+                />
+              </>
             )}
             {!isHourZoom && axis.ticks.some((t) => t.d === today) && (
               <div
@@ -1338,7 +1365,7 @@ function WbsGantt({ project, multi }) {
                     <UnscheduledGanttTrack
                       width={canvasW}
                       dayW={dayW}
-                      hourW={hourW}
+                      hourLayout={hourLayout}
                       isHourZoom={isHourZoom}
                       rangeStart={range.start}
                       ticks={axis.ticks}
@@ -1368,7 +1395,7 @@ function WbsGantt({ project, multi }) {
                           node={node}
                           span={span}
                           dayW={dayW}
-                          hourW={hourW}
+                          hourLayout={hourLayout}
                           isHourZoom={isHourZoom}
                           rangeStart={range.start}
                           today={today}
@@ -1514,11 +1541,37 @@ function WbsGantt({ project, multi }) {
   )
 }
 
+/** 現在時刻 — 軸ラベル付き縦線 */
+function GanttNowMarker({ left, time }) {
+  return (
+    <div className="gantt-now-marker" style={{ left }} aria-hidden>
+      <span className="gantt-now-badge">現在 {time}</span>
+      <span className="gantt-now-line" />
+    </div>
+  )
+}
+
+/** ドラッグ中の開始/終了時刻ガイド */
+function GanttTimeGuide({ left, label, sub, active, kind }) {
+  return (
+    <div
+      className={`gantt-time-guide gantt-time-guide--${kind}${active ? ' is-active' : ''}`}
+      style={{ left }}
+      aria-hidden
+    >
+      <span className="gantt-time-guide-label">
+        <span className="gantt-time-guide-time">{label}</span>
+        {sub && <span className="gantt-time-guide-date">{sub}</span>}
+      </span>
+    </div>
+  )
+}
+
 /** 期間未設定の葉タスク行: ダブルクリックで日付/時刻追加、ホバーでヒント表示 */
 function UnscheduledGanttTrack({
   width,
   dayW,
-  hourW,
+  hourLayout,
   isHourZoom,
   rangeStart,
   ticks,
@@ -1539,12 +1592,13 @@ function UnscheduledGanttTrack({
   const pickFromEvent = (e) => {
     const x = e.clientX - e.currentTarget.getBoundingClientRect().left
     if (isHourZoom) {
-      const totalMins = snapMinutes(x / (hourW / 60))
-      const dayOff = Math.floor(totalMins / 1440)
-      const mins = ((totalMins % 1440) + 1440) % 1440
-      const date = addDays(rangeStart, Math.max(0, Math.min(dayOff, ticks.length - 1)))
-      const time = minutesToTime(mins)
-      return { date, time, left: hourXOf(date, time, rangeStart, hourW) }
+      const picked = hourXToSchedule(x, rangeStart, hourLayout)
+      const dayOff = diffDays(rangeStart, picked.date)
+      if (dayOff < 0 || dayOff >= ticks.length) return null
+      return {
+        ...picked,
+        left: hourXOf(picked.date, picked.time, rangeStart, hourLayout),
+      }
     }
     const col = Math.floor(x / dayW)
     const d = ticks[col]?.d
@@ -1610,7 +1664,7 @@ function GanttBar({
   node,
   span,
   dayW,
-  hourW,
+  hourLayout,
   isHourZoom,
   rangeStart,
   today,
@@ -1629,9 +1683,9 @@ function GanttBar({
   let left
   let width
   if (isHourZoom) {
-    left = hourXOf(span.start, span.startTime, rangeStart, hourW)
-    const right = hourXOf(span.end, span.endTime, rangeStart, hourW)
-    width = Math.max(hourW / 4, right - left)
+    left = hourXOf(span.start, span.startTime, rangeStart, hourLayout)
+    const right = hourXOf(span.end, span.endTime, rangeStart, hourLayout)
+    width = Math.max(hourLayout.bizHourW / 4, right - left)
   } else {
     const startCol = colOf(span.start)
     const endCol = colOf(span.end)
