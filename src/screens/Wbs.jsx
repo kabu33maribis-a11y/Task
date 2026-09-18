@@ -2,10 +2,28 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
-import { buildTree, buildProjectTrees, prevSibling, flattenVisible, filterCompletedTree } from '../lib/wbs.js'
-import { todayStr, addDays, diffDays, formatMonthDayJP, fromDateStr, deadlineUrgency, daysUntil } from '../lib/date.js'
-import { getJapaneseHolidays } from '../lib/holidays.js'
-import { isWaiting, successorIds } from '../lib/dependencies.js'
+import {
+  buildTree,
+  buildProjectTrees,
+  buildTaskIndex,
+  prevSibling,
+  flattenVisible,
+  filterCompletedTree,
+  ganttHeadH,
+  ganttAxisCellLabels,
+} from '../lib/wbs.js'
+import { todayStr, addDays, diffDays, formatMonthDayJP, formatWeekdayJP, fromDateStr, deadlineInfo } from '../lib/date.js'
+import { getJapaneseHolidays, monthBusinessDayStats } from '../lib/holidays.js'
+import {
+  isWaiting,
+  successorIds,
+  predecessorIds,
+  predecessorsOf,
+  successorsOf,
+  hasLink,
+  wouldCreateCycle,
+} from '../lib/dependencies.js'
+import { buildGanttDepPaths } from '../lib/ganttDepPath.js'
 import { ownTag, tagForWbsRow } from '../lib/tags.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import AddTaskBar from '../components/AddTaskBar.jsx'
@@ -16,12 +34,12 @@ import ExportExcelDialog from '../components/ExportExcelDialog.jsx'
 import ScheduleOverviewDialog from '../components/ScheduleOverviewDialog.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
-const HEAD_H = 46 // 軸ヘッダー高
 const DEFAULT_LEFT_W = 340 // 固定タスク列の初期幅
 const MIN_LEFT_W = 220
 const MAX_LEFT_W = 760
 const LEFT_W_KEY = 'taskmanager.wbs.leftw'
 const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
+const SHOW_WEEKDAYS_KEY = 'taskmanager.wbs.showWeekdays'
 const SHOW_COMPLETED_KEY = 'taskmanager.wbs.showCompleted'
 
 const ZOOMS = {
@@ -30,9 +48,23 @@ const ZOOMS = {
   month: { label: '月', w: 7 },
 }
 
-function depPath(x1, y1, x2, y2) {
-  const dx = Math.max(28, Math.abs(x2 - x1) * 0.35)
-  return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
+function relatedTaskIds(taskId, dependencies) {
+  if (!taskId) return new Set()
+  const ids = new Set([taskId])
+  for (const id of predecessorIds(taskId, dependencies)) ids.add(id)
+  for (const id of successorIds(taskId, dependencies)) ids.add(id)
+  return ids
+}
+
+/** Finish-to-start: drag from a bar's end (or onto a bar's start). */
+function resolveLink(dependencies, fromId, fromSide, toId) {
+  if (!toId || fromId === toId) return null
+  const predecessorId = fromSide === 'end' ? fromId : toId
+  const successorId = fromSide === 'end' ? toId : fromId
+  if (predecessorId === successorId) return null
+  if (hasLink(dependencies, predecessorId, successorId)) return null
+  if (wouldCreateCycle(dependencies, predecessorId, successorId)) return null
+  return { predecessorId, successorId }
 }
 
 function isWeekendDate(str) {
@@ -111,17 +143,28 @@ function WbsGantt({ project, multi }) {
     const s = localStorage.getItem(SHOW_WEEKENDS_KEY)
     return s === null ? true : s === '1'
   })
+  const [showWeekdays, setShowWeekdays] = useState(() => {
+    const s = localStorage.getItem(SHOW_WEEKDAYS_KEY)
+    return s === '1'
+  })
   const [showCompleted, setShowCompleted] = useState(() => {
     const s = localStorage.getItem(SHOW_COMPLETED_KEY)
     return s === null ? true : s === '1'
   })
   const [drag, setDrag] = useState(null) // {id, mode, start, end}
+  const [selectedId, setSelectedId] = useState(null)
+  const [hoveredId, setHoveredId] = useState(null)
+  const [hoveredLinkId, setHoveredLinkId] = useState(null)
+  const [linkDrag, setLinkDrag] = useState(null) // { fromId, fromSide, x1, y1, x2, y2, overId, valid }
   const [leftW, setLeftW] = useState(() => {
     const s = Number(localStorage.getItem(LEFT_W_KEY))
     return s >= MIN_LEFT_W && s <= MAX_LEFT_W ? s : DEFAULT_LEFT_W
   })
   const scrollRef = useRef(null)
+  const matrixRef = useRef(null)
+  const linkDragRef = useRef(null)
   const dayW = ZOOMS[zoom].w
+  const headH = ganttHeadH(showWeekdays)
 
   const itemsByTask = useMemo(() => {
     const map = new Map()
@@ -240,7 +283,7 @@ function WbsGantt({ project, multi }) {
       const key = `${y}-${m}`
       const last = months[months.length - 1]
       if (last && last.key === key) last.days += 1
-      else months.push({ key, label: `${m}月`, days: 1 })
+      else months.push({ key, label: `${m}月`, days: 1, biz: monthBusinessDayStats(y, m, today) })
       ticks.push({ d, dayNum: day, dow, isToday: d === today, holiday: holidayMap.get(d) || null })
     }
     return { months, ticks }
@@ -280,6 +323,14 @@ function WbsGantt({ project, multi }) {
     setShowWeekends((prev) => {
       const next = !prev
       localStorage.setItem(SHOW_WEEKENDS_KEY, next ? '1' : '0')
+      return next
+    })
+  }
+
+  function toggleWeekdays() {
+    setShowWeekdays((prev) => {
+      const next = !prev
+      localStorage.setItem(SHOW_WEEKDAYS_KEY, next ? '1' : '0')
       return next
     })
   }
@@ -441,6 +492,7 @@ function WbsGantt({ project, multi }) {
     e.stopPropagation()
     document.documentElement.style.cursor = mode === 'move' ? 'grabbing' : 'ew-resize'
     document.documentElement.style.userSelect = 'none'
+    setSelectedId(node.task.id)
     setDrag({
       id: node.task.id,
       mode,
@@ -450,6 +502,32 @@ function WbsGantt({ project, multi }) {
       start: node.span.start,
       end: node.span.end,
     })
+  }
+
+  function startLinkDrag(e, node, side) {
+    e.preventDefault()
+    e.stopPropagation()
+    const i = rows.findIndex((row) => row.kind === 'node' && row.node?.task.id === node.task.id)
+    if (i < 0) return
+    const span = spanFor(node)
+    if (!span) return
+    const x = side === 'end' ? (colOf(span.end) + 1) * dayW : colOf(span.start) * dayW
+    const y = i * ROW_H + ROW_H / 2
+    const next = {
+      fromId: node.task.id,
+      fromSide: side,
+      x1: x,
+      y1: y,
+      x2: x,
+      y2: y,
+      overId: null,
+      valid: false,
+    }
+    document.documentElement.style.cursor = 'crosshair'
+    document.documentElement.style.userSelect = 'none'
+    setSelectedId(node.task.id)
+    linkDragRef.current = next
+    setLinkDrag(next)
   }
 
   function spanFor(node) {
@@ -462,7 +540,7 @@ function WbsGantt({ project, multi }) {
   }
 
   function openLinkPopover(taskId, rect) {
-    setLinkPopover({ taskId, x: Math.max(8, rect.right - 280), y: rect.bottom + 4 })
+    setLinkPopover({ taskId, x: Math.max(8, rect.right - 400), y: rect.bottom + 4 })
   }
 
   function openTagPopover(taskId, rect) {
@@ -478,7 +556,7 @@ function WbsGantt({ project, multi }) {
         indexById.set(row.node.task.id, i)
       }
     })
-    const out = []
+    const raw = []
     for (const dep of deps) {
       const i1 = indexById.get(dep.predecessor_id)
       const i2 = indexById.get(dep.successor_id)
@@ -488,22 +566,173 @@ function WbsGantt({ project, multi }) {
       const s1 = drag && drag.id === n1.task.id ? { start: drag.start, end: drag.end } : n1.span
       const s2 = drag && drag.id === n2.task.id ? { start: drag.start, end: drag.end } : n2.span
       if (!s1 || !s2) continue
-      const x1 = (colOf(s1.end) + 1) * dayW
-      const y1 = i1 * ROW_H + ROW_H / 2
-      const x2 = colOf(s2.start) * dayW
-      const y2 = i2 * ROW_H + ROW_H / 2
-      out.push({
+      raw.push({
         id: dep.id,
-        d: depPath(x1, y1, x2, y2),
+        predecessorId: dep.predecessor_id,
+        successorId: dep.successor_id,
+        x1: (colOf(s1.end) + 1) * dayW,
+        y1: i1 * ROW_H + ROW_H / 2,
+        x2: colOf(s2.start) * dayW,
+        y2: i2 * ROW_H + ROW_H / 2,
+        succRight: (colOf(s2.end) + 1) * dayW,
         overlap: s2.start < s1.end,
       })
     }
-    return out
-  }, [rows, state.dependencies, drag, dayW, colOf])
+    return buildGanttDepPaths(raw, { rowH: ROW_H, maxX: canvasW })
+  }, [rows, state.dependencies, drag, dayW, colOf, canvasW])
+
+  const selectedRelated = useMemo(
+    () => relatedTaskIds(selectedId, state.dependencies),
+    [selectedId, state.dependencies],
+  )
+
+  const linkPreview = useMemo(() => {
+    if (!linkDrag) return null
+    const resolved = linkDrag.overId && linkDrag.valid
+      ? resolveLink(state.dependencies, linkDrag.fromId, linkDrag.fromSide, linkDrag.overId)
+      : null
+    if (resolved) {
+      const indexById = new Map()
+      rows.forEach((row, i) => {
+        if (row.kind === 'node' && row.node && !row.node.isProject) {
+          indexById.set(row.node.task.id, i)
+        }
+      })
+      const i1 = indexById.get(resolved.predecessorId)
+      const i2 = indexById.get(resolved.successorId)
+      if (i1 != null && i2 != null) {
+        const n1 = rows[i1].node
+        const n2 = rows[i2].node
+        const s1 = drag && drag.id === n1.task.id ? { start: drag.start, end: drag.end } : n1.span
+        const s2 = drag && drag.id === n2.task.id ? { start: drag.start, end: drag.end } : n2.span
+        if (s1 && s2) {
+          const built = buildGanttDepPaths(
+            [{
+              id: 'preview',
+              predecessorId: resolved.predecessorId,
+              successorId: resolved.successorId,
+              x1: (colOf(s1.end) + 1) * dayW,
+              y1: i1 * ROW_H + ROW_H / 2,
+              x2: colOf(s2.start) * dayW,
+              y2: i2 * ROW_H + ROW_H / 2,
+              succRight: (colOf(s2.end) + 1) * dayW,
+              overlap: s2.start < s1.end,
+            }],
+            { rowH: ROW_H, maxX: canvasW },
+          )
+          if (built[0]) return { d: built[0].d, snapped: true }
+        }
+      }
+    }
+    return { d: `M ${linkDrag.x1} ${linkDrag.y1} L ${linkDrag.x2} ${linkDrag.y2}`, snapped: false }
+  }, [linkDrag, rows, state.dependencies, drag, dayW, colOf, canvasW])
+
+  useEffect(() => {
+    linkDragRef.current = linkDrag
+  }, [linkDrag])
+
+  useEffect(() => {
+    if (!linkDrag) return
+    const fromId = linkDrag.fromId
+
+    function canvasPoint(e) {
+      const el = matrixRef.current
+      if (!el) return { x: 0, y: 0 }
+      const r = el.getBoundingClientRect()
+      return { x: e.clientX - r.left - leftW, y: e.clientY - r.top - headH }
+    }
+
+    function hitTask(e) {
+      const el = document.elementFromPoint(e.clientX, e.clientY)
+      const taskEl = el?.closest?.('[data-gantt-task]')
+      const id = taskEl?.getAttribute('data-gantt-task')
+      if (!id || id === fromId) return null
+      return id
+    }
+
+    function onMove(e) {
+      const d = linkDragRef.current
+      if (!d) return
+      const p = canvasPoint(e)
+      const overId = hitTask(e)
+      const valid = !!resolveLink(state.dependencies, d.fromId, d.fromSide, overId)
+      setLinkDrag((prev) => (prev ? { ...prev, x2: p.x, y2: p.y, overId, valid } : prev))
+    }
+
+    function onUp(e) {
+      const d = linkDragRef.current
+      if (d) {
+        const overId = hitTask(e)
+        const resolved = resolveLink(state.dependencies, d.fromId, d.fromSide, overId)
+        if (resolved) actions.addDependency(resolved.predecessorId, resolved.successorId)
+      }
+      setLinkDrag(null)
+      document.documentElement.style.cursor = ''
+      document.documentElement.style.userSelect = ''
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [linkDrag?.fromId, linkDrag?.fromSide, leftW, headH, actions, state.dependencies])
+
+  useEffect(() => {
+    if (!selectedId && !linkDrag) return
+    function onKey(e) {
+      if (e.key !== 'Escape') return
+      if (datePopover || linkPopover || tagPopover || editingId) return
+      if (linkDragRef.current) {
+        setLinkDrag(null)
+        document.documentElement.style.cursor = ''
+        document.documentElement.style.userSelect = ''
+        return
+      }
+      setSelectedId(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selectedId, linkDrag, datePopover, linkPopover, tagPopover, editingId])
+
+  useEffect(() => {
+    if (!selectedId) return
+    const visible = rows.some(
+      (row) => row.kind === 'node' && row.node && !row.node.isProject && row.node.task.id === selectedId,
+    )
+    if (!visible) setSelectedId(null)
+  }, [rows, selectedId])
+
+  function clearTaskSelect() {
+    setSelectedId(null)
+  }
+
+  function onDepHover(id) {
+    setHoveredId(id)
+  }
 
   const pct = overall.total ? Math.round((overall.done / overall.total) * 100) : 0
   const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
   const hasContent = multi ? visibleProjects.length > 0 : roots.length > 0
+
+  const selectedTask = useMemo(
+    () => (selectedId ? scopedTasks.find((t) => t.id === selectedId) ?? null : null),
+    [selectedId, scopedTasks],
+  )
+  const selectedPreds = useMemo(
+    () => (selectedId ? predecessorsOf(selectedId, state.dependencies, state.tasks) : []),
+    [selectedId, state.dependencies, state.tasks],
+  )
+  const selectedSuccs = useMemo(
+    () => (selectedId ? successorsOf(selectedId, state.dependencies, state.tasks) : []),
+    [selectedId, state.dependencies, state.tasks],
+  )
+  const showDepBar = selectedTask && (selectedPreds.length > 0 || selectedSuccs.length > 0)
+  const taskIndex = useMemo(
+    () => buildTaskIndex(state.tasks, state.projects),
+    [state.tasks, state.projects],
+  )
 
   return (
     <div className="wbs-root">
@@ -563,6 +792,13 @@ function WbsGantt({ project, multi }) {
             土日
           </button>
           <button
+            className={`btn btn-sm${showWeekdays ? ' btn-primary' : ''}`}
+            onClick={toggleWeekdays}
+            title={showWeekdays ? '曜日を非表示にする' : '曜日を表示する'}
+          >
+            曜日
+          </button>
+          <button
             className={`btn btn-sm${showCompleted ? ' btn-primary' : ''}`}
             onClick={toggleCompleted}
             title={showCompleted ? '完了タスクを非表示にする' : '完了タスクを表示する'}
@@ -578,6 +814,18 @@ function WbsGantt({ project, multi }) {
           </div>
         </div>
       </div>
+
+      {showDepBar && (
+        <WbsDepBar
+          task={selectedTask}
+          taskIndex={taskIndex}
+          predecessors={selectedPreds}
+          successors={selectedSuccs}
+          onRemove={(predecessorId, successorId) =>
+            actions.removeDependency(predecessorId, successorId)
+          }
+        />
+      )}
 
       <AddTaskBar
         defaultDate={null}
@@ -606,11 +854,13 @@ function WbsGantt({ project, multi }) {
       ) : (
         <div className="gantt" ref={scrollRef}>
           <div
-            className="gantt-matrix"
+            ref={matrixRef}
+            className={`gantt-matrix${selectedId ? ' dep-focus' : ''}${linkDrag ? ' dep-linking' : ''}`}
+            data-link-side={linkDrag?.fromSide || undefined}
             style={{ width: leftW + canvasW, '--dayw': `${dayW}px`, '--leftw': `${leftW}px`, '--rowh': `${ROW_H}px` }}
           >
             {/* ヘッダー帯（sticky top） */}
-            <div className="gantt-head-band" style={{ height: HEAD_H }}>
+            <div className="gantt-head-band" style={{ height: headH }}>
               <div className="gantt-corner" style={{ width: leftW }}>
                 <span className="gantt-corner-title">タスク</span>
                 <span
@@ -626,24 +876,36 @@ function WbsGantt({ project, multi }) {
                 <div className="gantt-axis-months">
                   {axis.months.map((m, idx) => (
                     <div key={idx} className="gantt-axis-month" style={{ width: m.days * dayW }}>
-                      {m.label}
+                      <span className="gantt-axis-month-label">{m.label}</span>
+                      <span
+                        className="gantt-axis-month-biz"
+                        title={`実営業日 ${m.biz.total}日、残り ${m.biz.remaining}日`}
+                      >
+                        営{m.biz.total} 残{m.biz.remaining}
+                      </span>
                     </div>
                   ))}
                 </div>
-                <div className="gantt-axis-days">
+                <div className={`gantt-axis-days${showWeekdays ? ' with-weekdays' : ''}`}>
                   {axis.ticks.map((t) => {
                     const weekend = t.dow === 0 || t.dow === 6
                     const holiday = !!t.holiday
-                    const showNum =
-                      zoom === 'day' ? true : zoom === 'week' ? t.dow === 1 : t.dayNum === 1
+                    const { showNum, showDow } = ganttAxisCellLabels(t, zoom, showWeekdays)
                     return (
                       <div
                         key={t.d}
-                        className={`gantt-axis-day${weekend ? ' weekend' : ''}${holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}`}
+                        className={`gantt-axis-day${weekend ? ' weekend' : ''}${holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}${showDow ? ' with-dow' : ''}`}
                         style={{ width: dayW }}
                         title={t.holiday || undefined}
                       >
-                        {showNum ? t.dayNum : ''}
+                        {showDow ? (
+                          <>
+                            {showNum && <span className="gantt-axis-day-num">{t.dayNum}</span>}
+                            <span className="gantt-axis-day-dow">{formatWeekdayJP(t.d)}</span>
+                          </>
+                        ) : (
+                          showNum ? t.dayNum : ''
+                        )}
                       </div>
                     )
                   })}
@@ -680,7 +942,7 @@ function WbsGantt({ project, multi }) {
                 className="gantt-today-line"
                 style={{
                   left: leftW + colOf(today) * dayW + dayW / 2,
-                  top: HEAD_H,
+                  top: headH,
                 }}
               />
             )}
@@ -706,6 +968,17 @@ function WbsGantt({ project, multi }) {
               const waiting =
                 node && !node.isProject && isWaiting(node.task.id, state.dependencies, state.tasks)
               const rowTag = tagForWbsRow(row, state.tasks, state.tags)
+              const rowTaskId =
+                node && !node.isProject
+                  ? node.task.id
+                  : row.kind === 'checklist'
+                    ? row.item.task_id
+                    : row.kind === 'add-checklist'
+                      ? row.parentId
+                      : row.parentId || null
+              const isDepSelected = !!(rowTaskId && selectedId === rowTaskId)
+              const isDepRelated = !!(rowTaskId && selectedId && selectedRelated.has(rowTaskId))
+              const isDepHover = !!(rowTaskId && hoveredId === rowTaskId)
               const rowStyle = { height: ROW_H }
               if (rowTag?.color) rowStyle['--row-tag-color'] = rowTag.color
               return (
@@ -721,8 +994,25 @@ function WbsGantt({ project, multi }) {
                     isCheckRow ? ' checklist-row' : ''
                   }${
                     rowTag?.color ? ' has-tag' : ''
+                  }${
+                    isDepSelected ? ' dep-selected' : ''
+                  }${
+                    isDepRelated ? ' dep-related' : ''
+                  }${
+                    isDepHover ? ' dep-hover' : ''
                   }`}
                   style={rowStyle}
+                  onMouseEnter={
+                    node && !node.isProject ? () => onDepHover(node.task.id) : undefined
+                  }
+                  onMouseLeave={
+                    node && !node.isProject
+                      ? (e) => {
+                          if (e.relatedTarget?.closest?.('.gantt-dep-path-hit')) return
+                          onDepHover(null)
+                        }
+                      : undefined
+                  }
                 >
                   <div className="gantt-namecell" style={{ width: leftW }}>
                     {row.kind === 'node' ? (
@@ -748,6 +1038,7 @@ function WbsGantt({ project, multi }) {
                           onToggleCollapse={toggleCollapse}
                           onExpand={expand}
                           onFocusDate={scrollToDate}
+                          onSelect={() => setSelectedId(node.task.id)}
                           today={today}
                           onOpenDatePopover={openDatePopover}
                           onOpenLinkPopover={openLinkPopover}
@@ -790,9 +1081,16 @@ function WbsGantt({ project, multi }) {
                       dayW={dayW}
                       ticks={axis.ticks}
                       onPickDate={(d) => actions.setTaskDates(node.task.id, d, d)}
+                      onBackgroundMouseDown={clearTaskSelect}
                     />
                   ) : (
-                    <div className="gantt-track" style={{ width: canvasW }}>
+                    <div
+                      className="gantt-track"
+                      style={{ width: canvasW }}
+                      onMouseDown={(e) => {
+                        if (e.target === e.currentTarget) clearTaskSelect()
+                      }}
+                    >
                       {span && (
                         <GanttBar
                           node={node}
@@ -802,7 +1100,13 @@ function WbsGantt({ project, multi }) {
                           colOf={colOf}
                           dragging={drag?.id === node.task.id}
                           onStartDrag={startDrag}
+                          onStartLink={startLinkDrag}
+                          onSelect={node.isProject ? undefined : () => setSelectedId(node.task.id)}
                           tagColor={node.isProject ? null : rowTag?.color}
+                          linking={!!linkDrag}
+                          linkFromId={linkDrag?.fromId}
+                          linkOverId={linkDrag?.overId}
+                          linkValid={!!linkDrag?.valid}
                         />
                       )}
                     </div>
@@ -810,29 +1114,71 @@ function WbsGantt({ project, multi }) {
                 </div>
               )
             })}
-            {depLinks.length > 0 && (
+            {(depLinks.length > 0 || linkDrag) && (
               <svg
                 className="gantt-dep-overlay"
-                style={{ left: leftW, top: HEAD_H, width: canvasW, height: rows.length * ROW_H }}
+                style={{ left: leftW, top: headH, width: canvasW, height: rows.length * ROW_H }}
                 viewBox={`0 0 ${canvasW} ${rows.length * ROW_H}`}
                 aria-hidden
               >
                 <defs>
-                  <marker id="gantt-dep-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                    <path d="M0,0 L8,4 L0,8 Z" fill="var(--primary-deep)" />
-                  </marker>
-                  <marker id="gantt-dep-arrow-overlap" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                    <path d="M0,0 L8,4 L0,8 Z" fill="var(--shu)" />
+                  <marker
+                    id="gantt-dep-arrow"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"
+                    markerUnits="userSpaceOnUse"
+                  >
+                    <path d="M0,0 L8,4 L0,8 Z" fill="context-stroke" />
                   </marker>
                 </defs>
-                {depLinks.map((l) => (
+                {depLinks.map((l) => {
+                  const onSelected =
+                    selectedId &&
+                    (l.predecessorId === selectedId || l.successorId === selectedId)
+                  const onHovered =
+                    hoveredId &&
+                    (l.predecessorId === hoveredId || l.successorId === hoveredId)
+                  const onLinkHover = hoveredLinkId === l.id
+                  const active = onSelected || onHovered || onLinkHover || (linkDrag && (
+                    l.predecessorId === linkDrag.fromId || l.successorId === linkDrag.fromId
+                  ))
+                  const muted = (!!selectedId || !!linkDrag) && !active
+                  const cls = ['gantt-dep-path']
+                  if (l.overlap) cls.push('overlap')
+                  if (active) cls.push('is-active')
+                  if (muted) cls.push('is-muted')
+                  return (
+                    <g key={l.id}>
+                      <path
+                        d={l.d}
+                        className="gantt-dep-path-hit"
+                        onMouseEnter={() => setHoveredLinkId(l.id)}
+                        onMouseLeave={() => setHoveredLinkId(null)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          actions.removeDependency(l.predecessorId, l.successorId)
+                        }}
+                      >
+                        <title>クリックで依存関係を解除</title>
+                      </path>
+                      <path
+                        d={l.d}
+                        className={cls.join(' ')}
+                        markerEnd="url(#gantt-dep-arrow)"
+                      />
+                    </g>
+                  )
+                })}
+                {linkPreview && (
                   <path
-                    key={l.id}
-                    d={l.d}
-                    className={`gantt-dep-path${l.overlap ? ' overlap' : ''}`}
-                    markerEnd={l.overlap ? 'url(#gantt-dep-arrow-overlap)' : 'url(#gantt-dep-arrow)'}
+                    d={linkPreview.d}
+                    className={`gantt-dep-path is-active is-preview${linkDrag?.valid ? ' is-snapped' : ''}`}
+                    markerEnd="url(#gantt-dep-arrow)"
                   />
-                ))}
+                )}
               </svg>
             )}
           </div>
@@ -882,6 +1228,7 @@ function WbsGantt({ project, multi }) {
           axis={axis}
           today={today}
           showWeekends={showWeekends}
+          showWeekdays={showWeekdays}
           tasks={state.tasks}
           tags={state.tags}
           colOf={colOf}
@@ -893,7 +1240,7 @@ function WbsGantt({ project, multi }) {
 }
 
 /** 期間未設定の葉タスク行: ダブルクリックで日付追加、同日1秒ホバーでヒント表示 */
-function UnscheduledGanttTrack({ width, dayW, ticks, onPickDate }) {
+function UnscheduledGanttTrack({ width, dayW, ticks, onPickDate, onBackgroundMouseDown }) {
   const [hint, setHint] = useState(null) // { label, left }
   const hoverRef = useRef({ col: -1, timer: null })
 
@@ -944,6 +1291,9 @@ function UnscheduledGanttTrack({ width, dayW, ticks, onPickDate }) {
         const d = ticks[col]?.d
         if (d) onPickDate(d)
       }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onBackgroundMouseDown?.()
+      }}
       onMouseMove={onMouseMove}
       onMouseLeave={clearHint}
     >
@@ -956,7 +1306,22 @@ function UnscheduledGanttTrack({ width, dayW, ticks, onPickDate }) {
   )
 }
 
-function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag, tagColor }) {
+function GanttBar({
+  node,
+  span,
+  dayW,
+  today,
+  colOf,
+  dragging,
+  onStartDrag,
+  onStartLink,
+  onSelect,
+  tagColor,
+  linking,
+  linkFromId,
+  linkOverId,
+  linkValid,
+}) {
   const { rollup, isLeaf, isProject, project } = node
   const startCol = colOf(span.start)
   const endCol = colOf(span.end)
@@ -964,15 +1329,19 @@ function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag, tagCo
   const width = Math.max(1, endCol - startCol + 1) * dayW
   const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
   const completed = rollup.done >= rollup.total
-  const urgency = deadlineUrgency(span.end, { today, completed })
+  const deadline = deadlineInfo(span.end, { today, completed, progressPct: pct })
 
   const cls = ['gantt-bar']
   if (isProject) cls.push('project')
   else cls.push(isLeaf ? 'leaf' : 'summary')
   if (dragging) cls.push('dragging')
+  if (deadline) cls.push(`deadline-end--${deadline.tier}`)
+  if (!isProject && linking && linkFromId === node.task.id) cls.push('is-link-source')
+  if (!isProject && linking && linkOverId === node.task.id) {
+    cls.push(linkValid ? 'is-link-target' : 'is-link-reject')
+  }
 
-  const leftDays = daysUntil(span.end, today)
-  const deadlineNote = urgency ? deadlineNoteText(urgency, leftDays) : ''
+  const deadlineNote = deadline ? deadline.label : ''
   const title = `${formatMonthDayJP(span.start)}〜${formatMonthDayJP(span.end)}・${pct}%${deadlineNote ? `・${deadlineNote}` : ''}`
   const barStyle = { left, width }
   const fillStyle = { width: `${pct}%` }
@@ -991,8 +1360,17 @@ function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag, tagCo
     <div
       className={cls.join(' ')}
       style={barStyle}
-      title={title}
-      onMouseDown={isLeaf ? (e) => onStartDrag(e, node, 'move') : undefined}
+      title={linking ? undefined : title}
+      data-gantt-task={isProject ? undefined : node.task.id}
+      onMouseDown={(e) => {
+        if (linking) {
+          e.stopPropagation()
+          return
+        }
+        if (onSelect) onSelect()
+        if (isLeaf) onStartDrag(e, node, 'move')
+        else e.stopPropagation()
+      }}
     >
       <span className="gantt-bar-fill" style={fillStyle} />
       {isLeaf && (
@@ -1001,26 +1379,23 @@ function GanttBar({ node, span, dayW, today, colOf, dragging, onStartDrag, tagCo
           <span className="gantt-bar-handle right" onMouseDown={(e) => onStartDrag(e, node, 'end')} />
         </>
       )}
+      {!isProject && (
+        <>
+          <span
+            className="gantt-bar-link left"
+            data-gantt-link="start"
+            title="先行タスクからつなぐ"
+            onMouseDown={(e) => onStartLink?.(e, node, 'start')}
+          />
+          <span
+            className="gantt-bar-link right"
+            data-gantt-link="end"
+            title="後続タスクへつなぐ"
+            onMouseDown={(e) => onStartLink?.(e, node, 'end')}
+          />
+        </>
+      )}
     </div>
-  )
-}
-
-function deadlineNoteText(urgency, leftDays) {
-  if (urgency === 'overdue') return `${Math.abs(leftDays)}日超過`
-  if (urgency === 'today') return '本日期限'
-  return `あと${leftDays}日`
-}
-
-function DeadlineFire({ urgency, title }) {
-  if (!urgency) return null
-  return (
-    <span
-      className={`wbs-deadline-fire wbs-deadline-fire--${urgency}`}
-      title={title}
-      aria-hidden="true"
-    >
-      🔥
-    </span>
   )
 }
 
@@ -1028,10 +1403,9 @@ function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }
   const { project, rollup } = node
   const isCollapsed = collapsed.has(node.task.id)
   const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
-  const urgency = node.span?.end
-    ? deadlineUrgency(node.span.end, { today, completed: node.allDone })
+  const deadline = node.span?.end
+    ? deadlineInfo(node.span.end, { today, completed: node.allDone, progressPct: pct })
     : null
-  const leftDays = urgency && node.span?.end ? daysUntil(node.span.end, today) : null
 
   return (
     <div className="gantt-name-inner is-project">
@@ -1044,12 +1418,17 @@ function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }
         {isCollapsed ? '▸' : '▾'}
       </button>
       {project.color && <span className="proj-dot" style={{ background: project.color }} />}
-      {urgency && leftDays != null && (
-        <DeadlineFire urgency={urgency} title={deadlineNoteText(urgency, leftDays)} />
-      )}
       <span className="wbs-title wbs-project-title" title={project.name}>
         {project.name}
       </span>
+      {deadline && (
+        <span
+          className={`wbs-deadline-badge wbs-deadline-badge--${deadline.tier}`}
+          title={`終了: ${formatMonthDayJP(node.span.end)}・${deadline.label}`}
+        >
+          {deadline.label}
+        </span>
+      )}
       <span className="wbs-project-progress">
         {pct}% <span className="wbs-count-sub">({rollup.done}/{rollup.total})</span>
       </span>
@@ -1070,6 +1449,7 @@ function LeftRow({
   onToggleCollapse,
   onExpand,
   onFocusDate,
+  onSelect,
   today,
   onOpenDatePopover,
   onOpenLinkPopover,
@@ -1117,13 +1497,21 @@ function LeftRow({
 
   const done = hasChildren ? allDone : task.status === 'DONE'
   const endDate = node.span?.end ?? null
-  const urgency = deadlineUrgency(endDate, { completed: done })
-  const leftDays = endDate ? daysUntil(endDate) : null
+  const progressPct = hasChildren
+    ? (node.rollup.total ? Math.round((node.rollup.done / node.rollup.total) * 100) : 0)
+    : done
+      ? 100
+      : 0
+  const deadline = endDate
+    ? deadlineInfo(endDate, { today, completed: done, progressPct })
+    : null
   const waiting = !done && isWaiting(task.id, state.dependencies, state.tasks)
   const hasSuccessor = successorIds(task.id, state.dependencies).length > 0
+  const hasPredecessor = predecessorIds(task.id, state.dependencies).length > 0
+  const hasAnyDep = hasSuccessor || hasPredecessor
   const tag = ownTag(task, state.tags)
   const hasDate = !!(task.start_date || task.scheduled_date)
-  const moreHasSet = !!(tag || hasSuccessor || hasDate)
+  const moreHasSet = !!(tag || hasAnyDep || hasDate)
 
   function commitTitle() {
     const t = draft.trim()
@@ -1174,6 +1562,7 @@ function LeftRow({
     setEditing(true)
   }
   function focusTaskDate() {
+    onSelect?.()
     const d =
       node.span?.start ??
       task.start_date ??
@@ -1194,14 +1583,6 @@ function LeftRow({
         {canCollapse ? (isCollapsed ? '▸' : '▾') : ''}
       </button>
       <span className="wbs-no-group">
-        <span className="wbs-no-fire">
-          {urgency && leftDays != null && (
-            <DeadlineFire
-              urgency={urgency}
-              title={`終了: ${formatMonthDayJP(endDate)}・${deadlineNoteText(urgency, leftDays)}`}
-            />
-          )}
-        </span>
         <span className="wbs-no">{wbsNo}</span>
       </span>
       <button
@@ -1234,13 +1615,12 @@ function LeftRow({
           >
             {task.title || '(無題)'}
           </span>
-          {urgency && leftDays != null && (
-            <span className="wbs-deadline-badge" title={`終了: ${formatMonthDayJP(endDate)}`}>
-              {urgency === 'overdue'
-                ? `${Math.abs(leftDays)}日超過`
-                : urgency === 'today'
-                  ? '今日'
-                  : `あと${leftDays}日`}
+          {deadline && (
+            <span
+              className={`wbs-deadline-badge wbs-deadline-badge--${deadline.tier}`}
+              title={`終了: ${formatMonthDayJP(endDate)}・${deadline.label}`}
+            >
+              {deadline.label}
             </span>
           )}
           {checkTotal > 0 && (
@@ -1303,10 +1683,10 @@ function LeftRow({
                 <button
                   type="button"
                   role="menuitem"
-                  className={hasSuccessor ? 'set' : undefined}
+                  className={hasAnyDep ? 'set' : undefined}
                   onClick={openFromMore(onOpenLinkPopover)}
                 >
-                  後続を設定
+                  依存関係
                 </button>
                 <button type="button" role="menuitem" onClick={indent}>
                   階層を下げる →
@@ -1341,6 +1721,72 @@ function LeftRow({
         >
           <Trash2 size={13} strokeWidth={2} aria-hidden />
         </button>
+      </div>
+    </div>
+  )
+}
+
+function WbsDepChip({ task, taskIndex, direction, onRemove }) {
+  const meta = taskIndex.get(task.id)
+  const title = task.title || '(無題)'
+  return (
+    <span className={`chip ${direction === 'pred' ? 'chip-waiting' : 'chip-next'}`}>
+      <span className="chip-label">
+        <span className="wbs-dep-chip-dir">{direction === 'pred' ? '←' : '→'}</span>
+        {meta?.wbsNo && <span className="wbs-dep-chip-wbs">{meta.wbsNo}</span>}
+        <span className="wbs-dep-chip-title">{title}</span>
+        {meta?.project && (
+          <span className="wbs-dep-chip-project">
+            {meta.project.color && (
+              <span className="proj-dot" style={{ background: meta.project.color }} />
+            )}
+            {meta.project.name}
+          </span>
+        )}
+      </span>
+      <button
+        type="button"
+        className="chip-x"
+        title="依存関係を解除"
+        aria-label={`${title} との依存を解除`}
+        onClick={onRemove}
+      >
+        ×
+      </button>
+    </span>
+  )
+}
+
+function WbsDepBar({ task, taskIndex, predecessors, successors, onRemove }) {
+  const focusMeta = taskIndex.get(task.id)
+  return (
+    <div className="wbs-dep-bar" role="region" aria-label="依存関係">
+      <div className="wbs-dep-bar-head">
+        <span className="wbs-dep-bar-title">
+          {focusMeta?.wbsNo && <span className="wbs-dep-bar-wbs">{focusMeta.wbsNo}</span>}
+          {task.title || '(無題)'}
+        </span>
+        <span className="wbs-dep-bar-hint">× または線をクリックで解除</span>
+      </div>
+      <div className="wbs-dep-bar-links">
+        {predecessors.map((p) => (
+          <WbsDepChip
+            key={p.id}
+            task={p}
+            taskIndex={taskIndex}
+            direction="pred"
+            onRemove={() => onRemove(p.id, task.id)}
+          />
+        ))}
+        {successors.map((s) => (
+          <WbsDepChip
+            key={s.id}
+            task={s}
+            taskIndex={taskIndex}
+            direction="succ"
+            onRemove={() => onRemove(task.id, s.id)}
+          />
+        ))}
       </div>
     </div>
   )

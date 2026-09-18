@@ -76,3 +76,26 @@ export function getJapaneseHolidays(year) {
 
   return map
 }
+
+/** Weekday that is not a Japanese national holiday. */
+export function isJapaneseBusinessDay(dateStr, holidayMap) {
+  const [y, mo, d] = dateStr.split('-').map(Number)
+  const dow = dowOf(y, mo, d)
+  if (dow === 0 || dow === 6) return false
+  return !holidayMap.has(dateStr)
+}
+
+/** Business-day count for a calendar month and how many remain from today (inclusive). */
+export function monthBusinessDayStats(year, month, todayStr) {
+  const holidays = getJapaneseHolidays(year)
+  const lastDay = new Date(year, month, 0).getDate()
+  let total = 0
+  let remaining = 0
+  for (let day = 1; day <= lastDay; day++) {
+    const dateStr = ds(year, month, day)
+    if (!isJapaneseBusinessDay(dateStr, holidays)) continue
+    total++
+    if (dateStr >= todayStr) remaining++
+  }
+  return { total, remaining }
+}

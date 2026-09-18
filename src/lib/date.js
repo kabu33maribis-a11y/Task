@@ -43,6 +43,7 @@ export function daysUntil(endDate, today = todayStr()) {
  * Deadline urgency tier for incomplete tasks.
  * Returns null when no end date or already completed.
  * Tiers: 'near' (4–7d) → 'soon' (1–3d) → 'today' → 'overdue'.
+ * @deprecated Prefer deadlineInfo / deadlineRiskTier for WBS UI.
  */
 export function deadlineUrgency(endDate, { today = todayStr(), completed = false } = {}) {
   if (!endDate || completed) return null
@@ -52,6 +53,75 @@ export function deadlineUrgency(endDate, { today = todayStr(), completed = false
   if (left <= 3) return 'soon'
   if (left <= 7) return 'near'
   return null
+}
+
+/** Unified deadline label: 7日後 / 明日 / 今日 / N日超過 */
+export function formatDeadlineLabel(leftDays) {
+  if (leftDays == null) return ''
+  if (leftDays < 0) return `${Math.abs(leftDays)}日超過`
+  if (leftDays === 0) return '今日'
+  if (leftDays === 1) return '明日'
+  return `${leftDays}日後`
+}
+
+/** Show badge within 7 days or when overdue. */
+export function shouldShowDeadlineBadge(leftDays) {
+  if (leftDays == null) return false
+  return leftDays <= 7
+}
+
+/**
+ * Risk-adjusted visual tier from remaining days × progress.
+ * Tiers: normal → caution → warning → critical → overdue
+ */
+export function deadlineRiskTier(
+  endDate,
+  { today = todayStr(), completed = false, progressPct = 0 } = {},
+) {
+  if (!endDate || completed) return null
+  const left = daysUntil(endDate, today)
+  if (left == null || left > 7) return null
+
+  const progress = Math.min(100, Math.max(0, progressPct)) / 100
+  const remaining = 1 - progress
+  const pace = remaining / Math.max(left, 0.5)
+
+  if (left < 0) return 'overdue'
+  if (left === 0) {
+    if (progress >= 0.9) return 'caution'
+    if (progress >= 0.5) return 'warning'
+    return 'critical'
+  }
+  if (left === 1) {
+    if (progress >= 0.9) return 'normal'
+    if (progress >= 0.5) return 'caution'
+    return 'warning'
+  }
+  if (left <= 2) {
+    if (pace <= 0.25) return 'normal'
+    if (pace <= 0.4) return 'caution'
+    return 'warning'
+  }
+  if (left <= 6) {
+    if (pace <= 0.15) return 'normal'
+    if (pace <= 0.3) return 'caution'
+    return left <= 3 ? 'warning' : 'caution'
+  }
+  if (pace <= 0.1) return 'normal'
+  return 'caution'
+}
+
+/** Combined deadline display info for WBS rows and gantt bars. */
+export function deadlineInfo(
+  endDate,
+  { today = todayStr(), completed = false, progressPct = 0 } = {},
+) {
+  if (!endDate || completed) return null
+  const leftDays = daysUntil(endDate, today)
+  if (leftDays == null || !shouldShowDeadlineBadge(leftDays)) return null
+  const tier = deadlineRiskTier(endDate, { today, completed, progressPct })
+  if (!tier) return null
+  return { leftDays, tier, label: formatDeadlineLabel(leftDays) }
 }
 
 // min / max of 'YYYY-MM-DD' strings (lexicographic works for ISO dates)

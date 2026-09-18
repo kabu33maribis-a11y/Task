@@ -152,6 +152,25 @@ export function flattenVisible(roots, collapsed) {
   return out
 }
 
+/** Map task id → { wbsNo, project, depth } for pickers and dependency labels. */
+export function buildTaskIndex(tasks, projects) {
+  const index = new Map()
+  for (const projNode of buildProjectTrees(tasks, projects)) {
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        index.set(node.task.id, {
+          wbsNo: node.wbsNo,
+          project: projNode.project,
+          depth: node.depth,
+        })
+        if (node.children.length) walk(node.children)
+      }
+    }
+    walk(projNode.children)
+  }
+  return index
+}
+
 // Drop completed leaves and fully-done subtrees. Recalculates rollup/span on kept parents.
 // Project rows with no remaining children are removed.
 export function filterCompletedTree(roots) {
@@ -185,4 +204,33 @@ export function filterCompletedTree(roots) {
     return out
   }
   return prune(roots)
+}
+
+// Gantt axis header ------------------------------------------------------
+
+export const GANTT_AXIS_MONTHS_H = 22
+export const GANTT_AXIS_DAYS_H = 26
+export const GANTT_AXIS_DAYS_H_WITH_DOW = 32
+
+export function ganttHeadH(showWeekdays) {
+  return GANTT_AXIS_MONTHS_H + (showWeekdays ? GANTT_AXIS_DAYS_H_WITH_DOW : GANTT_AXIS_DAYS_H)
+}
+
+/** Which date / weekday labels to show in a gantt day column (WBS zoom modes). */
+export function ganttAxisCellLabels(t, zoom, showWeekdays) {
+  const showNum =
+    zoom === 'day' ? true : zoom === 'week' ? t.dow === 1 : t.dayNum === 1
+  if (!showWeekdays) return { showNum, showDow: false }
+  if (zoom === 'day') return { showNum: true, showDow: true }
+  if (zoom === 'week') return { showNum, showDow: true }
+  return { showNum, showDow: showNum }
+}
+
+/** Schedule overview dialog uses dayW instead of zoom. */
+export function ganttAxisCellLabelsByWidth(t, dayW, showWeekdays) {
+  const showNum = dayW >= 10 ? t.dow === 1 : dayW >= 6 ? t.dayNum === 1 : false
+  if (!showWeekdays) return { showNum, showDow: false }
+  if (dayW >= 10) return { showNum, showDow: true }
+  if (dayW >= 6) return { showNum, showDow: showNum }
+  return { showNum: false, showDow: false }
 }

@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { deadlineUrgency, daysUntil, formatMonthDayJP } from '../lib/date.js'
+import { deadlineUrgency, daysUntil, formatMonthDayJP, formatWeekdayJP } from '../lib/date.js'
+import { ganttHeadH, ganttAxisCellLabelsByWidth } from '../lib/wbs.js'
 import { tagForWbsRow } from '../lib/tags.js'
 
 const LEFT_W = 200
 const ROW_H = 28
-const HEAD_H = 46
 const MIN_DAY_W = 2
 const MAX_DAY_W = 7
 
@@ -22,6 +22,7 @@ export default function ScheduleOverviewDialog({
   axis,
   today,
   showWeekends = true,
+  showWeekdays = false,
   tasks,
   tags,
   colOf,
@@ -33,6 +34,7 @@ export default function ScheduleOverviewDialog({
   const [fitDayW, setFitDayW] = useState(MAX_DAY_W)
 
   const tickCount = axis?.ticks?.length ?? 0
+  const headH = ganttHeadH(showWeekdays)
 
   const measureFit = () => {
     const el = ganttRef.current
@@ -132,7 +134,7 @@ export default function ScheduleOverviewDialog({
               '--rowh': `${ROW_H}px`,
             }}
           >
-            <div className="gantt-head-band" style={{ height: HEAD_H }}>
+            <div className="gantt-head-band" style={{ height: headH }}>
               <div className="gantt-corner" style={{ width: LEFT_W }}>
                 <span className="gantt-corner-title">タスク</span>
               </div>
@@ -140,24 +142,42 @@ export default function ScheduleOverviewDialog({
                 <div className="gantt-axis-months">
                   {axis.months.map((m, idx) => (
                     <div key={idx} className="gantt-axis-month" style={{ width: m.days * dayW }}>
-                      {m.days * dayW >= 28 ? m.label : ''}
+                      {m.days * dayW >= 28 ? (
+                        <>
+                          <span className="gantt-axis-month-label">{m.label}</span>
+                          {m.biz && (
+                            <span
+                              className="gantt-axis-month-biz"
+                              title={`実営業日 ${m.biz.total}日、残り ${m.biz.remaining}日`}
+                            >
+                              営{m.biz.total} 残{m.biz.remaining}
+                            </span>
+                          )}
+                        </>
+                      ) : null}
                     </div>
                   ))}
                 </div>
-                <div className="gantt-axis-days">
+                <div className={`gantt-axis-days${showWeekdays ? ' with-weekdays' : ''}`}>
                   {axis.ticks.map((t) => {
                     const weekend = t.dow === 0 || t.dow === 6
                     const holiday = !!t.holiday
-                    const showNum =
-                      dayW >= 10 ? t.dow === 1 : dayW >= 6 ? t.dayNum === 1 : false
+                    const { showNum, showDow } = ganttAxisCellLabelsByWidth(t, dayW, showWeekdays)
                     return (
                       <div
                         key={t.d}
-                        className={`gantt-axis-day${weekend ? ' weekend' : ''}${holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}`}
+                        className={`gantt-axis-day${weekend ? ' weekend' : ''}${holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}${showDow ? ' with-dow' : ''}`}
                         style={{ width: dayW }}
                         title={t.holiday || t.d}
                       >
-                        {showNum ? t.dayNum : ''}
+                        {showDow ? (
+                          <>
+                            {showNum && <span className="gantt-axis-day-num">{t.dayNum}</span>}
+                            <span className="gantt-axis-day-dow">{formatWeekdayJP(t.d)}</span>
+                          </>
+                        ) : (
+                          showNum ? t.dayNum : ''
+                        )}
                       </div>
                     )
                   })}
@@ -191,7 +211,7 @@ export default function ScheduleOverviewDialog({
                 className="gantt-today-line"
                 style={{
                   left: LEFT_W + colOf(today) * dayW + dayW / 2,
-                  top: HEAD_H,
+                  top: headH,
                 }}
               />
             )}

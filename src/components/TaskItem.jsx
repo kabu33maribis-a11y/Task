@@ -351,7 +351,7 @@ export default function TaskItem({
                   setPickingSuccessor(true)
                 }}
               >
-                後続を設定
+                依存関係
               </button>
               <button
                 onClick={() => {
