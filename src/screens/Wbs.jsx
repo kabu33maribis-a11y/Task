@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
@@ -179,6 +179,7 @@ function WbsGantt({ project, multi }) {
   const scrollRef = useRef(null)
   const matrixRef = useRef(null)
   const linkDragRef = useRef(null)
+  const [hourNoHScroll, setHourNoHScroll] = useState(false)
   const isHourZoom = zoom === 'hour'
   const hourLayout = useMemo(
     () => (isHourZoom ? createHourLayout(ZOOMS.hour.hourW) : null),
@@ -382,6 +383,15 @@ function WbsGantt({ project, multi }) {
     return (colOf(span.end) + 1) * dayW
   }
 
+  const clampHourScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el || !isHourZoom) return
+    const max = Math.max(0, el.scrollWidth - el.clientWidth)
+    if (el.scrollLeft > max) el.scrollLeft = max
+    if (el.scrollLeft < 0) el.scrollLeft = 0
+    setHourNoHScroll(max === 0)
+  }, [isHourZoom])
+
   // 初期表示 & ズーム変更時に今日付近へ横スクロール
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -391,13 +401,30 @@ function WbsGantt({ project, multi }) {
       const scrollDate = focusDate === today ? today : focusDate
       const mins = focusDate === today ? now.getHours() * 60 + now.getMinutes() : 9 * 60
       const x = leftW + hourXOf(scrollDate, minutesToTime(mins), range.start, hourLayout)
-      el.scrollLeft = Math.max(0, x - el.clientWidth * 0.35)
+      const max = Math.max(0, el.scrollWidth - el.clientWidth)
+      el.scrollLeft = Math.min(Math.max(0, x - el.clientWidth * 0.35), max)
+      setHourNoHScroll(max === 0)
     } else {
       const todayX = leftW + colOf(today) * dayW
       el.scrollLeft = Math.max(0, todayX - el.clientWidth * 0.5)
+      setHourNoHScroll(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, scopeKey, showWeekends, focusDate])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !isHourZoom) return
+    const onScroll = () => clampHourScroll()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    const ro = new ResizeObserver(() => clampHourScroll())
+    ro.observe(el)
+    clampHourScroll()
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      ro.disconnect()
+    }
+  }, [isHourZoom, clampHourScroll, canvasW, leftW])
 
   function toggleWeekends() {
     setShowWeekends((prev) => {
@@ -1058,7 +1085,10 @@ function WbsGantt({ project, multi }) {
             : 'タスクはまだありません。プロジェクト行の「＋子」または上のバーから追加してください。'}
         </p>
       ) : (
-        <div className="gantt" ref={scrollRef}>
+        <div
+          className={`gantt${isHourZoom ? ' hour-zoom' : ''}${hourNoHScroll ? ' hour-no-hscroll' : ''}`}
+          ref={scrollRef}
+        >
           <div
             ref={matrixRef}
             className={`gantt-matrix${selectedId ? ' dep-focus' : ''}${linkDrag ? ' dep-linking' : ''}${isHourZoom ? ' hour-zoom' : ''}${drag?.unit === 'hour' ? ' hour-dragging' : ''}`}
@@ -1404,6 +1434,7 @@ function WbsGantt({ project, multi }) {
                           onStartDrag={startDrag}
                           onStartLink={startLinkDrag}
                           onSelect={node.isProject ? undefined : () => setSelectedId(node.task.id)}
+                          onFocusDate={isHourZoom ? scrollToDate : undefined}
                           tagColor={node.isProject ? null : rowTag?.color}
                           linking={!!linkDrag}
                           linkFromId={linkDrag?.fromId}
@@ -1673,6 +1704,7 @@ function GanttBar({
   onStartDrag,
   onStartLink,
   onSelect,
+  onFocusDate,
   tagColor,
   linking,
   linkFromId,
@@ -1738,6 +1770,11 @@ function GanttBar({
         if (onSelect) onSelect()
         if (isLeaf) onStartDrag(e, node, 'move')
         else e.stopPropagation()
+      }}
+      onClick={(e) => {
+        if (linking) return
+        e.stopPropagation()
+        if (onFocusDate && span?.start) onFocusDate(span.start)
       }}
     >
       <span className="gantt-bar-fill" style={fillStyle} />

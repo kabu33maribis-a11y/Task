@@ -3563,6 +3563,12 @@ select {
   border-radius: var(--r);
   background: var(--washi-raised);
 }
+.gantt.hour-zoom {
+  overscroll-behavior-x: contain;
+}
+.gantt.hour-zoom.hour-no-hscroll {
+  overflow-x: hidden;
+}
 .gantt-matrix {
   position: relative;
   isolation: isolate; /* own stacking context so the today-line can sit behind rows */
@@ -3897,6 +3903,7 @@ select {
 /* timeline track — day gridlines via gradient (--dayw inherited from matrix) */
 .gantt-track {
   position: relative;
+  z-index: 2;
   flex: 0 0 auto;
   background-image: repeating-linear-gradient(
     to right,
@@ -3940,7 +3947,7 @@ select {
   top: 0;
   bottom: 0;
   width: 0;
-  z-index: 5;
+  z-index: 1;
   pointer-events: none;
 }
 .gantt-now-badge {
