@@ -33,6 +33,94 @@ export function diffDays(a, b) {
   return Math.round((fromDateStr(b) - fromDateStr(a)) / 86400000)
 }
 
+// ---- Time-of-day (WBS hour schedule) ------------------------------------
+
+/** Default display times when start_time / end_time are unset. */
+export const DEFAULT_START_TIME = '09:00'
+export const DEFAULT_END_TIME = '18:00'
+export const TIME_SNAP_MINUTES = 15
+
+/** Normalize to 'HH:mm' or null. */
+export function normalizeTimeStr(str) {
+  if (!str || typeof str !== 'string') return null
+  const m = str.trim().match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null
+  return `${pad(h)}:${pad(min)}`
+}
+
+export function timeToMinutes(time) {
+  const t = normalizeTimeStr(time)
+  if (!t) return 0
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+export function minutesToTime(totalMins) {
+  const m = ((totalMins % 1440) + 1440) % 1440
+  return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`
+}
+
+/** Snap minutes-of-day (or absolute minute offsets) to TIME_SNAP_MINUTES. */
+export function snapMinutes(mins, step = TIME_SNAP_MINUTES) {
+  return Math.round(mins / step) * step
+}
+
+/** Effective times for a task (defaults when NULL). */
+export function resolveTaskTimes(task) {
+  return {
+    startTime: normalizeTimeStr(task?.start_time) ?? DEFAULT_START_TIME,
+    endTime: normalizeTimeStr(task?.end_time) ?? DEFAULT_END_TIME,
+  }
+}
+
+/** Comparable key 'YYYY-MM-DDTHH:mm'. */
+export function dateTimeKey(date, time) {
+  if (!date) return ''
+  return `${date}T${normalizeTimeStr(time) ?? '00:00'}`
+}
+
+export function compareDateTime(aDate, aTime, bDate, bTime) {
+  const a = dateTimeKey(aDate, aTime)
+  const b = dateTimeKey(bDate, bTime)
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
+}
+
+/** Absolute minutes from a fixed epoch date for arithmetic. */
+export function toAbsoluteMinutes(date, time) {
+  return diffDays('1970-01-01', date) * 1440 + timeToMinutes(time)
+}
+
+export function fromAbsoluteMinutes(abs) {
+  const dayIndex = Math.floor(abs / 1440)
+  const mins = abs - dayIndex * 1440
+  return {
+    date: addDays('1970-01-01', dayIndex),
+    time: minutesToTime(mins),
+  }
+}
+
+/** Shift a date+time by delta minutes. */
+export function addMinutesToDateTime(date, time, deltaMins) {
+  return fromAbsoluteMinutes(toAbsoluteMinutes(date, time) + deltaMins)
+}
+
+export function diffMinutes(aDate, aTime, bDate, bTime) {
+  return toAbsoluteMinutes(bDate, bTime) - toAbsoluteMinutes(aDate, aTime)
+}
+
+/** Format 'HH:mm' for display (strip leading zero on hour optional — keep padded). */
+export function formatTimeJP(time) {
+  const t = normalizeTimeStr(time)
+  if (!t) return ''
+  const [h, m] = t.split(':')
+  return m === '00' ? `${Number(h)}時` : `${Number(h)}:${m}`
+}
+
 /** Days from today until endDate (negative = overdue). */
 export function daysUntil(endDate, today = todayStr()) {
   if (!endDate) return null

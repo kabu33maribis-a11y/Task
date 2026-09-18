@@ -92,6 +92,8 @@ async function loadState() {
       start_date: t.start_date ?? null,
       end_date: t.end_date ?? null,
       console_end_date: t.console_end_date ?? null,
+      start_time: t.start_time ?? null,
+      end_time: t.end_time ?? null,
       tag_id: t.tag_id ?? null,
       sort_order: t.sort_order ?? 0,
     }))
@@ -199,6 +201,8 @@ function makeTask(input, tasks) {
     title: input.title.trim(),
     status: 'TODO',
     ...dates,
+    start_time: input.start_time ?? null,
+    end_time: input.end_time ?? null,
     completed_at: null,
     category_id: input.category_id ?? null,
     project_id: input.project_id ?? null,
@@ -220,11 +224,13 @@ async function dbUpsertTask(db, t) {
   await db.execute(
     `INSERT OR REPLACE INTO tasks
      (id,title,status,scheduled_date,completed_at,category_id,project_id,
-      parent_id,start_date,end_date,console_end_date,priority,sort_order,recurrence,created_at,updated_at,tag_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      parent_id,start_date,end_date,console_end_date,priority,sort_order,recurrence,created_at,updated_at,tag_id,
+      start_time,end_time)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [t.id, t.title, t.status, t.scheduled_date, t.completed_at, t.category_id,
      t.project_id, t.parent_id, t.start_date, t.end_date, t.console_end_date, t.priority,
-     t.sort_order, t.recurrence, t.created_at, t.updated_at, t.tag_id ?? null],
+     t.sort_order, t.recurrence, t.created_at, t.updated_at, t.tag_id ?? null,
+     t.start_time ?? null, t.end_time ?? null],
   )
 }
 
@@ -1001,8 +1007,20 @@ export function StoreProvider({ children }) {
     updateTask: (id, patch) => dispatchWithSync({ type: 'UPDATE_TASK', id, patch }),
     toggleComplete: (id) => dispatchWithSync({ type: 'TOGGLE_COMPLETE', id }),
     setTaskParent: (id, parentId) => dispatchWithSync({ type: 'SET_PARENT', id, parentId }),
-    setTaskDates: (id, start_date, end_date) =>
-      dispatchWithSync({ type: 'UPDATE_TASK', id, patch: { start_date, end_date } }),
+    setTaskDates: (id, start_date, end_date) => {
+      const patch = { start_date, end_date }
+      if (!start_date && !end_date) {
+        patch.start_time = null
+        patch.end_time = null
+      }
+      dispatchWithSync({ type: 'UPDATE_TASK', id, patch })
+    },
+    setTaskSchedule: (id, start_date, end_date, start_time, end_time) =>
+      dispatchWithSync({
+        type: 'UPDATE_TASK',
+        id,
+        patch: { start_date, end_date, start_time, end_time },
+      }),
     setSubtreeDone: (id, done) => dispatchWithSync({ type: 'SET_DONE_CASCADE', id, done }),
     addSubtask: (parent, title) =>
       dispatchWithSync({

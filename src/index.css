@@ -3539,6 +3539,16 @@ select {
   font-family: var(--font-mono);
   font-size: 11px;
 }
+.wbs-focus-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.wbs-focus-nav .btn {
+  min-width: 28px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
 .wbs-count-sub {
   color: var(--sumi-faint);
   font-size: 11px;
@@ -3925,6 +3935,99 @@ select {
   z-index: -1; /* behind rows: hidden under the frozen name column, shows through the transparent track */
   pointer-events: none;
 }
+.gantt-now-line {
+  position: absolute;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--primary);
+  opacity: 0.65;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Hour zoom axis */
+.gantt-axis-hour-days {
+  display: flex;
+  height: 28px;
+}
+.gantt-axis-hour-day {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-right: 1px solid var(--rule-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--washi);
+}
+.gantt-axis-hour-day.focus {
+  background: color-mix(in srgb, var(--primary) 12%, var(--washi));
+  font-weight: 600;
+}
+.gantt-axis-hour-day.today {
+  color: var(--primary);
+}
+.gantt-axis-hour-day.weekend {
+  background: rgba(100, 116, 139, 0.1);
+}
+.gantt-axis-hour-day-dow {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--sumi-soft);
+  font-weight: 400;
+}
+.gantt-axis-hours {
+  display: flex;
+  height: 22px;
+  border-top: 1px solid var(--rule);
+}
+.gantt-axis-hour {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-right: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--date-axis);
+  font-variant-numeric: tabular-nums;
+}
+.gantt-axis-hour.major {
+  color: var(--text);
+  font-size: 10px;
+}
+.gantt-axis-hour.night {
+  background: rgba(100, 116, 139, 0.06);
+}
+.gantt-axis-hour.biz {
+  background: transparent;
+}
+.gantt-hour-col {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: -1;
+  border-right: 1px solid transparent;
+}
+.gantt-hour-col.night {
+  background: rgba(100, 116, 139, 0.05);
+}
+.gantt-hour-col.biz {
+  background: color-mix(in srgb, var(--primary) 4%, transparent);
+}
+[data-theme="dark"] .gantt-hour-col.night,
+[data-theme="wabi-dark"] .gantt-hour-col.night {
+  background: rgba(148, 163, 184, 0.06);
+}
+[data-theme="dark"] .gantt-axis-hour-day.weekend,
+[data-theme="wabi-dark"] .gantt-axis-hour-day.weekend {
+  background: rgba(148, 163, 184, 0.1);
+}
 
 /* date popover — fixed, anchored to the 📅 button (never clipped) */
 .wbs-date-pop {
@@ -3939,6 +4042,27 @@ select {
   border: 1px solid var(--rule-strong);
   border-radius: var(--r);
   box-shadow: 0 8px 24px rgba(33, 32, 27, 0.16);
+}
+.wbs-date-times {
+  display: flex;
+  gap: 12px;
+}
+.wbs-date-time-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  font-size: 11px;
+  color: var(--sumi-soft);
+}
+.wbs-date-time-field input[type="time"] {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 4px 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--washi);
+  color: var(--text);
 }
 .wbs-date-summary {
   display: flex;

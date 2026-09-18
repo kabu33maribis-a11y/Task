@@ -13,6 +13,7 @@ const MIGRATION_004: &str = include_str!("../migrations/004_add_project_hidden.s
 const MIGRATION_005: &str = include_str!("../migrations/005_add_checklist_items.sql");
 const MIGRATION_006: &str = include_str!("../migrations/006_add_task_dependencies.sql");
 const MIGRATION_007: &str = include_str!("../migrations/007_add_tags.sql");
+const MIGRATION_008: &str = include_str!("../migrations/008_add_task_times.sql");
 
 pub struct AppDb(Mutex<Option<Pool<Sqlite>>>);
 
@@ -132,6 +133,10 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), String> {
             .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
+    }
+
+    if !column_exists(pool, "tasks", "start_time").await? {
+        run_sql_script(pool, MIGRATION_008).await?;
     }
 
     Ok(())

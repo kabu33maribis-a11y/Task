@@ -1,7 +1,7 @@
 // WBS (Work Breakdown Structure) helpers.
 // Pure functions over a flat task list (single-project or multi-project).
 
-import { minDate, maxDate } from './date.js'
+import { resolveTaskTimes, compareDateTime } from './date.js'
 
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
 
@@ -29,12 +29,35 @@ const byStartDate = (a, b) => {
 const UNASSIGNED_PROJECT = { id: null, name: 'プロジェクト未設定', color: null, sort_order: Infinity }
 
 // Gantt span for a LEAF task. Falls back to scheduled_date as a 1-day bar.
-// Returns { start, end } ('YYYY-MM-DD') or null when the task has no dates.
+// Returns { start, end, startTime, endTime } or null when the task has no dates.
+// Times are effective values (defaults 09:00 / 18:00 when unset).
 function leafSpan(task) {
   const start = taskStart(task)
   const end = task.end_date ?? task.console_end_date ?? task.start_date ?? task.scheduled_date ?? null
   if (!start) return null
-  return { start, end: end && end >= start ? end : start }
+  const endDate = end && end >= start ? end : start
+  const { startTime, endTime } = resolveTaskTimes(task)
+  let st = startTime
+  let et = endTime
+  if (start === endDate && et <= st) {
+    const [h, m] = st.split(':').map(Number)
+    const next = Math.min(h * 60 + m + 15, 23 * 60 + 59)
+    et = `${String(Math.floor(next / 60)).padStart(2, '0')}:${String(next % 60).padStart(2, '0')}`
+  }
+  return { start, end: endDate, startTime: st, endTime: et }
+}
+
+function mergeSpans(a, b) {
+  if (!a) return { ...b }
+  if (!b) return { ...a }
+  const startCmp = compareDateTime(a.start, a.startTime, b.start, b.startTime)
+  const endCmp = compareDateTime(a.end, a.endTime, b.end, b.endTime)
+  return {
+    start: startCmp <= 0 ? a.start : b.start,
+    startTime: startCmp <= 0 ? a.startTime : b.startTime,
+    end: endCmp >= 0 ? a.end : b.end,
+    endTime: endCmp >= 0 ? a.endTime : b.endTime,
+  }
 }
 
 function aggregateChildren(children) {
@@ -43,7 +66,7 @@ function aggregateChildren(children) {
   const span = children.reduce((acc, c) => {
     if (!c.span) return acc
     if (!acc) return { ...c.span }
-    return { start: minDate(acc.start, c.span.start), end: maxDate(acc.end, c.span.end) }
+    return mergeSpans(acc, c.span)
   }, null)
   return {
     rollup: { done, total },
@@ -211,8 +234,11 @@ export function filterCompletedTree(roots) {
 export const GANTT_AXIS_MONTHS_H = 22
 export const GANTT_AXIS_DAYS_H = 26
 export const GANTT_AXIS_DAYS_H_WITH_DOW = 32
+export const GANTT_AXIS_HOURS_H = 22
+export const GANTT_AXIS_HOUR_DAYS_H = 28
 
-export function ganttHeadH(showWeekdays) {
+export function ganttHeadH(showWeekdays, zoom = 'day') {
+  if (zoom === 'hour') return GANTT_AXIS_HOUR_DAYS_H + GANTT_AXIS_HOURS_H
   return GANTT_AXIS_MONTHS_H + (showWeekdays ? GANTT_AXIS_DAYS_H_WITH_DOW : GANTT_AXIS_DAYS_H)
 }
 
