@@ -136,7 +136,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
         categories={state.categories}
         projects={visibleProjects}
         defaultProjectId={projectFilter !== 'all' ? projectFilter : null}
-        placeholder="タスクを追加（Enterで登録）"
+        placeholder="タスクを追加（Shift+Enterで改行 · Enterで登録）"
         onResetDate={onResetCalDate}
       />
 

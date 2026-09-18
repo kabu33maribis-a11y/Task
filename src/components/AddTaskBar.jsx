@@ -4,10 +4,21 @@ import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
 import { todayStr, formatMonthDayJP, normalizeConsoleDateRange } from '../lib/date.js'
 import { parseNaturalLanguageTask } from '../lib/ai/client.js'
 
+function parseTitleLines(text) {
+  return text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+}
+
+function autoResizeTextarea(el) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
 // Quick-add bar. Goal: title + Enter to register in ~3 seconds.
+// Shift+Enter inserts a newline; multiple lines add several tasks at once.
 // Optional "詳細" toggle reveals date/category without a modal.
 const AddTaskBar = forwardRef(function AddTaskBar(
-  { defaultDate = null, placeholder = 'タスクを追加', categories = [], projects = [], defaultProjectId = null, onResetDate },
+  { defaultDate = null, placeholder = 'タスクを追加（Shift+Enterで改行 · Enterで登録）', categories = [], projects = [], defaultProjectId = null, onResetDate },
   ref,
 ) {
   const { actions } = useStore()
@@ -50,13 +61,13 @@ const AddTaskBar = forwardRef(function AddTaskBar(
     focus: () => inputRef.current?.focus(),
   }))
 
-  function buildParentInput(date) {
+  function buildParentInput(date, titleLine = title) {
     const { scheduled_date, console_end_date } = normalizeConsoleDateRange(
       date || null,
       (showOpts ? endDate : '') || null,
     )
     return {
-      title: title.trim(),
+      title: titleLine.trim(),
       scheduled_date,
       console_end_date,
       category_id: (showOpts ? categoryId : '') || null,
@@ -70,6 +81,7 @@ const AddTaskBar = forwardRef(function AddTaskBar(
     setSubtasks([])
     setSubtaskInput('')
     setAiError('')
+    if (inputRef.current) inputRef.current.style.height = 'auto'
     inputRef.current?.focus()
   }
 
@@ -101,29 +113,31 @@ const AddTaskBar = forwardRef(function AddTaskBar(
     }
   }
 
-  function submit() {
-    const t = title.trim()
-    if (!t) return
-    const parentInput = buildParentInput((showOpts ? date : defaultDate))
-    if (subtasks.length > 0) {
-      actions.addTaskWithChildren(parentInput, subtasks)
-    } else {
-      actions.addTask(parentInput)
+  function addParsedTitles(scheduledDate) {
+    const titles = parseTitleLines(title)
+    if (titles.length === 0) return
+    if (titles.length === 1 && subtasks.length > 0) {
+      actions.addTaskWithChildren(buildParentInput(scheduledDate, titles[0]), subtasks)
+      return
     }
+    for (const line of titles) {
+      actions.addTask(buildParentInput(scheduledDate, line))
+    }
+  }
+
+  function submit() {
+    if (!hasTitles) return
+    addParsedTitles(showOpts ? date : defaultDate)
     resetForm()
   }
 
   function submitInbox() {
-    const t = title.trim()
-    if (!t) return
-    const parentInput = buildParentInput(null)
-    if (subtasks.length > 0) {
-      actions.addTaskWithChildren(parentInput, subtasks)
-    } else {
-      actions.addTask(parentInput)
-    }
+    if (!hasTitles) return
+    addParsedTitles(null)
     resetForm()
   }
+
+  const hasTitles = parseTitleLines(title).length > 0
 
   return (
     <div>
@@ -146,14 +160,20 @@ const AddTaskBar = forwardRef(function AddTaskBar(
         <span className="plus" aria-hidden>
           ＋
         </span>
-        <input
+        <textarea
           ref={inputRef}
-          type="text"
+          rows={1}
           value={title}
           placeholder={placeholder}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setTitle(e.target.value)
+            autoResizeTextarea(e.target)
+          }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') submit()
+            if (e.key !== 'Enter') return
+            if (e.shiftKey) return // allow newline
+            e.preventDefault()
+            submit()
           }}
         />
         <button
@@ -166,17 +186,17 @@ const AddTaskBar = forwardRef(function AddTaskBar(
         <button
           className="addbar-action"
           onClick={parseWithAi}
-          disabled={!title.trim() || aiLoading}
+          disabled={!hasTitles || aiLoading}
           title="自然言語をAIで解析"
         >
           {aiLoading ? '解析中…' : 'AI'}
         </button>
         {defaultDate !== null && (
-          <button className="add-inbox" onClick={submitInbox} disabled={!title.trim()} title="Inboxに追加">
+          <button className="add-inbox" onClick={submitInbox} disabled={!hasTitles} title="Inboxに追加">
             Inbox
           </button>
         )}
-        <button className="add-go" onClick={submit} disabled={!title.trim()}>
+        <button className="add-go" onClick={submit} disabled={!hasTitles}>
           追加
         </button>
       </div>

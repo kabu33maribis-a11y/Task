@@ -13,6 +13,6 @@ alwaysApply: true
 4. コミットメッセージは既存スタイル: `feat|fix|chore: …し vX.Y.Z にバンプ`
 5. `git push origin HEAD`
 6. `git tag vX.Y.Z` → `git push origin vX.Y.Z`（これがデプロイ。`.github/workflows/release.yml` が Windows ビルド・GitHub Release・updater の `latest.json` を作る）
-7. `gh run watch` で Release ワークフロー完了まで待ち、失敗したら直す
+7. `gh run watch` で Release ワークフロー完了まで待たなくてよい。
 
 タグ push までがデプロイ。push だけ、タグなし、は完了ではない。

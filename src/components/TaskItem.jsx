@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.jsx'
 import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays } from '../lib/date.js'
 import { unfinishedPredecessors, successorsOf } from '../lib/dependencies.js'
@@ -304,7 +305,7 @@ export default function TaskItem({
           title="削除"
           aria-label="タスクを削除"
         >
-          ✕
+          <Trash2 size={14} strokeWidth={2} aria-hidden />
         </button>
 
         <div className="task-menu" ref={menuRef}>
@@ -570,7 +571,7 @@ function ChecklistItemRow({ item }) {
         title="削除"
         aria-label="チェック項目を削除"
       >
-        ✕
+        <Trash2 size={14} strokeWidth={2} aria-hidden />
       </button>
     </div>
   )
@@ -639,7 +640,7 @@ function SubtaskRow({ task }) {
         title="削除"
         aria-label="子タスクを削除"
       >
-        ✕
+        <Trash2 size={14} strokeWidth={2} aria-hidden />
       </button>
     </div>
   )

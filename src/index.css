@@ -911,7 +911,7 @@ select {
 
 .addbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   margin-bottom: 8px;
   padding: 2px 0 2px 4px;
@@ -930,6 +930,7 @@ select {
   color: var(--sumi-faint);
   font-size: 16px;
   flex-shrink: 0;
+  align-self: center;
 }
 .addbar-date-chip-row {
   padding: 0 0 6px;
@@ -961,7 +962,8 @@ select {
 .addbar-date-chip-del:hover {
   color: var(--sumi);
 }
-.addbar input {
+.addbar input,
+.addbar textarea {
   flex: 1;
   min-width: 0;
   border: none;
@@ -969,12 +971,22 @@ select {
   padding: 10px 4px;
   font-size: 15px;
   background: transparent;
+  font-family: inherit;
+  line-height: 1.4;
 }
-.addbar input::placeholder {
+.addbar textarea {
+  resize: none;
+  min-height: 42px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.addbar input::placeholder,
+.addbar textarea::placeholder {
   color: var(--sumi-faint);
 }
 .addbar-action {
   flex-shrink: 0;
+  align-self: center;
   padding: 6px 10px;
   font-size: 12px;
   color: var(--sumi-faint);
@@ -996,6 +1008,7 @@ select {
 }
 .addbar .add-inbox,
 .addbar .add-go {
+  align-self: center;
   flex-shrink: 0;
   padding: 6px 12px;
   font-size: 12px;
@@ -1462,6 +1475,9 @@ select {
 
 .task-del {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: var(--sumi-faint);
@@ -1553,6 +1569,9 @@ select {
 .activity-to-task,
 .activity-del {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: var(--sumi-faint);
@@ -1901,6 +1920,18 @@ select {
 .btn-sm {
   padding: 5px 11px;
   font-size: 12px;
+}
+.btn-icon-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  color: var(--sumi-faint);
+}
+.btn-icon-del:hover {
+  color: var(--shu-deep);
+  border-color: transparent;
+  background: rgba(165, 52, 31, 0.08);
 }
 .btn-danger {
   border-color: var(--shu, #C0402E);
@@ -2843,7 +2874,7 @@ select {
 .pane-wbs {
   flex: 1 1 0;
   min-width: 0;
-  padding: 22px 24px 20px;
+  padding: 10px 12px 2px;
 }
 
 .wbs-root {
@@ -2861,7 +2892,6 @@ select {
   align-items: center;
   gap: 18px;
   padding-bottom: 16px;
-  margin-bottom: 18px;
   border-bottom: 1px solid var(--rule);
   flex-wrap: wrap;
 }
@@ -3000,9 +3030,26 @@ select {
   text-align: center;
 }
 
-/* WBS の check は task の check スタイルを流用（.check / .check.done） */
-.wbs-row .check {
+/* WBS の check：タスク一覧より小さめ・ボーダー控えめ */
+.wbs-row .check,
+.gantt-name-inner .check {
+  width: 16px;
+  height: 16px;
+  border-width: 1px;
+  border-color: var(--rule);
+  border-radius: 4px;
+  font-size: 10px;
   margin-top: 0;
+}
+.wbs-row .check:hover,
+.gantt-name-inner .check:hover {
+  border-color: var(--sumi-soft);
+}
+.wbs-row .check.done,
+.gantt-name-inner .check.done {
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+    0 1px 2px rgba(29, 134, 120, 0.2);
 }
 
 .wbs-main {
@@ -3044,13 +3091,19 @@ select {
   align-items: center;
   gap: 2px;
   opacity: 0;
-  transition: opacity 0.1s;
+  pointer-events: none;
+  transition: opacity 0.12s;
 }
 .wbs-row:hover .wbs-actions,
-.wbs-row:focus-within .wbs-actions {
+.wbs-row:focus-within .wbs-actions,
+.wbs-actions.is-open {
   opacity: 1;
+  pointer-events: auto;
 }
 .wbs-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid transparent;
   background: none;
   color: var(--sumi-soft);
@@ -3107,6 +3160,141 @@ select {
   color: var(--sumi-faint);
   cursor: default;
 }
+
+/* Excel export dialog */
+.export-excel-dialog .export-project-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 4px 0;
+  background: var(--washi);
+}
+.export-opt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--sumi);
+  cursor: pointer;
+  user-select: none;
+}
+.export-opt-row:hover {
+  background: var(--washi-sink);
+}
+.export-opt-all {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.export-opt-row input[type='checkbox'] {
+  flex: 0 0 auto;
+  accent-color: var(--shu);
+}
+.export-proj-swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.export-opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Schedule overview dialog */
+.schedule-overview-overlay {
+  padding: 20px 16px;
+  align-items: center;
+  overflow: hidden;
+}
+.modal.schedule-overview-dialog {
+  position: relative;
+  max-width: min(96vw, 1600px);
+  width: 100%;
+  height: 85vh;
+  max-height: calc(100vh - 40px);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.schedule-overview-dialog .close-x {
+  float: none;
+  position: absolute;
+  top: 10px;
+  right: 12px;
+}
+.schedule-overview-dialog h2 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.schedule-overview-sub {
+  font-family: var(--font-sans, inherit);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--sumi-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedule-overview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 36px;
+  margin-bottom: 12px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+.schedule-overview-zoom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.schedule-overview-slider {
+  width: 120px;
+  accent-color: var(--shu);
+}
+.schedule-overview-gantt {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.schedule-overview-dialog .gantt-bar.leaf {
+  cursor: default;
+  top: 6px;
+  height: 16px;
+}
+.schedule-overview-dialog .gantt-bar.summary {
+  top: 10px;
+  height: 8px;
+}
+.schedule-overview-dialog .gantt-bar.summary::before,
+.schedule-overview-dialog .gantt-bar.summary::after {
+  display: none;
+}
+.schedule-overview-dialog .gantt-bar.project {
+  top: 7px;
+  height: 14px;
+}
+.schedule-overview-dialog .gantt-name-inner .wbs-no {
+  min-width: 36px;
+  font-size: 10px;
+}
+.schedule-overview-dialog .gantt-name-inner .wbs-title {
+  font-size: 12px;
+}
+
 .wbs-zoom {
   padding: 2px;
 }
@@ -3276,13 +3464,27 @@ select {
   background: var(--hover-yellow);
 }
 .gantt-name-inner {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 6px 0 4px;
   box-sizing: border-box;
+}
+.gantt-name-inner .wbs-no-group {
+  min-width: 0;
+  gap: 2px;
+}
+.gantt-name-inner .wbs-no {
+  min-width: 0;
+}
+.gantt-name-inner .wbs-no-fire:empty {
+  display: none;
+}
+.gantt-name-inner .wbs-caret {
+  width: 14px;
 }
 .gantt-indent {
   flex: 0 0 auto;
@@ -3295,6 +3497,9 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: normal;
+}
+.gantt-name-inner .wbs-title-focus {
+  cursor: pointer;
 }
 .gantt-name-inner.is-project {
   font-weight: 700;
@@ -3332,15 +3537,86 @@ select {
 .gantt-matrix-row.done .gantt-bar.summary::after {
   background: var(--text-muted);
 }
+/* Overlay actions: don't steal title width; fade in over the label on hover */
 .gantt-name-inner .wbs-actions {
+  position: absolute;
+  right: 2px;
+  top: 0;
+  bottom: 0;
   opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+  padding-left: 32px;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    var(--washi-raised) 28px,
+    var(--washi-raised) 100%
+  );
 }
-.gantt-matrix-row:hover .wbs-actions,
-.gantt-matrix-row:focus-within .wbs-actions {
+.gantt-matrix-row.project-row .gantt-namecell .wbs-actions {
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    var(--washi-sink) 28px,
+    var(--washi-sink) 100%
+  );
+}
+.gantt-matrix-row:hover .gantt-namecell .wbs-actions,
+.gantt-matrix-row:focus-within .gantt-namecell .wbs-actions,
+.gantt-name-inner .wbs-actions.is-open {
   opacity: 1;
+  pointer-events: auto;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    var(--hover-yellow) 28px,
+    var(--hover-yellow) 100%
+  );
 }
 .wbs-act.set {
   color: var(--primary);
+}
+.wbs-act.active {
+  color: var(--sumi);
+  background: var(--washi);
+  border-color: var(--rule-strong);
+}
+.wbs-more-wrap {
+  position: relative;
+}
+.wbs-more-pop {
+  position: fixed;
+  z-index: 220;
+  min-width: 168px;
+  padding: 4px;
+  background: var(--washi-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+}
+.wbs-more-pop button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  color: var(--sumi);
+  cursor: pointer;
+}
+.wbs-more-pop button:hover:not(:disabled) {
+  background: var(--washi-sink);
+}
+.wbs-more-pop button:disabled {
+  color: var(--rule-strong);
+  cursor: default;
+}
+.wbs-more-pop button.set {
+  color: var(--primary);
+  font-weight: 600;
 }
 
 /* timeline track — day gridlines via gradient (--dayw inherited from matrix) */
@@ -3354,6 +3630,25 @@ select {
     transparent 1px,
     transparent var(--dayw)
   );
+}
+.gantt-track-unscheduled {
+  cursor: cell;
+}
+.gantt-add-hint {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--washi-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r);
+  box-shadow: 0 2px 8px rgba(33, 32, 27, 0.12);
 }
 .gantt-today-line {
   position: absolute;

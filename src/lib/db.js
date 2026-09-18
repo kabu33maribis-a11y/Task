@@ -19,11 +19,11 @@ function createDbInterface() {
   }
 }
 
-async function connectDb(customDir) {
+async function connectDb(customPath) {
   await waitForTauri()
-  const dir = customDir !== undefined ? customDir : await getDbPath()
+  const path = customPath !== undefined ? customPath : await getDbPath()
   await invoke('app_db_close').catch(() => {})
-  await invoke('app_db_connect', { customDir: dir })
+  await invoke('app_db_connect', { customPath: path })
 }
 
 export async function getDb() {
@@ -34,13 +34,13 @@ export async function getDb() {
   return _db
 }
 
-export async function reconnectDb(newDirPath) {
+export async function reconnectDb(newFilePath) {
   if (_db) {
     await _db.close().catch(() => {})
     _db = null
   }
-  await setDbPath(newDirPath)
-  await connectDb(newDirPath)
+  await setDbPath(newFilePath)
+  await connectDb(newFilePath)
   _db = createDbInterface()
   return _db
 }

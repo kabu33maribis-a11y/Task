@@ -5,6 +5,7 @@
 // ExcelJS は遅延 import（呼び出し時のみ読み込み）してメインバンドルを軽く保つ。
 
 import { addDays, diffDays } from './date.js'
+import { getJapaneseHolidays } from './holidays.js'
 import { flattenVisible } from './wbs.js'
 
 // --- パレット（ARGB: 先頭 FF は不透明）------------------------------------
@@ -19,6 +20,7 @@ const C = {
   shu: 'FFC0402E', // 朱 ＝ 達成
   shuDeep: 'FFA5341F',
   shuLight: 'FFE29A8B',
+  holidayTint: 'FFF7E7E2', // 祝日ヘッダー／列の淡い朱
   trackLeaf: 'FFE7E3D9', // 葉の未達トラック（淡い墨）
   trackSummary: 'FFCDC7B8', // 親の未達トラック（やや濃い）
 }
@@ -110,11 +112,29 @@ function uniqueSheetName(name, usedNames) {
   }
 }
 
-function addWbsSheet(wb, { project, roots, catMap, today, range: externalRange, usedNames }) {
+function holidayMapForRange(range) {
+  const years = new Set()
+  const span = diffDays(range.start, range.end) + 1
+  for (let i = 0; i < span; i++) years.add(Number(addDays(range.start, i).slice(0, 4)))
+  const map = new Map()
+  for (const y of years) for (const [d, name] of getJapaneseHolidays(y)) map.set(d, name)
+  return map
+}
+
+function addWbsSheet(wb, {
+  project,
+  roots,
+  catMap,
+  today,
+  range: externalRange,
+  usedNames,
+  showWeekends = true,
+  showHolidays = true,
+}) {
   const nodes = flattenVisible(roots, new Set()) // 折りたたみ無視＝全件展開
   const range = externalRange ?? computeRange(nodes, today)
-  const totalDays = diffDays(range.start, range.end) + 1
-  const HELPER_COL = TABLE_COLS + totalDays + 1 // 親/葉フラグ用の隠し列
+  const calendarDays = diffDays(range.start, range.end) + 1
+  const holidays = showHolidays ? holidayMapForRange(range) : null
 
   const overall = roots.reduce(
     (a, n) => ({ done: a.done + n.rollup.done, total: a.total + n.rollup.total }),
@@ -122,19 +142,35 @@ function addWbsSheet(wb, { project, roots, catMap, today, range: externalRange, 
   )
   const overallPct = overall.total ? overall.done / overall.total : 0
 
-  // 日付列メタ（月帯・週末・今日）
+  // 日付列メタ（月帯・週末・祝日・今日）。土日オフ時は週末列をスキップ。
+  // 祝日オフ時は列は残し、着色・注釈だけ付けない。
   const dayMeta = []
   const monthBands = [] // {startCol, span, label}
-  for (let i = 0; i < totalDays; i++) {
+  for (let i = 0; i < calendarDays; i++) {
     const ds = addDays(range.start, i)
     const [y, m, day] = ds.split('-').map(Number)
     const dow = new Date(y, m - 1, day).getDay()
-    dayMeta.push({ ds, y, m, day, dow, isToday: ds === today, weekend: dow === 0 || dow === 6 })
-    const col = DAY0 + i
+    const weekend = dow === 0 || dow === 6
+    if (!showWeekends && weekend) continue
+    const holiday = holidays?.get(ds) || null
+    const col = DAY0 + dayMeta.length
+    dayMeta.push({
+      ds,
+      y,
+      m,
+      day,
+      dow,
+      isToday: ds === today,
+      weekend,
+      holiday,
+    })
     const last = monthBands[monthBands.length - 1]
     if (last && last.y === y && last.m === m) last.span += 1
     else monthBands.push({ startCol: col, span: 1, y, m, label: `${m}月` })
   }
+
+  const totalDays = dayMeta.length
+  const HELPER_COL = TABLE_COLS + totalDays + 1 // 親/葉フラグ用の隠し列
 
   const ws = wb.addWorksheet(uniqueSheetName(project.name, usedNames), {
     views: [{ state: 'frozen', xSplit: TABLE_COLS, ySplit: 5, showGridLines: false }],
@@ -204,18 +240,24 @@ function addWbsSheet(wb, { project, roots, catMap, today, range: externalRange, 
     cell.value = toJsDate(d.ds)
     cell.numFmt = 'd'
     cell.alignment = { vertical: 'middle', horizontal: 'center' }
+    const isHoliday = !!d.holiday
     cell.font = {
       name: FONT,
       size: 8,
-      bold: d.isToday,
-      color: { argb: d.isToday ? C.shu : d.weekend ? C.inkFaint : C.inkSoft },
+      bold: d.isToday || isHoliday,
+      color: {
+        argb: d.isToday || isHoliday ? C.shu : d.weekend ? C.inkFaint : C.inkSoft,
+      },
     }
-    cell.fill = fill(d.isToday ? 'FFF7E7E2' : d.weekend ? C.paperSink : C.paper)
+    cell.fill = fill(
+      d.isToday ? 'FFF7E7E2' : isHoliday ? C.holidayTint : d.weekend ? C.paperSink : C.paper,
+    )
     cell.border = border({
       bottom: d.isToday ? thin(C.shu) : thin(C.ruleStrong),
       left: thin(C.rule),
       right: thin(C.rule),
     })
+    if (d.holiday) cell.note = d.holiday
   })
 
   // ---- データ行 -----------------------------------------------------------
@@ -286,10 +328,11 @@ function addWbsSheet(wb, { project, roots, catMap, today, range: externalRange, 
     }
 
     // ガント帯セルの塗りは条件付き書式（開始/終了/進捗から動的算出）に任せる。
-    // ここでは方眼だけ敷く：週末の淡色・今日の縦線・細罫。
+    // ここでは方眼だけ敷く：週末・祝日の淡色・今日の縦線・細罫。
     dayMeta.forEach((d, i) => {
       const cell = ws.getCell(r, DAY0 + i)
-      if (d.weekend) cell.fill = fill(C.paperSink)
+      if (d.holiday) cell.fill = fill(C.holidayTint)
+      else if (d.weekend) cell.fill = fill(C.paperSink)
       cell.border = border({
         left: d.isToday ? thin(C.shuLight) : thin(C.rule),
         right: thin(C.rule),
@@ -358,18 +401,33 @@ function addWbsSheet(wb, { project, roots, catMap, today, range: externalRange, 
  * @param {Array}    opts.roots     buildTree の結果（全ツリー）
  * @param {Map}      opts.catMap    category_id -> {name,...}
  * @param {string}   opts.today     'YYYY-MM-DD'
+ * @param {boolean}  [opts.showWeekends=true]
+ * @param {boolean}  [opts.showHolidays=true]
  */
-export async function buildWbsWorkbook({ project, roots, catMap, today }) {
+export async function buildWbsWorkbook({
+  project,
+  roots,
+  catMap,
+  today,
+  showWeekends = true,
+  showHolidays = true,
+}) {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   wb.creator = 'タスク管理'
   wb.created = toJsDate(today) || undefined
   const usedNames = new Set()
-  addWbsSheet(wb, { project, roots, catMap, today, usedNames })
+  addWbsSheet(wb, { project, roots, catMap, today, usedNames, showWeekends, showHolidays })
   return wb
 }
 
-export async function buildAllProjectsWorkbook({ projectNodes, catMap, today }) {
+export async function buildAllProjectsWorkbook({
+  projectNodes,
+  catMap,
+  today,
+  showWeekends = true,
+  showHolidays = true,
+}) {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   wb.creator = 'タスク管理'
@@ -390,6 +448,8 @@ export async function buildAllProjectsWorkbook({ projectNodes, catMap, today }) 
       today,
       range: sharedRange,
       usedNames,
+      showWeekends,
+      showHolidays,
     })
   }
 
@@ -419,5 +479,10 @@ export async function exportWbsToExcel(opts) {
 
 export async function exportAllWbsToExcel(opts) {
   const wb = await buildAllProjectsWorkbook(opts)
-  await downloadWorkbook(wb, `全プロジェクト_WBS_${opts.today}.xlsx`)
+  const sheets = (opts.projectNodes ?? []).filter((pn) => pn.rollup.total > 0)
+  const filename =
+    sheets.length === 1
+      ? `${sheetName(sheets[0].project.name)}_WBS_${opts.today}.xlsx`
+      : `全プロジェクト_WBS_${opts.today}.xlsx`
+  await downloadWorkbook(wb, filename)
 }

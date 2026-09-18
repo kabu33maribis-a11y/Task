@@ -46,7 +46,7 @@ export default function Inbox({ embedded = false, projectFilter = 'all' }) {
         categories={state.categories}
         projects={visibleProjects}
         defaultProjectId={projectFilter !== 'all' ? projectFilter : null}
-        placeholder="思いついたことを追加"
+        placeholder="思いついたことを追加（Shift+Enterで改行 · Enterで登録）"
       />
 
       {inboxTasks.length > 0 ? (

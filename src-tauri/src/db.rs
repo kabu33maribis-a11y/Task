@@ -1,5 +1,5 @@
 use serde_json::Value;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Column, Pool, Row, Sqlite, ValueRef};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,16 +22,38 @@ impl AppDb {
     }
 }
 
-fn resolve_db_path(app: &AppHandle, custom_dir: Option<String>) -> Result<PathBuf, String> {
-    if let Some(dir) = custom_dir {
-        let path = PathBuf::from(dir);
-        std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-        Ok(path.join("tasks.db"))
-    } else {
-        let config = app.path().app_config_dir().map_err(|e| e.to_string())?;
-        std::fs::create_dir_all(&config).map_err(|e| e.to_string())?;
-        Ok(config.join("tasks.db"))
+fn is_sqlite_file_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "db" | "sqlite" | "sqlite3"))
+        .unwrap_or(false)
+}
+
+/// カスタムパスを DB ファイルパスに正規化する。
+/// 旧設定はフォルダを保存していたため、ディレクトリや拡張子なしは `tasks.db` を付与する。
+fn normalize_custom_db_path(path: PathBuf) -> PathBuf {
+    if path.is_dir() {
+        return path.join("tasks.db");
     }
+    if is_sqlite_file_path(&path) || path.is_file() {
+        return path;
+    }
+    path.join("tasks.db")
+}
+
+fn resolve_db_path(app: &AppHandle, custom_path: Option<String>) -> Result<PathBuf, String> {
+    let db_path = match custom_path {
+        Some(path) if !path.trim().is_empty() => normalize_custom_db_path(PathBuf::from(path)),
+        _ => {
+            let config = app.path().app_config_dir().map_err(|e| e.to_string())?;
+            config.join("tasks.db")
+        }
+    };
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create db dir {}: {e}", parent.display()))?;
+    }
+    Ok(db_path)
 }
 
 async fn run_sql_script(pool: &Pool<Sqlite>, script: &str) -> Result<(), String> {
@@ -134,16 +156,21 @@ fn bind_value<'q>(
 pub async fn app_db_connect(
     app: AppHandle,
     db: State<'_, AppDb>,
+    custom_path: Option<String>,
     custom_dir: Option<String>,
 ) -> Result<String, String> {
-    let db_path = resolve_db_path(&app, custom_dir)?;
-    let conn_url = format!("sqlite:{}", db_path.to_string_lossy().replace('\\', "/"));
+    let db_path = resolve_db_path(&app, custom_path.or(custom_dir))?;
+    // URL 文字列だと Windows 絶対パスや未作成ファイルで SQLITE_CANTOPEN (14) になりやすい。
+    // filename + create_if_missing で確実に開く／作成する。
+    let options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&conn_url)
+        .connect_with(options)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("failed to open {}: {e}", db_path.display()))?;
 
     run_migrations(&pool).await?;
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { useStore } from '../store/StoreContext.jsx'
 
 function fmtDatetime(iso) {
@@ -68,9 +69,10 @@ function ActivityItem({ activity }) {
       <button
         className="activity-del"
         onClick={() => actions.deleteActivity(activity.id)}
+        title="削除"
         aria-label="削除"
       >
-        ✕
+        <Trash2 size={12} strokeWidth={2} aria-hidden />
       </button>
     </li>
   )

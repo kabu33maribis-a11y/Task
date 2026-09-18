@@ -12,7 +12,6 @@ import {
   addDays,
   dateStrInMonth,
   taskConsoleEndDate,
-  fromDateStr,
 } from '../lib/date.js'
 import { getJapaneseHolidays } from '../lib/holidays.js'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
@@ -22,27 +21,34 @@ const DOW = ['月', '火', '水', '木', '金']
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
 const CAL_COL_GAP = 4
 
-function isWeekendDate(str) {
-  const dow = fromDateStr(str).getDay()
-  return dow === 0 || dow === 6
-}
-
-/** Add n weekdays (skip Sat/Sun). n may be negative. */
-function addWorkDays(str, n) {
-  if (n === 0) return str
-  let d = str
-  const step = n > 0 ? 1 : -1
-  let left = Math.abs(n)
-  while (left > 0) {
-    d = addDays(d, step)
-    if (!isWeekendDate(d)) left -= 1
-  }
-  return d
-}
-
 function getCalColStep(rowEl) {
   const colW = (rowEl.getBoundingClientRect().width - CAL_COL_GAP * 4) / 5
   return colW + CAL_COL_GAP
+}
+
+/** Map pointer position to the weekday date under the cursor (works across week rows). */
+function getDateAtPointer(clientX, clientY, gridEl) {
+  if (!gridEl) return null
+  const rows = gridEl.querySelectorAll('.cal-week-row')
+  let bestRow = null
+  let bestDist = Infinity
+  for (const rowEl of rows) {
+    const rect = rowEl.getBoundingClientRect()
+    const dist =
+      clientY < rect.top ? rect.top - clientY
+      : clientY > rect.bottom ? clientY - rect.bottom
+      : 0
+    if (dist < bestDist) {
+      bestDist = dist
+      bestRow = rowEl
+    }
+  }
+  if (!bestRow || bestDist > 48) return null
+  const rect = bestRow.getBoundingClientRect()
+  const colStep = getCalColStep(bestRow)
+  const colIdx = Math.max(0, Math.min(4, Math.floor((clientX - rect.left) / colStep)))
+  const date = bestRow.querySelectorAll('.cal-cell')[colIdx]?.dataset?.date
+  return date || null
 }
 
 // Height constants shared between JS and CSS
@@ -190,14 +196,14 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     function onMove(e) {
       setResize((r) => {
         if (!r) return r
-        const colStep = getCalColStep(r.rowEl)
-        const deltaCols = Math.round((e.clientX - r.startX) / colStep)
+        const target = getDateAtPointer(e.clientX, e.clientY, r.gridEl)
+        if (!target) return r
         if (r.mode === 'start') {
-          const ns = addWorkDays(r.origStart, deltaCols)
-          return { ...r, start: ns <= r.origEnd ? ns : r.origEnd }
+          const ns = target <= r.origEnd ? target : r.origEnd
+          return { ...r, start: ns }
         }
-        const ne = addWorkDays(r.origEnd, deltaCols)
-        return { ...r, end: ne >= r.origStart ? ne : r.origStart }
+        const ne = target >= r.origStart ? target : r.origStart
+        return { ...r, end: ne }
       })
     }
     function onUp() {
@@ -327,8 +333,8 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   function startResize(e, task, mode) {
     e.preventDefault()
     e.stopPropagation()
-    const rowEl = e.currentTarget.closest('.cal-week-row')
-    if (!rowEl) return
+    const gridEl = e.currentTarget.closest('.cal-grid-wrapper')
+    if (!gridEl) return
     const start = task.scheduled_date
     const end = taskConsoleEndDate(task)
     document.documentElement.style.cursor = 'ew-resize'
@@ -336,12 +342,11 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     setResize({
       id: task.id,
       mode,
-      startX: e.clientX,
       origStart: start,
       origEnd: end,
       start,
       end,
-      rowEl,
+      gridEl,
     })
   }
 
@@ -395,6 +400,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                   return (
                     <button
                       key={dateStr}
+                      data-date={dateStr}
                       className={cls.join(' ')}
                       onClick={() => setSelected(dateStr)}
                       onDragOver={(e) => { e.preventDefault(); setDragOver(dateStr) }}

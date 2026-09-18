@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { useStore, flushSync } from '../store/StoreContext.jsx'
 import { reconnectDb, resetDbConnection } from '../lib/db.js'
-import { getDbPath, pickDbFolder, setDbPath } from '../lib/appConfig.js'
+import { getDbPath, pickDbFile, setDbPath } from '../lib/appConfig.js'
 import { applyTheme as setThemeOnDocument, getSavedTheme, THEMES } from '../lib/theme.js'
 import {
   applyGanttBarColor as setGanttBarColorOnDocument,
@@ -16,6 +17,13 @@ const PRESET_COLORS = [
   '#2E8A60', '#2080AA', '#2A52A0', '#6B4CA0',
   '#B85C8A', '#7A6A5A', '#404040', '#909090',
 ]
+
+/** 旧設定（フォルダパス）は表示時に tasks.db を付与する */
+function formatDbPathDisplay(path) {
+  if (!path) return null
+  if (/\.(db|sqlite3?)$/i.test(path)) return path
+  return path.replace(/[\\/]+$/, '') + '\\tasks.db'
+}
 
 function ColorPickerSwatch({ color, onChange }) {
   const [open, setOpen] = useState(false)
@@ -78,7 +86,7 @@ export default function SettingsModal({ onClose }) {
   const [newCat, setNewCat] = useState('')
   const [newProj, setNewProj] = useState('')
   const [newTag, setNewTag] = useState('')
-  const [dbDir, setDbDir] = useState(null)
+  const [dbPath, setDbPathState] = useState(null)
   const [dbMsg, setDbMsg] = useState('')
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
   const [theme, setTheme] = useState(getSavedTheme)
@@ -95,7 +103,7 @@ export default function SettingsModal({ onClose }) {
   const closeConfirm = () => setConfirm(null)
 
   useEffect(() => {
-    getDbPath().then((p) => setDbDir(p))
+    getDbPath().then((p) => setDbPathState(p))
   }, [])
 
   function snapshotState() {
@@ -111,17 +119,15 @@ export default function SettingsModal({ onClose }) {
     }
   }
 
-  async function handlePickDbFolder() {
-    const dir = await pickDbFolder()
-    if (!dir) return
+  async function handlePickDbFile() {
+    const file = await pickDbFile()
+    if (!file) return
     try {
       await flushSync()
-      const snapshot = snapshotState()
-      await reconnectDb(dir)
-      actions.importState(snapshot)
-      await flushSync()
-      setDbDir(dir)
-      setDbMsg('保存先を変更し、データを移行しました。')
+      await reconnectDb(file)
+      await actions.reloadFromDb()
+      setDbPathState(file)
+      setDbMsg('選択したデータファイルを開きました。')
     } catch (e) {
       setDbMsg('エラー: ' + String(e))
     }
@@ -135,7 +141,7 @@ export default function SettingsModal({ onClose }) {
       await resetDbConnection()
       actions.importState(snapshot)
       await flushSync()
-      setDbDir(null)
+      setDbPathState(null)
       setDbMsg('デフォルトの保存先に戻し、データを移行しました。')
     } catch (e) {
       setDbMsg('エラー: ' + String(e))
@@ -297,14 +303,14 @@ export default function SettingsModal({ onClose }) {
             データファイルの場所
           </div>
           <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-            OneDrive や Dropbox のフォルダを指定すると複数PCで同期できます。
+            既存の .db ファイルを選択します。OneDrive や Dropbox 上のファイルを指定すると複数PCで同期できます。
           </p>
           <div className="editor-row" style={{ alignItems: 'center', gap: 8 }}>
             <code style={{ flex: 1, fontSize: '0.78rem', wordBreak: 'break-all' }}>
-              {dbDir ? `${dbDir}\\tasks.db` : 'デフォルト（%APPDATA%\\task-manager\\tasks.db）'}
+              {formatDbPathDisplay(dbPath) || 'デフォルト（%APPDATA%\\task-manager\\tasks.db）'}
             </code>
-            <button className="btn btn-sm" onClick={handlePickDbFolder}>変更</button>
-            {dbDir && <button className="btn btn-sm" onClick={resetDbPath}>リセット</button>}
+            <button className="btn btn-sm" onClick={handlePickDbFile}>変更</button>
+            {dbPath && <button className="btn btn-sm" onClick={resetDbPath}>リセット</button>}
           </div>
           {dbMsg && <p className="help" style={{ marginTop: 6 }}>{dbMsg}</p>}
         </div>
@@ -388,7 +394,7 @@ function TagRow({ tag }) {
         }}
       />
       <button
-        className="btn btn-sm"
+        className="btn btn-sm btn-icon-del"
         onClick={() =>
           setConfirm({
             message: `「${tag.name}」を削除しますか？`,
@@ -398,8 +404,10 @@ function TagRow({ tag }) {
             onOk: () => { setConfirm(null); actions.deleteTag(tag.id) },
           })
         }
+        title="削除"
+        aria-label="削除"
       >
-        削除
+        <Trash2 size={14} strokeWidth={2} aria-hidden />
       </button>
     </div>
     {confirm && (
@@ -440,7 +448,7 @@ function CategoryRow({ category }) {
         }}
       />
       <button
-        className="btn btn-sm"
+        className="btn btn-sm btn-icon-del"
         onClick={() =>
           setConfirm({
             message: `「${category.name}」を削除しますか？`,
@@ -450,8 +458,10 @@ function CategoryRow({ category }) {
             onOk: () => { setConfirm(null); actions.deleteCategory(category.id) },
           })
         }
+        title="削除"
+        aria-label="削除"
       >
-        削除
+        <Trash2 size={14} strokeWidth={2} aria-hidden />
       </button>
     </div>
     {confirm && (
@@ -500,7 +510,7 @@ function ProjectRow({ project }) {
         {hidden ? '表示' : '非表示'}
       </button>
       <button
-        className="btn btn-sm"
+        className="btn btn-sm btn-icon-del"
         onClick={() =>
           setConfirm({
             message: `「${project.name}」を削除しますか？`,
@@ -510,8 +520,10 @@ function ProjectRow({ project }) {
             onOk: () => { setConfirm(null); actions.deleteProject(project.id) },
           })
         }
+        title="削除"
+        aria-label="削除"
       >
-        削除
+        <Trash2 size={14} strokeWidth={2} aria-hidden />
       </button>
     </div>
     {confirm && (

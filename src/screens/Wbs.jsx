@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Trash2 } from 'lucide-react'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
-import { buildTree, buildProjectTrees, prevSibling, flattenVisible } from '../lib/wbs.js'
+import { buildTree, buildProjectTrees, prevSibling, flattenVisible, filterCompletedTree } from '../lib/wbs.js'
 import { todayStr, addDays, diffDays, formatMonthDayJP, fromDateStr, deadlineUrgency, daysUntil } from '../lib/date.js'
 import { getJapaneseHolidays } from '../lib/holidays.js'
 import { isWaiting, successorIds } from '../lib/dependencies.js'
@@ -10,6 +12,8 @@ import AddTaskBar from '../components/AddTaskBar.jsx'
 import DatePicker from '../components/DatePicker.jsx'
 import TaskPicker from '../components/TaskPicker.jsx'
 import TagPicker from '../components/TagPicker.jsx'
+import ExportExcelDialog from '../components/ExportExcelDialog.jsx'
+import ScheduleOverviewDialog from '../components/ScheduleOverviewDialog.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
 const HEAD_H = 46 // 軸ヘッダー高
@@ -18,6 +22,7 @@ const MIN_LEFT_W = 220
 const MAX_LEFT_W = 760
 const LEFT_W_KEY = 'taskmanager.wbs.leftw'
 const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
+const SHOW_COMPLETED_KEY = 'taskmanager.wbs.showCompleted'
 
 const ZOOMS = {
   day: { label: '日', w: 34 },
@@ -71,6 +76,8 @@ function WbsGantt({ project, multi }) {
   const hiddenIds = useHiddenProjectIds()
   const today = todayStr()
   const [exporting, setExporting] = useState(false)
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [scheduleOverviewOpen, setScheduleOverviewOpen] = useState(false)
 
   const scopedTasks = useMemo(
     () => {
@@ -78,6 +85,11 @@ function WbsGantt({ project, multi }) {
       return state.tasks.filter((t) => !(t.project_id && hiddenIds.has(t.project_id)))
     },
     [state.tasks, multi, project?.id, hiddenIds],
+  )
+
+  const hasUnassignedTasks = useMemo(
+    () => state.tasks.some((t) => !t.project_id),
+    [state.tasks],
   )
 
   const roots = useMemo(
@@ -99,6 +111,10 @@ function WbsGantt({ project, multi }) {
     const s = localStorage.getItem(SHOW_WEEKENDS_KEY)
     return s === null ? true : s === '1'
   })
+  const [showCompleted, setShowCompleted] = useState(() => {
+    const s = localStorage.getItem(SHOW_COMPLETED_KEY)
+    return s === null ? true : s === '1'
+  })
   const [drag, setDrag] = useState(null) // {id, mode, start, end}
   const [leftW, setLeftW] = useState(() => {
     const s = Number(localStorage.getItem(LEFT_W_KEY))
@@ -118,27 +134,34 @@ function WbsGantt({ project, multi }) {
     return map
   }, [state.checklistItems])
 
-  const visible = useMemo(() => flattenVisible(roots, collapsed), [roots, collapsed])
+  const displayRoots = useMemo(
+    () => (showCompleted ? roots : filterCompletedTree(roots)),
+    [roots, showCompleted],
+  )
+
+  const visible = useMemo(() => flattenVisible(displayRoots, collapsed), [displayRoots, collapsed])
 
   const projectRowIds = useMemo(
-    () => roots.filter((n) => n.isProject).map((n) => n.task.id),
-    [roots],
+    () => displayRoots.filter((n) => n.isProject).map((n) => n.task.id),
+    [displayRoots],
   )
 
   const collapsibleRowIds = useMemo(() => {
     const ids = []
     const walk = (nodes) => {
       for (const n of nodes) {
-        const hasCheck = !n.isProject && (itemsByTask.get(n.task.id)?.length ?? 0) > 0
+        const items = itemsByTask.get(n.task.id) ?? []
+        const hasCheck =
+          !n.isProject && (showCompleted ? items.length > 0 : items.some((it) => !it.done))
         if (n.children.length || hasCheck) {
           ids.push(n.task.id)
           walk(n.children)
         }
       }
     }
-    walk(roots)
+    walk(displayRoots)
     return ids
-  }, [roots, itemsByTask])
+  }, [displayRoots, itemsByTask, showCompleted])
 
   const collapseTargetIds = multi ? projectRowIds : collapsibleRowIds
 
@@ -151,6 +174,7 @@ function WbsGantt({ project, multi }) {
       if (!node.isProject && !folded) {
         const items = itemsByTask.get(node.task.id) ?? []
         for (const item of items) {
+          if (!showCompleted && item.done) continue
           out.push({ kind: 'checklist', item, depth: node.depth + 1 })
         }
         if (addingChecklistOf === node.task.id) {
@@ -166,7 +190,7 @@ function WbsGantt({ project, multi }) {
       }
     }
     return out
-  }, [visible, addingChildOf, addingChecklistOf, collapsed, itemsByTask])
+  }, [visible, addingChildOf, addingChecklistOf, collapsed, itemsByTask, showCompleted])
 
   const overall = useMemo(
     () => roots.reduce(
@@ -260,15 +284,51 @@ function WbsGantt({ project, multi }) {
     })
   }
 
-  async function handleExport() {
-    if (exporting || overall.total === 0) return
+  function toggleCompleted() {
+    setShowCompleted((prev) => {
+      const next = !prev
+      localStorage.setItem(SHOW_COMPLETED_KEY, next ? '1' : '0')
+      return next
+    })
+  }
+
+  async function handleExport({ projectIds, showWeekends: exportWeekends, showHolidays }) {
+    if (exporting) return
     setExporting(true)
     try {
-      if (multi) {
-        await exportAllWbsToExcel({ projectNodes: roots, catMap, today })
-      } else {
-        await exportWbsToExcel({ project: project, roots, catMap, today })
+      const idSet = new Set(projectIds)
+      const exportProjects = visibleProjects.filter((p) => idSet.has(p.id))
+      const withUnassigned = idSet.has('__unassigned__')
+
+      const projectNodes = buildProjectTrees(
+        state.tasks.filter((t) => {
+          if (!t.project_id) return withUnassigned
+          return idSet.has(t.project_id)
+        }),
+        exportProjects,
+      ).filter(
+        (pn) =>
+          (pn.project.id == null && withUnassigned) ||
+          (pn.project.id != null && idSet.has(pn.project.id)),
+      )
+
+      const opts = { catMap, today, showWeekends: exportWeekends, showHolidays }
+      const withTasks = projectNodes.filter((pn) => pn.rollup.total > 0)
+      if (withTasks.length === 0) {
+        alert('選択したプロジェクトに出力できるタスクがありません。')
+        return
       }
+      if (withTasks.length === 1) {
+        const pn = withTasks[0]
+        await exportWbsToExcel({
+          ...opts,
+          project: pn.project,
+          roots: pn.children,
+        })
+      } else {
+        await exportAllWbsToExcel({ ...opts, projectNodes: withTasks })
+      }
+      setExportDialogOpen(false)
     } catch (err) {
       console.error('Excel出力に失敗しました', err)
       alert('Excel出力に失敗しました。時間をおいて再度お試しください。')
@@ -276,6 +336,13 @@ function WbsGantt({ project, multi }) {
       setExporting(false)
     }
   }
+
+  const exportInitialSelectedIds = useMemo(() => {
+    if (!multi && project) return [project.id]
+    const ids = visibleProjects.map((p) => p.id)
+    if (hasUnassignedTasks) ids.push('__unassigned__')
+    return ids
+  }, [multi, project, visibleProjects, hasUnassignedTasks])
 
   function collapseAllProjects() {
     setCollapsed(new Set(collapseTargetIds))
@@ -322,6 +389,13 @@ function WbsGantt({ project, multi }) {
       next.delete(id)
       return next
     })
+  }
+
+  function scrollToDate(dateStr) {
+    const el = scrollRef.current
+    if (!el || !dateStr) return
+    const x = leftW + colOf(dateStr) * dayW
+    el.scrollTo({ left: Math.max(0, x - el.clientWidth * 0.35), behavior: 'smooth' })
   }
 
   // ---- 帯ドラッグ（葉タスクのみ） --------------------------------------
@@ -467,11 +541,19 @@ function WbsGantt({ project, multi }) {
         <div className="wbs-toolbar">
           <button
             className="btn btn-sm btn-export"
-            onClick={handleExport}
+            onClick={() => setExportDialogOpen(true)}
             disabled={exporting || overall.total === 0}
             title="WBSとガントチャートをExcelに出力"
           >
             {exporting ? '出力中…' : 'Excel出力'}
+          </button>
+          <button
+            className="btn btn-sm"
+            onClick={() => setScheduleOverviewOpen(true)}
+            disabled={!hasContent || visible.length === 0}
+            title="スケジュール全体を縮小して表示"
+          >
+            全体表示
           </button>
           <button
             className={`btn btn-sm${showWeekends ? ' btn-primary' : ''}`}
@@ -479,6 +561,13 @@ function WbsGantt({ project, multi }) {
             title={showWeekends ? '土日を非表示にする' : '土日を表示する'}
           >
             土日
+          </button>
+          <button
+            className={`btn btn-sm${showCompleted ? ' btn-primary' : ''}`}
+            onClick={toggleCompleted}
+            title={showCompleted ? '完了タスクを非表示にする' : '完了タスクを表示する'}
+          >
+            完了
           </button>
           <div className="view-toggle wbs-zoom">
             {Object.entries(ZOOMS).map(([k, z]) => (
@@ -497,8 +586,8 @@ function WbsGantt({ project, multi }) {
         defaultProjectId={multi ? null : project.id}
         placeholder={
           multi
-            ? 'タスクを追加（詳細でプロジェクトを選択）'
-            : 'ルートタスクを追加（Enterで登録）'
+            ? 'タスクを追加（Shift+Enterで改行 · 詳細でプロジェクトを選択）'
+            : 'ルートタスクを追加（Shift+Enterで改行 · Enterで登録）'
         }
       />
 
@@ -509,7 +598,11 @@ function WbsGantt({ project, multi }) {
             : 'タスクはまだありません。上のバーから追加してください。'}
         </p>
       ) : rows.length === 0 ? (
-        <p className="empty">タスクはまだありません。プロジェクト行の「＋子」または上のバーから追加してください。</p>
+        <p className="empty">
+          {!showCompleted && overall.total > 0
+            ? '完了タスクのみです。「完了」ボタンで表示できます。'
+            : 'タスクはまだありません。プロジェクト行の「＋子」または上のバーから追加してください。'}
+        </p>
       ) : (
         <div className="gantt" ref={scrollRef}>
           <div
@@ -654,6 +747,8 @@ function WbsGantt({ project, multi }) {
                           setEditing={(v) => setEditingId(v ? node.task.id : null)}
                           onToggleCollapse={toggleCollapse}
                           onExpand={expand}
+                          onFocusDate={scrollToDate}
+                          today={today}
                           onOpenDatePopover={openDatePopover}
                           onOpenLinkPopover={openLinkPopover}
                           onOpenTagPopover={openTagPopover}
@@ -689,34 +784,29 @@ function WbsGantt({ project, multi }) {
                       />
                     )}
                   </div>
-                  <div
-                    className="gantt-track"
-                    style={{ width: canvasW }}
-                    onDoubleClick={
-                      node && !node.isProject && node.isLeaf && !span
-                        ? (e) => {
-                            const col = Math.floor(
-                              (e.clientX - e.currentTarget.getBoundingClientRect().left) / dayW,
-                            )
-                            const d = axis.ticks[col]?.d
-                            if (d) actions.setTaskDates(node.task.id, d, d)
-                          }
-                        : undefined
-                    }
-                  >
-                    {span && (
-                      <GanttBar
-                        node={node}
-                        span={span}
-                        dayW={dayW}
-                        today={today}
-                        colOf={colOf}
-                        dragging={drag?.id === node.task.id}
-                        onStartDrag={startDrag}
-                        tagColor={node.isProject ? null : rowTag?.color}
-                      />
-                    )}
-                  </div>
+                  {node && !node.isProject && node.isLeaf && !span ? (
+                    <UnscheduledGanttTrack
+                      width={canvasW}
+                      dayW={dayW}
+                      ticks={axis.ticks}
+                      onPickDate={(d) => actions.setTaskDates(node.task.id, d, d)}
+                    />
+                  ) : (
+                    <div className="gantt-track" style={{ width: canvasW }}>
+                      {span && (
+                        <GanttBar
+                          node={node}
+                          span={span}
+                          dayW={dayW}
+                          today={today}
+                          colOf={colOf}
+                          dragging={drag?.id === node.task.id}
+                          onStartDrag={startDrag}
+                          tagColor={node.isProject ? null : rowTag?.color}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -772,6 +862,95 @@ function WbsGantt({ project, multi }) {
           fixed
           style={{ left: tagPopover.x, top: tagPopover.y }}
         />
+      )}
+      {exportDialogOpen && (
+        <ExportExcelDialog
+          projects={visibleProjects}
+          includeUnassigned={hasUnassignedTasks}
+          initialSelectedIds={exportInitialSelectedIds}
+          initialShowWeekends={showWeekends}
+          initialShowHolidays={true}
+          exporting={exporting}
+          onExport={handleExport}
+          onCancel={() => !exporting && setExportDialogOpen(false)}
+        />
+      )}
+      {scheduleOverviewOpen && (
+        <ScheduleOverviewDialog
+          title={multi ? 'すべてのプロジェクト' : project.name}
+          nodes={visible}
+          axis={axis}
+          today={today}
+          showWeekends={showWeekends}
+          tasks={state.tasks}
+          tags={state.tags}
+          colOf={colOf}
+          onClose={() => setScheduleOverviewOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+/** 期間未設定の葉タスク行: ダブルクリックで日付追加、同日1秒ホバーでヒント表示 */
+function UnscheduledGanttTrack({ width, dayW, ticks, onPickDate }) {
+  const [hint, setHint] = useState(null) // { label, left }
+  const hoverRef = useRef({ col: -1, timer: null })
+
+  useEffect(
+    () => () => {
+      if (hoverRef.current.timer) clearTimeout(hoverRef.current.timer)
+    },
+    [],
+  )
+
+  const colFromEvent = (e) =>
+    Math.floor((e.clientX - e.currentTarget.getBoundingClientRect().left) / dayW)
+
+  const clearHint = () => {
+    if (hoverRef.current.timer) {
+      clearTimeout(hoverRef.current.timer)
+      hoverRef.current.timer = null
+    }
+    hoverRef.current.col = -1
+    setHint(null)
+  }
+
+  const onMouseMove = (e) => {
+    const col = colFromEvent(e)
+    const d = ticks[col]?.d
+    if (!d) {
+      clearHint()
+      return
+    }
+    if (hoverRef.current.col === col) return
+    if (hoverRef.current.timer) clearTimeout(hoverRef.current.timer)
+    setHint(null)
+    hoverRef.current.col = col
+    hoverRef.current.timer = setTimeout(() => {
+      setHint({
+        label: `${formatMonthDayJP(d)}に追加`,
+        left: col * dayW + dayW / 2,
+      })
+    }, 1000)
+  }
+
+  return (
+    <div
+      className="gantt-track gantt-track-unscheduled"
+      style={{ width }}
+      onDoubleClick={(e) => {
+        const col = colFromEvent(e)
+        const d = ticks[col]?.d
+        if (d) onPickDate(d)
+      }}
+      onMouseMove={onMouseMove}
+      onMouseLeave={clearHint}
+    >
+      {hint && (
+        <div className="gantt-add-hint" style={{ left: hint.left }} role="tooltip">
+          {hint.label}
+        </div>
       )}
     </div>
   )
@@ -890,6 +1069,8 @@ function LeftRow({
   setEditing,
   onToggleCollapse,
   onExpand,
+  onFocusDate,
+  today,
   onOpenDatePopover,
   onOpenLinkPopover,
   onOpenTagPopover,
@@ -904,7 +1085,11 @@ function LeftRow({
   const canCollapse = hasChildren || checkTotal > 0
   const isCollapsed = collapsed.has(task.id)
   const [draft, setDraft] = useState(task.title)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [morePos, setMorePos] = useState({ top: 0, left: 0 })
   const editRef = useRef(null)
+  const moreBtnRef = useRef(null)
+  const moreMenuRef = useRef(null)
 
   useEffect(() => {
     if (editing) {
@@ -913,6 +1098,23 @@ function LeftRow({
     }
   }, [editing, task.title])
 
+  useEffect(() => {
+    if (!moreOpen) return
+    function onDoc(e) {
+      if (moreMenuRef.current?.contains(e.target) || moreBtnRef.current?.contains(e.target)) return
+      setMoreOpen(false)
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [moreOpen])
+
   const done = hasChildren ? allDone : task.status === 'DONE'
   const endDate = node.span?.end ?? null
   const urgency = deadlineUrgency(endDate, { completed: done })
@@ -920,6 +1122,8 @@ function LeftRow({
   const waiting = !done && isWaiting(task.id, state.dependencies, state.tasks)
   const hasSuccessor = successorIds(task.id, state.dependencies).length > 0
   const tag = ownTag(task, state.tags)
+  const hasDate = !!(task.start_date || task.scheduled_date)
+  const moreHasSet = !!(tag || hasSuccessor || hasDate)
 
   function commitTitle() {
     const t = draft.trim()
@@ -936,16 +1140,51 @@ function LeftRow({
       actions.setTaskParent(task.id, prev.id)
       onExpand(prev.id)
     }
+    setMoreOpen(false)
   }
   function outdent() {
     if (task.parent_id == null) return
     const parent = projectTasks.find((t) => t.id === task.parent_id)
     actions.setTaskParent(task.id, parent ? parent.parent_id ?? null : null)
+    setMoreOpen(false)
+  }
+  function toggleMore(e) {
+    e.stopPropagation()
+    if (moreOpen) {
+      setMoreOpen(false)
+      return
+    }
+    const r = e.currentTarget.getBoundingClientRect()
+    const menuW = 176
+    setMorePos({
+      top: r.bottom + 4,
+      left: Math.max(8, Math.min(r.right - menuW, window.innerWidth - menuW - 8)),
+    })
+    setMoreOpen(true)
+  }
+  function openFromMore(openFn) {
+    return (e) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      setMoreOpen(false)
+      openFn(task.id, rect)
+    }
+  }
+  function startEditFromMore() {
+    setMoreOpen(false)
+    setEditing(true)
+  }
+  function focusTaskDate() {
+    const d =
+      node.span?.start ??
+      task.start_date ??
+      task.scheduled_date ??
+      today
+    onFocusDate?.(d)
   }
 
   return (
     <div className="gantt-name-inner">
-      <span className="gantt-indent" style={{ width: depth * 15 }} />
+      <span className="gantt-indent" style={{ width: depth * 12 }} />
       <button
         className={`wbs-caret${canCollapse ? '' : ' empty'}`}
         onClick={() => canCollapse && onToggleCollapse(task.id)}
@@ -989,9 +1228,9 @@ function LeftRow({
       ) : (
         <>
           <span
-            className="wbs-title"
-            onClick={() => setEditing(true)}
-            title={task.title || '(無題)'}
+            className="wbs-title wbs-title-focus"
+            onClick={focusTaskDate}
+            title={`${task.title || '(無題)'}（クリックで日付へ）`}
           >
             {task.title || '(無題)'}
           </span>
@@ -1026,43 +1265,81 @@ function LeftRow({
         </>
       )}
 
-      <div className="wbs-actions">
+      <div className={`wbs-actions${moreOpen ? ' is-open' : ''}`}>
         <button className="wbs-act" onClick={onAddChild} title="子タスクを追加">＋子</button>
         <button className="wbs-act" onClick={onAddChecklist} title="チェック項目を追加">＋☑</button>
-        <button
-          className={`wbs-act${tag ? ' set' : ''}`}
-          onClick={(e) => onOpenTagPopover(task.id, e.currentTarget.getBoundingClientRect())}
-          title="タグを設定"
-        >
-          タグ
-        </button>
-        <button
-          className={`wbs-act${hasSuccessor ? ' set' : ''}`}
-          onClick={(e) => onOpenLinkPopover(task.id, e.currentTarget.getBoundingClientRect())}
-          title="後続を設定"
-        >
-          後続
-        </button>
-        <button className="wbs-act" onClick={indent} title="階層を下げる">→</button>
-        <button className="wbs-act" onClick={outdent} title="階層を上げる" disabled={task.parent_id == null}>
-          ←
-        </button>
-        {isLeaf && (
+        <span className="wbs-more-wrap">
           <button
-            className={`wbs-act${task.start_date || task.scheduled_date ? ' set' : ''}`}
-            onClick={(e) => onOpenDatePopover(task.id, e.currentTarget.getBoundingClientRect())}
-            title="期間を設定"
+            ref={moreBtnRef}
+            type="button"
+            className={`wbs-act${moreHasSet ? ' set' : ''}${moreOpen ? ' active' : ''}`}
+            onClick={toggleMore}
+            title="その他の操作"
+            aria-label="その他の操作"
+            aria-expanded={moreOpen}
+            aria-haspopup="menu"
           >
-            📅
+            ⋯
           </button>
-        )}
+          {moreOpen &&
+            createPortal(
+              <div
+                ref={moreMenuRef}
+                className="wbs-more-pop"
+                role="menu"
+                style={{ top: morePos.top, left: morePos.left }}
+              >
+                <button type="button" role="menuitem" onClick={startEditFromMore}>
+                  名前を編集
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={tag ? 'set' : undefined}
+                  onClick={openFromMore(onOpenTagPopover)}
+                >
+                  タグ{tag ? ` · ${tag.name}` : ''}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={hasSuccessor ? 'set' : undefined}
+                  onClick={openFromMore(onOpenLinkPopover)}
+                >
+                  後続を設定
+                </button>
+                <button type="button" role="menuitem" onClick={indent}>
+                  階層を下げる →
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={outdent}
+                  disabled={task.parent_id == null}
+                >
+                  階層を上げる ←
+                </button>
+                {isLeaf && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={hasDate ? 'set' : undefined}
+                    onClick={openFromMore(onOpenDatePopover)}
+                  >
+                    期間を設定
+                  </button>
+                )}
+              </div>,
+              document.body,
+            )}
+        </span>
         <button
           className="wbs-act wbs-act-del"
           onClick={() => actions.deleteTask(task)}
           title="削除"
           aria-label="タスクを削除"
         >
-          ✕
+          <Trash2 size={13} strokeWidth={2} aria-hidden />
         </button>
       </div>
     </div>
@@ -1159,7 +1436,7 @@ function AddChildRow({ parentId, projectId, depth, onClose }) {
   }
 
   return (
-    <div className="gantt-name-inner wbs-add-child" style={{ paddingLeft: depth * 15 }}>
+    <div className="gantt-name-inner wbs-add-child" style={{ paddingLeft: depth * 12 }}>
       <span className="wbs-no wbs-no-ghost">＋</span>
       <input
         ref={ref}
@@ -1197,7 +1474,7 @@ function ChecklistRow({ item, depth }) {
   }
 
   return (
-    <div className="gantt-name-inner wbs-checklist-row" style={{ paddingLeft: depth * 15 }}>
+    <div className="gantt-name-inner wbs-checklist-row" style={{ paddingLeft: depth * 12 }}>
       <span className="wbs-checklist-tag" title="チェック項目（タスクではありません）">項</span>
       <button
         className={`check ${item.done ? 'done' : ''}`}
@@ -1235,7 +1512,7 @@ function ChecklistRow({ item, depth }) {
           title="チェック項目を削除"
           aria-label="チェック項目を削除"
         >
-          ✕
+          <Trash2 size={13} strokeWidth={2} aria-hidden />
         </button>
       </div>
     </div>
@@ -1259,7 +1536,7 @@ function AddChecklistRow({ parentId, depth, onClose }) {
   }
 
   return (
-    <div className="gantt-name-inner wbs-add-child wbs-checklist-row" style={{ paddingLeft: depth * 15 }}>
+    <div className="gantt-name-inner wbs-add-child wbs-checklist-row" style={{ paddingLeft: depth * 12 }}>
       <span className="wbs-checklist-tag">項</span>
       <input
         ref={ref}

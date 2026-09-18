@@ -43,8 +43,8 @@ async function loadState() {
       db.select('SELECT * FROM tags'),
     ])
 
-    // 初回起動: カテゴリが空ならデフォルトを挿入
-    if (categories.length === 0) {
+    // 初回起動: カテゴリもタスクも空ならデフォルトを挿入
+    if (categories.length === 0 && tasks.length === 0) {
       const initial = makeInitialState()
       for (const c of initial.categories) {
         await db.execute(
@@ -56,6 +56,20 @@ async function loadState() {
         await dbUpsertTag(db, tag)
       }
       return { ...initial, tasks: [], projects: [], activities: [], checklistItems: [], dependencies: [] }
+    }
+
+    let loadedCategories = categories
+    if (loadedCategories.length === 0) {
+      const now = new Date().toISOString()
+      loadedCategories = DEFAULT_CATEGORY_NAMES.map((name, i) => ({
+        id: uid('c'),
+        name,
+        color: null,
+        sort_order: i,
+        created_at: now,
+        updated_at: now,
+      }))
+      for (const c of loadedCategories) await dbUpsertCategory(db, c)
     }
 
     let loadedTags = (tags ?? []).map(normalizeTag)
@@ -98,7 +112,7 @@ async function loadState() {
     return {
       version: 1,
       tasks: unifiedTasks,
-      categories: categories.map((c) => ({
+      categories: loadedCategories.map((c) => ({
         ...c,
         color: c.color ?? null,
       })),

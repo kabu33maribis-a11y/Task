@@ -1,7 +1,7 @@
 {
   "name": "task-manager",
   "private": true,
-  "version": "0.1.24",
+  "version": "0.1.25",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,9 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "ai:smoke": "node server/scripts/smoke-test.js",
-    "events:api": "node server/cursor-events-api.js",
-    "cursor-events:smoke": "node server/scripts/cursor-events-smoke.js"
+    "ai:smoke": "node server/scripts/smoke-test.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -32,7 +30,6 @@
     "express": "^5.2.1",
     "lucide-react": "^1.43.0",
     "openai": "^7.8.0",
-    "pg": "^8.16.3",
     "radix-ui": "^1.6.7",
     "react": "^18.3.1",
     "react-day-picker": "^10.0.1",

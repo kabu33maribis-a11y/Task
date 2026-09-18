@@ -151,3 +151,38 @@ export function flattenVisible(roots, collapsed) {
   walk(roots)
   return out
 }
+
+// Drop completed leaves and fully-done subtrees. Recalculates rollup/span on kept parents.
+// Project rows with no remaining children are removed.
+export function filterCompletedTree(roots) {
+  function prune(nodes) {
+    const out = []
+    for (const node of nodes) {
+      if (node.isProject) {
+        const children = prune(node.children)
+        if (children.length === 0) continue
+        const { rollup, allDone, span } = aggregateChildren(children)
+        out.push({ ...node, children, rollup, allDone, span })
+        continue
+      }
+      if (node.isLeaf) {
+        if (node.task.status === 'DONE') continue
+        out.push(node)
+        continue
+      }
+      if (node.allDone) continue
+      const children = prune(node.children)
+      const { rollup, allDone, span } = aggregateChildren(children)
+      out.push({
+        ...node,
+        children,
+        rollup,
+        allDone,
+        span,
+        isLeaf: children.length === 0,
+      })
+    }
+    return out
+  }
+  return prune(roots)
+}

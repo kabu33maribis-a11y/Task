@@ -6,10 +6,6 @@ src-tauri/target/
 *.db-wal
 .env
 .env.local
-
-# Cursor Hooks audit log (local PoC)
-.cursor/cursor-events.jsonl
-
 # Tauri signing keys
 *.key
 *.key.pub

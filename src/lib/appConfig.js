@@ -25,9 +25,12 @@ export async function setDbPath(path) {
   await store.save()
 }
 
-export async function pickDbFolder() {
-  const selected = await open({ directory: true, multiple: false, title: 'データファイルの保存先フォルダを選択' })
-  return selected ?? null
+export async function pickDbFile() {
+  const selected = await open({
+    multiple: false,
+    title: '既存のデータファイルを選択',
+    filters: [{ name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] }],
+  })
+  if (selected == null) return null
+  return Array.isArray(selected) ? selected[0] ?? null : selected
 }
-
-// カスタム DB パスは Rust 側で絶対パスとして解決する（toSqliteUri は廃止）
