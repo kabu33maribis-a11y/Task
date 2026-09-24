@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { ChevronDown, Trash2 } from 'lucide-react'
 import { useStore, flushSync } from '../store/StoreContext.jsx'
 import { reconnectDb, resetDbConnection } from '../lib/db.js'
 import { getDbPath, pickDbFile, setDbPath } from '../lib/appConfig.js'
@@ -78,6 +78,27 @@ function ColorPickerSwatch({ color, onChange }) {
   )
 }
 
+function SettingsAccordion({ id, title, meta, openId, onToggle, children }) {
+  const open = openId === id
+  return (
+    <div className={'settings-acc' + (open ? ' is-open' : '')}>
+      <button
+        type="button"
+        className="settings-acc-head"
+        aria-expanded={open}
+        onClick={() => onToggle(id)}
+      >
+        <span className="settings-acc-title">{title}</span>
+        {meta != null && meta !== '' && (
+          <span className="settings-acc-meta">{meta}</span>
+        )}
+        <ChevronDown size={16} strokeWidth={2} className="settings-acc-chevron" aria-hidden />
+      </button>
+      {open && <div className="settings-acc-body">{children}</div>}
+    </div>
+  )
+}
+
 // Settings: project / category management, DB path, data reset.
 // This is one of the few places a modal is used, per spec (avoid modals for
 // everyday actions, but settings are infrequent).
@@ -91,6 +112,11 @@ export default function SettingsModal({ onClose }) {
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
   const [theme, setTheme] = useState(getSavedTheme)
   const [ganttBarColor, setGanttBarColor] = useState(getSavedGanttBarColor)
+  const [openSection, setOpenSection] = useState('appearance')
+
+  function toggleSection(id) {
+    setOpenSection((prev) => (prev === id ? null : id))
+  }
 
   function applyTheme(t) {
     setTheme(setThemeOnDocument(t))
@@ -156,194 +182,214 @@ export default function SettingsModal({ onClose }) {
   return (
     <>
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="modal settings-modal" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <button className="close-x" onClick={onClose} aria-label="閉じる">
           ×
         </button>
         <h2>設定</h2>
 
-        <div>
-          <div className="section-title" style={{ marginTop: 0 }}>表示モード</div>
-          <div className="view-toggle" style={{ marginLeft: 0 }}>
-            <button className={theme === THEMES.light ? 'active' : ''} onClick={() => applyTheme(THEMES.light)}>ライト</button>
-            <button className={theme === THEMES.dark ? 'active' : ''} onClick={() => applyTheme(THEMES.dark)}>ダーク</button>
-            <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
-            <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
-          </div>
-          <div className="section-title">WBSガントバー</div>
-          <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-            日付上のタスクバーの色です。未設定時はテーマのアクセント色を使います。
-          </p>
-          <div className="cat-edit-row" style={{ alignItems: 'center' }}>
-            <ColorPickerSwatch
-              color={ganttBarColor || DEFAULT_GANTT_BAR_SWATCH}
-              onChange={(c) => applyGanttBarColor(c)}
-            />
-            <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-soft)' }}>
-              {ganttBarColor || 'デフォルト'}
-            </span>
-            {ganttBarColor && (
-              <button className="btn btn-sm" type="button" onClick={() => applyGanttBarColor(null)}>
-                リセット
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="modal-section">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            プロジェクト
-          </div>
-          <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-            タスクをまとめる大枠。カレンダーではプロジェクトの色でラベルを見分けられます。非表示にするとカレンダー・WBSから隠れます。
-          </p>
-          {sortedProjs.map((p) => (
-            <ProjectRow key={p.id} project={p} />
-          ))}
-          <div className="cat-edit-row">
-            <input
-              type="text"
-              value={newProj}
-              placeholder="新しいプロジェクト"
-              onChange={(e) => setNewProj(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newProj.trim()) {
-                  actions.addProject(newProj)
-                  setNewProj('')
-                }
-              }}
-            />
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => {
-                if (newProj.trim()) {
-                  actions.addProject(newProj)
-                  setNewProj('')
-                }
-              }}
-            >
-              追加
-            </button>
-          </div>
-        </div>
-
-        <div className="modal-section">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            タグ
-          </div>
-          <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-            WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。子に別のタグを付けるとその配下だけ色が変わります。
-          </p>
-          {sortedTags.map((t) => (
-            <TagRow key={t.id} tag={t} />
-          ))}
-          <div className="cat-edit-row">
-            <input
-              type="text"
-              value={newTag}
-              placeholder="新しいタグ（例: 本番）"
-              onChange={(e) => setNewTag(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newTag.trim()) {
-                  actions.addTag(newTag)
-                  setNewTag('')
-                }
-              }}
-            />
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => {
-                if (newTag.trim()) {
-                  actions.addTag(newTag)
-                  setNewTag('')
-                }
-              }}
-            >
-              追加
-            </button>
-          </div>
-        </div>
-
-        <div className="modal-section">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            カテゴリ
-          </div>
-          {sortedCats.map((c) => (
-            <CategoryRow key={c.id} category={c} />
-          ))}
-          <div className="cat-edit-row">
-            <input
-              type="text"
-              value={newCat}
-              placeholder="新しいカテゴリ"
-              onChange={(e) => setNewCat(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newCat.trim()) {
-                  actions.addCategory(newCat)
-                  setNewCat('')
-                }
-              }}
-            />
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => {
-                if (newCat.trim()) {
-                  actions.addCategory(newCat)
-                  setNewCat('')
-                }
-              }}
-            >
-              追加
-            </button>
-          </div>
-        </div>
-
-        <div className="modal-section">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            データファイルの場所
-          </div>
-          <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-            既存の .db ファイルを選択します。OneDrive や Dropbox 上のファイルを指定すると複数PCで同期できます。
-          </p>
-          <div className="editor-row" style={{ alignItems: 'center', gap: 8 }}>
-            <code style={{ flex: 1, fontSize: '0.78rem', wordBreak: 'break-all' }}>
-              {formatDbPathDisplay(dbPath) || 'デフォルト（%APPDATA%\\task-manager\\tasks.db）'}
-            </code>
-            <button className="btn btn-sm" onClick={handlePickDbFile}>変更</button>
-            {dbPath && <button className="btn btn-sm" onClick={resetDbPath}>リセット</button>}
-          </div>
-          {dbMsg && <p className="help" style={{ marginTop: 6 }}>{dbMsg}</p>}
-        </div>
-
-
-        <div className="modal-section">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            データのリセット
-          </div>
-          <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-            すべてのタスク・プロジェクト・アクティビティを削除し、初期状態に戻します。この操作は元に戻せません。
-          </p>
-          <button
-            className="btn btn-danger"
-            onClick={() =>
-              setConfirm({
-                message: '全データをリセットします',
-                detail: 'すべてのタスク・プロジェクト・アクティビティを削除します。\nこの操作は元に戻せません。',
-                okLabel: 'リセットする',
-                danger: true,
-                onOk: () => {
-                  setConfirm(null)
-                  actions.resetAllData()
-                  onClose()
-                },
-              })
-            }
+        <div className="settings-acc-list">
+          <SettingsAccordion
+            id="appearance"
+            title="表示"
+            openId={openSection}
+            onToggle={toggleSection}
           >
-            全データをリセット
-          </button>
+            <div className="section-title" style={{ marginTop: 0 }}>表示モード</div>
+            <div className="view-toggle" style={{ marginLeft: 0 }}>
+              <button className={theme === THEMES.light ? 'active' : ''} onClick={() => applyTheme(THEMES.light)}>ライト</button>
+              <button className={theme === THEMES.dark ? 'active' : ''} onClick={() => applyTheme(THEMES.dark)}>ダーク</button>
+              <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
+              <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
+            </div>
+            <div className="section-title">WBSガントバー</div>
+            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+              日付上のタスクバーの色です。未設定時はテーマのアクセント色を使います。
+            </p>
+            <div className="cat-edit-row" style={{ alignItems: 'center' }}>
+              <ColorPickerSwatch
+                color={ganttBarColor || DEFAULT_GANTT_BAR_SWATCH}
+                onChange={(c) => applyGanttBarColor(c)}
+              />
+              <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-soft)' }}>
+                {ganttBarColor || 'デフォルト'}
+              </span>
+              {ganttBarColor && (
+                <button className="btn btn-sm" type="button" onClick={() => applyGanttBarColor(null)}>
+                  リセット
+                </button>
+              )}
+            </div>
+          </SettingsAccordion>
+
+          <SettingsAccordion
+            id="projects"
+            title="プロジェクト"
+            meta={sortedProjs.length}
+            openId={openSection}
+            onToggle={toggleSection}
+          >
+            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+              タスクをまとめる大枠。カレンダーではプロジェクトの色でラベルを見分けられます。非表示にするとカレンダー・WBSから隠れます。
+            </p>
+            <div className="settings-list">
+              {sortedProjs.map((p) => (
+                <ProjectRow key={p.id} project={p} />
+              ))}
+            </div>
+            <div className="cat-edit-row">
+              <input
+                type="text"
+                value={newProj}
+                placeholder="新しいプロジェクト"
+                onChange={(e) => setNewProj(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newProj.trim()) {
+                    actions.addProject(newProj)
+                    setNewProj('')
+                  }
+                }}
+              />
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => {
+                  if (newProj.trim()) {
+                    actions.addProject(newProj)
+                    setNewProj('')
+                  }
+                }}
+              >
+                追加
+              </button>
+            </div>
+          </SettingsAccordion>
+
+          <SettingsAccordion
+            id="tags"
+            title="タグ"
+            meta={sortedTags.length}
+            openId={openSection}
+            onToggle={toggleSection}
+          >
+            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+              WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。子に別のタグを付けるとその配下だけ色が変わります。
+            </p>
+            <div className="settings-list">
+              {sortedTags.map((t) => (
+                <TagRow key={t.id} tag={t} />
+              ))}
+            </div>
+            <div className="cat-edit-row">
+              <input
+                type="text"
+                value={newTag}
+                placeholder="新しいタグ（例: 本番）"
+                onChange={(e) => setNewTag(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newTag.trim()) {
+                    actions.addTag(newTag)
+                    setNewTag('')
+                  }
+                }}
+              />
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => {
+                  if (newTag.trim()) {
+                    actions.addTag(newTag)
+                    setNewTag('')
+                  }
+                }}
+              >
+                追加
+              </button>
+            </div>
+          </SettingsAccordion>
+
+          <SettingsAccordion
+            id="categories"
+            title="カテゴリ"
+            meta={sortedCats.length}
+            openId={openSection}
+            onToggle={toggleSection}
+          >
+            <div className="settings-list">
+              {sortedCats.map((c) => (
+                <CategoryRow key={c.id} category={c} />
+              ))}
+            </div>
+            <div className="cat-edit-row">
+              <input
+                type="text"
+                value={newCat}
+                placeholder="新しいカテゴリ"
+                onChange={(e) => setNewCat(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newCat.trim()) {
+                    actions.addCategory(newCat)
+                    setNewCat('')
+                  }
+                }}
+              />
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => {
+                  if (newCat.trim()) {
+                    actions.addCategory(newCat)
+                    setNewCat('')
+                  }
+                }}
+              >
+                追加
+              </button>
+            </div>
+          </SettingsAccordion>
+
+          <SettingsAccordion
+            id="data"
+            title="データ"
+            openId={openSection}
+            onToggle={toggleSection}
+          >
+            <div className="section-title" style={{ marginTop: 0 }}>データファイルの場所</div>
+            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+              既存の .db ファイルを選択します。OneDrive や Dropbox 上のファイルを指定すると複数PCで同期できます。
+            </p>
+            <div className="editor-row settings-db-row">
+              <code className="settings-db-path">
+                {formatDbPathDisplay(dbPath) || 'デフォルト（%APPDATA%\\task-manager\\tasks.db）'}
+              </code>
+              <button className="btn btn-sm" onClick={handlePickDbFile}>変更</button>
+              {dbPath && <button className="btn btn-sm" onClick={resetDbPath}>リセット</button>}
+            </div>
+            {dbMsg && <p className="help" style={{ marginTop: 6 }}>{dbMsg}</p>}
+
+            <div className="section-title">データのリセット</div>
+            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+              すべてのタスク・プロジェクト・アクティビティを削除し、初期状態に戻します。この操作は元に戻せません。
+            </p>
+            <button
+              className="btn btn-danger"
+              onClick={() =>
+                setConfirm({
+                  message: '全データをリセットします',
+                  detail: 'すべてのタスク・プロジェクト・アクティビティを削除します。\nこの操作は元に戻せません。',
+                  okLabel: 'リセットする',
+                  danger: true,
+                  onOk: () => {
+                    setConfirm(null)
+                    actions.resetAllData()
+                    onClose()
+                  },
+                })
+              }
+            >
+              全データをリセット
+            </button>
+          </SettingsAccordion>
         </div>
 
-        <div className="modal-section settings-version">
+        <div className="settings-version">
           <span>タスク管理</span>
           <span className="settings-version-num">v{version}</span>
         </div>

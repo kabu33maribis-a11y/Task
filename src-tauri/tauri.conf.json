@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "task-manager",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "identifier": "jp.local.task-manager",
   "build": {
     "frontendDist": "../dist",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "タスク管理",
+        "title": "タスク管琁E,
         "width": 800,
         "height": 600,
         "resizable": true,

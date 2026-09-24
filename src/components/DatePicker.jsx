@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ja } from 'react-day-picker/locale'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { formatConsoleDateRange, fromDateStr, toDateStr } from '@/lib/date.js'
+import { formatConsoleDateRange, fromDateStr, toDateStr, todayStr } from '@/lib/date.js'
 
 function toSelectedRange(start, end) {
   if (!start) return undefined
@@ -28,6 +28,7 @@ export default function DatePicker({
   const [open, setOpen] = useState(false)
   const start = value || ''
   const end = rangeMode ? (endValue || '') : ''
+  const [month, setMonth] = useState(() => (start ? fromDateStr(start) : new Date()))
 
   function commitRange(nextStart, nextEnd) {
     if (rangeMode) onRangeChange?.(nextStart, nextEnd)
@@ -48,6 +49,22 @@ export default function DatePicker({
     setOpen(false)
   }
 
+  function selectToday() {
+    const t = todayStr()
+    setMonth(fromDateStr(t))
+    if (rangeMode) {
+      commitRange(t, t)
+      return
+    }
+    onChange?.(t)
+    setOpen(false)
+  }
+
+  function handleOpenChange(next) {
+    setOpen(next)
+    if (next) setMonth(start ? fromDateStr(start) : new Date())
+  }
+
   const calendar = (
     <>
       <Calendar
@@ -56,12 +73,16 @@ export default function DatePicker({
         onSelect={handleSelect}
         locale={ja}
         weekStartsOn={1}
-        defaultMonth={start ? fromDateStr(start) : undefined}
+        month={month}
+        onMonthChange={setMonth}
         captionLayout="dropdown"
       />
       {rangeMode && <p className="date-picker-hint">開始日と終了日を順に選択</p>}
-      {allowClear && start ? (
-        <div className="date-picker-clear-row">
+      <div className="date-picker-clear-row">
+        <button type="button" className="btn btn-sm" onClick={selectToday}>
+          今日
+        </button>
+        {allowClear && start ? (
           <button
             type="button"
             className="btn btn-sm"
@@ -72,8 +93,8 @@ export default function DatePicker({
           >
             クリア
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </>
   )
 
@@ -82,7 +103,7 @@ export default function DatePicker({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger
         type="button"
         className={`date-picker-trigger${rangeMode ? ' is-range' : ''}${className ? ` ${className}` : ''}`}

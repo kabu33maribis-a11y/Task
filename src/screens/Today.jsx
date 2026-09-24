@@ -136,7 +136,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
         categories={state.categories}
         projects={visibleProjects}
         defaultProjectId={projectFilter !== 'all' ? projectFilter : null}
-        placeholder="タスクを追加（Shift+Enterで改行 · Enterで登録）"
+        placeholder="タスクを追加（Shift+Enterで改行）"
         onResetDate={onResetCalDate}
       />
 
@@ -149,9 +149,14 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
                 {t.title}
                 <span className="meta-note"> ・{formatConsoleDateRange(t)}予定</span>
               </span>
-              <button className="btn btn-sm" onClick={() => actions.moveToDate(t.id, today)}>
-                今日へ移動
-              </button>
+              <span className="callout-actions">
+                <button className="btn btn-sm" onClick={() => actions.toggleComplete(t.id)}>
+                  完了
+                </button>
+                <button className="btn btn-sm" onClick={() => actions.moveToDate(t.id, today)}>
+                  今日へ移動
+                </button>
+              </span>
             </div>
           ))}
         </div>

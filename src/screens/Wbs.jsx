@@ -9,6 +9,7 @@ import {
   prevSibling,
   flattenVisible,
   filterCompletedTree,
+  isSelfOrDescendant,
   ganttHeadH,
   ganttAxisCellLabels,
   createHourLayout,
@@ -38,6 +39,7 @@ import TaskPicker from '../components/TaskPicker.jsx'
 import TagPicker from '../components/TagPicker.jsx'
 import ExportExcelDialog from '../components/ExportExcelDialog.jsx'
 import ScheduleOverviewDialog from '../components/ScheduleOverviewDialog.jsx'
+import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
 const DEFAULT_LEFT_W = 340 // 固定タスク列の初期幅
@@ -48,6 +50,12 @@ const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
 const SHOW_WEEKDAYS_KEY = 'taskmanager.wbs.showWeekdays'
 const SHOW_COMPLETED_KEY = 'taskmanager.wbs.showCompleted'
 
+/** sticky タスク列セパレータの右を基準に、contentX を可視トラック上の fraction 位置へ置く */
+function scrollLeftForContentX(el, contentX, leftW, fraction = 0) {
+  const trackW = Math.max(0, el.clientWidth - leftW)
+  return Math.max(0, contentX - leftW - trackW * fraction)
+}
+
 const ZOOMS = {
   hour: { label: '時間', hourW: 28 },
   day: { label: '日', w: 34 },
@@ -55,19 +63,11 @@ const ZOOMS = {
   month: { label: '月', w: 7 },
 }
 
-const HOUR_RANGE_PAD = 1 // focus ±1 day → 3 days
+const HOUR_RANGE_DAYS = 3 // focus date as start → N consecutive days
 
 function spansOverlap(s1, s2) {
   if (!s1 || !s2) return false
   return dateTimeKey(s2.start, s2.startTime) < dateTimeKey(s1.end, s1.endTime)
-}
-
-function relatedTaskIds(taskId, dependencies) {
-  if (!taskId) return new Set()
-  const ids = new Set([taskId])
-  for (const id of predecessorIds(taskId, dependencies)) ids.add(id)
-  for (const id of successorIds(taskId, dependencies)) ids.add(id)
-  return ids
 }
 
 /** Finish-to-start: drag from a bar's end (or onto a bar's start). */
@@ -148,7 +148,6 @@ function WbsGantt({ project, multi }) {
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [editingId, setEditingId] = useState(null)
   const [addingChildOf, setAddingChildOf] = useState(null) // task id or proj:* id
-  const [addingChecklistOf, setAddingChecklistOf] = useState(null) // task id
   const [datePopover, setDatePopover] = useState(null) // { taskId, x, y }
   const [linkPopover, setLinkPopover] = useState(null) // { taskId, x, y }
   const [tagPopover, setTagPopover] = useState(null) // { taskId, x, y }
@@ -172,6 +171,8 @@ function WbsGantt({ project, multi }) {
   const [hoveredId, setHoveredId] = useState(null)
   const [hoveredLinkId, setHoveredLinkId] = useState(null)
   const [linkDrag, setLinkDrag] = useState(null) // { fromId, fromSide, x1, y1, x2, y2, overId, valid }
+  const [treeDragId, setTreeDragId] = useState(null)
+  const [treeOverId, setTreeOverId] = useState(null)
   const [leftW, setLeftW] = useState(() => {
     const s = Number(localStorage.getItem(LEFT_W_KEY))
     return s >= MIN_LEFT_W && s <= MAX_LEFT_W ? s : DEFAULT_LEFT_W
@@ -198,6 +199,56 @@ function WbsGantt({ project, multi }) {
     const id = setInterval(() => setNow(new Date()), 30_000)
     return () => clearInterval(id)
   }, [isHourZoom])
+
+  useEffect(() => {
+    function clearTreeDrag() {
+      setTreeDragId(null)
+      setTreeOverId(null)
+    }
+    document.addEventListener('dragend', clearTreeDrag)
+    return () => document.removeEventListener('dragend', clearTreeDrag)
+  }, [])
+
+  function canTreeDrop(dragId, targetId) {
+    if (!dragId || !targetId || dragId === targetId) return false
+    if (isSelfOrDescendant(targetId, dragId, scopedTasks)) return false
+    const dragTask = scopedTasks.find((t) => t.id === dragId)
+    const targetTask = scopedTasks.find((t) => t.id === targetId)
+    if (!dragTask || !targetTask) return false
+    return (dragTask.project_id ?? null) === (targetTask.project_id ?? null)
+  }
+
+  function commitTreeMove(targetId) {
+    if (!canTreeDrop(treeDragId, targetId)) return
+    const dragTask = scopedTasks.find((t) => t.id === treeDragId)
+    const targetTask = scopedTasks.find((t) => t.id === targetId)
+    if (!dragTask || !targetTask) return
+    const newParentId = targetTask.parent_id ?? null
+    const newProjectId = targetTask.project_id ?? null
+    const siblings = scopedTasks
+      .filter(
+        (t) =>
+          t.id !== treeDragId &&
+          (t.parent_id ?? null) === newParentId &&
+          (t.project_id ?? null) === newProjectId,
+      )
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    const ids = siblings.map((t) => t.id)
+    const to = ids.indexOf(targetId)
+    if (to === -1) return
+    ids.splice(to, 0, treeDragId)
+    const sameGroup =
+      (dragTask.parent_id ?? null) === newParentId &&
+      (dragTask.project_id ?? null) === newProjectId
+    if (sameGroup) actions.reorder(ids)
+    else {
+      actions.moveInTree(treeDragId, {
+        parentId: newParentId,
+        projectId: newProjectId,
+        orderedIds: ids,
+      })
+    }
+  }
 
   const itemsByTask = useMemo(() => {
     const map = new Map()
@@ -226,10 +277,7 @@ function WbsGantt({ project, multi }) {
     const ids = []
     const walk = (nodes) => {
       for (const n of nodes) {
-        const items = itemsByTask.get(n.task.id) ?? []
-        const hasCheck =
-          !n.isProject && (showCompleted ? items.length > 0 : items.some((it) => !it.done))
-        if (n.children.length || hasCheck) {
+        if (n.children.length) {
           ids.push(n.task.id)
           walk(n.children)
         }
@@ -237,26 +285,15 @@ function WbsGantt({ project, multi }) {
     }
     walk(displayRoots)
     return ids
-  }, [displayRoots, itemsByTask, showCompleted])
+  }, [displayRoots])
 
   const collapseTargetIds = multi ? projectRowIds : collapsibleRowIds
 
-  // 左右で共有する描画行リスト（子追加・チェック項目の入力欄も1行として挟む → 左右が常に整列）
+  // 左右で共有する描画行リスト（子追加の入力欄も1行として挟む → 左右が常に整列）
   const rows = useMemo(() => {
     const out = []
     for (const node of visible) {
       out.push({ kind: 'node', node })
-      const folded = collapsed.has(node.task.id)
-      if (!node.isProject && !folded) {
-        const items = itemsByTask.get(node.task.id) ?? []
-        for (const item of items) {
-          if (!showCompleted && item.done) continue
-          out.push({ kind: 'checklist', item, depth: node.depth + 1 })
-        }
-        if (addingChecklistOf === node.task.id) {
-          out.push({ kind: 'add-checklist', parentId: node.task.id, depth: node.depth + 1 })
-        }
-      }
       if (addingChildOf === node.task.id) {
         if (node.isProject) {
           out.push({ kind: 'add', projectId: node.project.id, depth: node.depth + 1 })
@@ -266,7 +303,7 @@ function WbsGantt({ project, multi }) {
       }
     }
     return out
-  }, [visible, addingChildOf, addingChecklistOf, collapsed, itemsByTask, showCompleted])
+  }, [visible, addingChildOf])
 
   const overall = useMemo(
     () => roots.reduce(
@@ -279,8 +316,8 @@ function WbsGantt({ project, multi }) {
   const range = useMemo(() => {
     if (isHourZoom) {
       return {
-        start: addDays(focusDate, -HOUR_RANGE_PAD),
-        end: addDays(focusDate, HOUR_RANGE_PAD),
+        start: focusDate,
+        end: addDays(focusDate, HOUR_RANGE_DAYS - 1),
       }
     }
     let min = null
@@ -337,7 +374,8 @@ function WbsGantt({ project, multi }) {
       const d = addDays(range.start, i)
       const [y, m, day] = d.split('-').map(Number)
       const dow = new Date(y, m - 1, day).getDay()
-      if (!showWeekends && (dow === 0 || dow === 6)) continue
+      // 本日は土日非表示でも軸に残し、本日ラインを消さない
+      if (!showWeekends && (dow === 0 || dow === 6) && d !== today) continue
       const key = `${y}-${m}`
       const last = months[months.length - 1]
       if (last && last.key === key) last.days += 1
@@ -374,12 +412,20 @@ function WbsGantt({ project, multi }) {
     }
   }, [axis.ticks])
 
+  const showTodayLine = !isHourZoom && axis.ticks.some((t) => t.d === today)
+  const todayLineX = showTodayLine ? leftW + colOf(today) * dayW + dayW / 2 : 0
+
   const xOfSpanStart = (span) => {
-    if (isHourZoom) return hourXOf(span.start, span.startTime, range.start, hourLayout)
+    if (isHourZoom) {
+      // 3日キャンバス外の座標はクリップ（長いタスクで横スクロールが膨らむのを防ぐ）
+      return Math.max(0, Math.min(canvasW, hourXOf(span.start, span.startTime, range.start, hourLayout)))
+    }
     return colOf(span.start) * dayW
   }
   const xOfSpanEnd = (span) => {
-    if (isHourZoom) return hourXOf(span.end, span.endTime, range.start, hourLayout)
+    if (isHourZoom) {
+      return Math.max(0, Math.min(canvasW, hourXOf(span.end, span.endTime, range.start, hourLayout)))
+    }
     return (colOf(span.end) + 1) * dayW
   }
 
@@ -402,15 +448,15 @@ function WbsGantt({ project, multi }) {
       const mins = focusDate === today ? now.getHours() * 60 + now.getMinutes() : 9 * 60
       const x = leftW + hourXOf(scrollDate, minutesToTime(mins), range.start, hourLayout)
       const max = Math.max(0, el.scrollWidth - el.clientWidth)
-      el.scrollLeft = Math.min(Math.max(0, x - el.clientWidth * 0.35), max)
+      el.scrollLeft = Math.min(scrollLeftForContentX(el, x, leftW), max)
       setHourNoHScroll(max === 0)
     } else {
       const todayX = leftW + colOf(today) * dayW
-      el.scrollLeft = Math.max(0, todayX - el.clientWidth * 0.5)
+      el.scrollLeft = scrollLeftForContentX(el, todayX, leftW, 0.5)
       setHourNoHScroll(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom, scopeKey, showWeekends, focusDate])
+  }, [zoom, scopeKey, showWeekends, focusDate, leftW])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -557,7 +603,7 @@ function WbsGantt({ project, multi }) {
       return
     }
     const x = leftW + colOf(dateStr) * dayW
-    el.scrollTo({ left: Math.max(0, x - el.clientWidth * 0.35), behavior: 'smooth' })
+    el.scrollTo({ left: scrollLeftForContentX(el, x, leftW), behavior: 'smooth' })
   }
 
   // ---- 帯ドラッグ（葉タスクのみ） --------------------------------------
@@ -785,11 +831,6 @@ function WbsGantt({ project, multi }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, state.dependencies, drag, dayW, hourLayout, colOf, canvasW, isHourZoom, range.start])
 
-  const selectedRelated = useMemo(
-    () => relatedTaskIds(selectedId, state.dependencies),
-    [selectedId, state.dependencies],
-  )
-
   const linkPreview = useMemo(() => {
     if (!linkDrag) return null
     const resolved = linkDrag.overId && linkDrag.valid
@@ -943,7 +984,7 @@ function WbsGantt({ project, multi }) {
     <div className="wbs-root">
       <div className="wbs-head">
         <div className="wbs-title-group">
-          <h1 className="screen-date wbs-title">
+          <h1 className="screen-date screen-title wbs-title">
             {multi ? (
               <>すべてのプロジェクト <span className="wbs-count-sub">({visibleProjects.length}件)</span></>
             ) : (
@@ -1020,14 +1061,13 @@ function WbsGantt({ project, multi }) {
               >
                 ◀
               </button>
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => setFocusDate(today)}
-                title="今日へ"
-              >
-                {formatMonthDayJP(focusDate)}
-              </button>
+              <DatePicker
+                value={focusDate}
+                onChange={setFocusDate}
+                allowClear={false}
+                className="wbs-focus-date"
+                placeholder="日付"
+              />
               <button
                 type="button"
                 className="btn btn-sm"
@@ -1091,7 +1131,7 @@ function WbsGantt({ project, multi }) {
         >
           <div
             ref={matrixRef}
-            className={`gantt-matrix${selectedId ? ' dep-focus' : ''}${linkDrag ? ' dep-linking' : ''}${isHourZoom ? ' hour-zoom' : ''}${drag?.unit === 'hour' ? ' hour-dragging' : ''}`}
+            className={`gantt-matrix${linkDrag ? ' dep-linking' : ''}${isHourZoom ? ' hour-zoom' : ''}${drag?.unit === 'hour' ? ' hour-dragging' : ''}`}
             data-link-side={linkDrag?.fromSide || undefined}
             style={{
               width: leftW + canvasW,
@@ -1231,36 +1271,23 @@ function WbsGantt({ project, multi }) {
                   />
                 ))}
 
-            {/* 現在時刻ライン（時間ズーム） / 今日ライン */}
-            {showNowLine && (
-              <GanttNowMarker left={nowLineX} time={nowTimeStr} />
-            )}
             {drag?.unit === 'hour' && (
               <>
                 <GanttTimeGuide
-                  left={leftW + hourXOf(drag.start, drag.startTime, range.start, hourLayout)}
+                  left={leftW + Math.max(0, Math.min(canvasW, hourXOf(drag.start, drag.startTime, range.start, hourLayout)))}
                   label={drag.startTime}
                   sub={formatMonthDayJP(drag.start)}
                   active={drag.mode === 'start' || drag.mode === 'move'}
                   kind="start"
                 />
                 <GanttTimeGuide
-                  left={leftW + hourXOf(drag.end, drag.endTime, range.start, hourLayout)}
+                  left={leftW + Math.max(0, Math.min(canvasW, hourXOf(drag.end, drag.endTime, range.start, hourLayout)))}
                   label={drag.endTime}
                   sub={formatMonthDayJP(drag.end)}
                   active={drag.mode === 'end' || drag.mode === 'move'}
                   kind="end"
                 />
               </>
-            )}
-            {!isHourZoom && axis.ticks.some((t) => t.d === today) && (
-              <div
-                className="gantt-today-line"
-                style={{
-                  left: leftW + colOf(today) * dayW + dayW / 2,
-                  top: headH,
-                }}
-              />
             )}
 
             {/* 行 */}
@@ -1270,31 +1297,27 @@ function WbsGantt({ project, multi }) {
               const rowKey =
                 row.kind === 'node'
                   ? node.task.id
-                  : row.kind === 'checklist'
-                    ? `cl-${row.item.id}`
-                    : row.kind === 'add-checklist'
-                      ? `add-cl-${row.parentId}-${i}`
-                      : row.parentId
-                        ? `add-${row.parentId}-${i}`
-                        : `add-proj-${row.projectId ?? 'none'}-${i}`
+                  : row.parentId
+                    ? `add-${row.parentId}-${i}`
+                    : `add-proj-${row.projectId ?? 'none'}-${i}`
               const rowDone =
-                (node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)) ||
-                (row.kind === 'checklist' && row.item.done)
-              const isCheckRow = row.kind === 'checklist' || row.kind === 'add-checklist'
+                node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)
               const waiting =
                 node && !node.isProject && isWaiting(node.task.id, state.dependencies, state.tasks)
               const rowTag = tagForWbsRow(row, state.tasks, state.tags)
               const rowTaskId =
-                node && !node.isProject
-                  ? node.task.id
-                  : row.kind === 'checklist'
-                    ? row.item.task_id
-                    : row.kind === 'add-checklist'
-                      ? row.parentId
-                      : row.parentId || null
+                node && !node.isProject ? node.task.id : row.parentId || null
               const isDepSelected = !!(rowTaskId && selectedId === rowTaskId)
-              const isDepRelated = !!(rowTaskId && selectedId && selectedRelated.has(rowTaskId))
               const isDepHover = !!(rowTaskId && hoveredId === rowTaskId)
+              const isTreeDragging = !!(node && !node.isProject && treeDragId === node.task.id)
+              const isTreeOver = !!(
+                node &&
+                !node.isProject &&
+                treeOverId === node.task.id &&
+                treeDragId &&
+                treeDragId !== node.task.id &&
+                canTreeDrop(treeDragId, node.task.id)
+              )
               const rowStyle = { height: ROW_H }
               if (rowTag?.color) rowStyle['--row-tag-color'] = rowTag.color
               return (
@@ -1307,15 +1330,15 @@ function WbsGantt({ project, multi }) {
                   }${
                     waiting && !rowDone ? ' waiting' : ''
                   }${
-                    isCheckRow ? ' checklist-row' : ''
-                  }${
                     rowTag?.color ? ' has-tag' : ''
                   }${
                     isDepSelected ? ' dep-selected' : ''
                   }${
-                    isDepRelated ? ' dep-related' : ''
-                  }${
                     isDepHover ? ' dep-hover' : ''
+                  }${
+                    isTreeDragging ? ' tree-dragging' : ''
+                  }${
+                    isTreeOver ? ' tree-drag-over' : ''
                   }`}
                   style={rowStyle}
                   onMouseEnter={
@@ -1326,6 +1349,35 @@ function WbsGantt({ project, multi }) {
                       ? (e) => {
                           if (e.relatedTarget?.closest?.('.gantt-dep-path-hit')) return
                           onDepHover(null)
+                        }
+                      : undefined
+                  }
+                  onDragEnter={
+                    node && !node.isProject
+                      ? () => {
+                          if (treeDragId && canTreeDrop(treeDragId, node.task.id)) {
+                            setTreeOverId(node.task.id)
+                          }
+                        }
+                      : undefined
+                  }
+                  onDragOver={
+                    node && !node.isProject
+                      ? (e) => {
+                          if (treeDragId && canTreeDrop(treeDragId, node.task.id)) {
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                          }
+                        }
+                      : undefined
+                  }
+                  onDrop={
+                    node && !node.isProject
+                      ? (e) => {
+                          e.preventDefault()
+                          commitTreeMove(node.task.id)
+                          setTreeDragId(null)
+                          setTreeOverId(null)
                         }
                       : undefined
                   }
@@ -1363,20 +1415,16 @@ function WbsGantt({ project, multi }) {
                             setAddingChildOf(node.task.id)
                             expand(node.task.id)
                           }}
-                          onAddChecklist={() => {
-                            setAddingChecklistOf(node.task.id)
-                            expand(node.task.id)
+                          onTreeDragStart={(id) => {
+                            setTreeDragId(id)
+                            setTreeOverId(null)
+                          }}
+                          onTreeDragEnd={() => {
+                            setTreeDragId(null)
+                            setTreeOverId(null)
                           }}
                         />
                       )
-                    ) : row.kind === 'checklist' ? (
-                      <ChecklistRow item={row.item} depth={row.depth} />
-                    ) : row.kind === 'add-checklist' ? (
-                      <AddChecklistRow
-                        parentId={row.parentId}
-                        depth={row.depth}
-                        onClose={() => setAddingChecklistOf(null)}
-                      />
                     ) : row.parentId ? (
                       <AddChildRow
                         depth={row.depth}
@@ -1428,6 +1476,7 @@ function WbsGantt({ project, multi }) {
                           hourLayout={hourLayout}
                           isHourZoom={isHourZoom}
                           rangeStart={range.start}
+                          canvasW={canvasW}
                           today={today}
                           colOf={colOf}
                           dragging={drag?.id === node.task.id}
@@ -1447,6 +1496,23 @@ function WbsGantt({ project, multi }) {
                 </div>
               )
             })}
+
+            {/* 現在時刻ライン（時間ズーム）— 行の後に置きトラック越しに見える */}
+            {showNowLine && (
+              <GanttNowMarker left={nowLineX} time={nowTimeStr} />
+            )}
+
+            {/* 本日ライン（日/週/月ズーム）— 行の後に置きトラック越しに見える */}
+            {showTodayLine && (
+              <div
+                className="gantt-today-line"
+                style={{
+                  left: todayLineX,
+                  top: headH,
+                }}
+              />
+            )}
+
             {(depLinks.length > 0 || linkDrag) && (
               <svg
                 className="gantt-dep-overlay"
@@ -1478,7 +1544,7 @@ function WbsGantt({ project, multi }) {
                   const active = onSelected || onHovered || onLinkHover || (linkDrag && (
                     l.predecessorId === linkDrag.fromId || l.successorId === linkDrag.fromId
                   ))
-                  const muted = (!!selectedId || !!linkDrag) && !active
+                  const muted = !!linkDrag && !active
                   const cls = ['gantt-dep-path']
                   if (l.overlap) cls.push('overlap')
                   if (active) cls.push('is-active')
@@ -1572,13 +1638,17 @@ function WbsGantt({ project, multi }) {
   )
 }
 
-/** 現在時刻 — 軸ラベル付き縦線 */
+/** 現在時刻 — 線はバー/行ボーダーの下、バッジだけ前面 */
 function GanttNowMarker({ left, time }) {
   return (
-    <div className="gantt-now-marker" style={{ left }} aria-hidden>
-      <span className="gantt-now-badge">現在 {time}</span>
-      <span className="gantt-now-line" />
-    </div>
+    <>
+      <div className="gantt-now-line-layer" style={{ left }} aria-hidden>
+        <span className="gantt-now-line" />
+      </div>
+      <div className="gantt-now-badge-layer" style={{ left }} aria-hidden>
+        <span className="gantt-now-badge">現在 {time}</span>
+      </div>
+    </>
   )
 }
 
@@ -1698,6 +1768,7 @@ function GanttBar({
   hourLayout,
   isHourZoom,
   rangeStart,
+  canvasW,
   today,
   colOf,
   dragging,
@@ -1715,9 +1786,14 @@ function GanttBar({
   let left
   let width
   if (isHourZoom) {
-    left = hourXOf(span.start, span.startTime, rangeStart, hourLayout)
-    const right = hourXOf(span.end, span.endTime, rangeStart, hourLayout)
-    width = Math.max(hourLayout.bizHourW / 4, right - left)
+    const rawLeft = hourXOf(span.start, span.startTime, rangeStart, hourLayout)
+    const rawRight = hourXOf(span.end, span.endTime, rangeStart, hourLayout)
+    // 時間ズームは focus 起点の3日のみ。長いタスクは見える範囲だけ描画し横スクロール肥大を防ぐ
+    const clippedLeft = Math.max(0, rawLeft)
+    const clippedRight = Math.min(canvasW, Math.max(rawLeft, rawRight))
+    if (clippedRight <= 0 || clippedLeft >= canvasW) return null
+    left = clippedLeft
+    width = Math.max(hourLayout.bizHourW / 4, clippedRight - clippedLeft)
   } else {
     const startCol = colOf(span.start)
     const endCol = colOf(span.end)
@@ -1860,14 +1936,15 @@ function LeftRow({
   onOpenLinkPopover,
   onOpenTagPopover,
   onAddChild,
-  onAddChecklist,
+  onTreeDragStart,
+  onTreeDragEnd,
 }) {
   const { state, actions } = useStore()
   const { task, depth, wbsNo, allDone, isLeaf } = node
   const hasChildren = !isLeaf
   const checkTotal = checklistItems.length
   const checkDone = checklistItems.filter((i) => i.done).length
-  const canCollapse = hasChildren || checkTotal > 0
+  const canCollapse = hasChildren
   const isCollapsed = collapsed.has(task.id)
   const [draft, setDraft] = useState(task.title)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -1978,6 +2055,21 @@ function LeftRow({
 
   return (
     <div className="gantt-name-inner">
+      <span
+        className="grip wbs-grip"
+        draggable={!editing}
+        onDragStart={(e) => {
+          e.dataTransfer.setData(TASK_DND_TYPE, task.id)
+          e.dataTransfer.setData('text/plain', task.id)
+          e.dataTransfer.effectAllowed = 'move'
+          onTreeDragStart?.(task.id)
+        }}
+        onDragEnd={() => onTreeDragEnd?.()}
+        title="ドラッグで並び替え"
+        aria-label="ドラッグで並び替え"
+      >
+        ⠿
+      </span>
       <span className="gantt-indent" style={{ width: depth * 12 }} />
       <button
         className={`wbs-caret${canCollapse ? '' : ' empty'}`}
@@ -2052,7 +2144,6 @@ function LeftRow({
 
       <div className={`wbs-actions${moreOpen ? ' is-open' : ''}`}>
         <button className="wbs-act" onClick={onAddChild} title="子タスクを追加">＋子</button>
-        <button className="wbs-act" onClick={onAddChecklist} title="チェック項目を追加">＋☑</button>
         <span className="wbs-more-wrap">
           <button
             ref={moreBtnRef}
@@ -2369,106 +2460,6 @@ function AddChildRow({ parentId, projectId, depth, onClose }) {
         className="wbs-edit"
         value={title}
         placeholder="子タスク名（Enter追加 / Esc閉じる）"
-        onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') submit()
-          if (e.key === 'Escape') onClose()
-        }}
-        onBlur={() => !title.trim() && onClose()}
-      />
-    </div>
-  )
-}
-
-function ChecklistRow({ item, depth }) {
-  const { actions } = useStore()
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(item.title)
-  const editRef = useRef(null)
-
-  useEffect(() => {
-    if (editing) {
-      setDraft(item.title)
-      editRef.current?.focus()
-    }
-  }, [editing, item.title])
-
-  function commitTitle() {
-    const t = draft.trim()
-    if (t && t !== item.title) actions.updateChecklistItem(item.id, { title: t })
-    setEditing(false)
-  }
-
-  return (
-    <div className="gantt-name-inner wbs-checklist-row" style={{ paddingLeft: depth * 12 }}>
-      <span className="wbs-checklist-tag" title="チェック項目（タスクではありません）">項</span>
-      <button
-        className={`check ${item.done ? 'done' : ''}`}
-        onClick={() => actions.toggleChecklistItem(item.id)}
-        title={item.done ? '未完了に戻す' : '完了にする'}
-        aria-label={item.done ? '未完了に戻す' : '完了にする'}
-      >
-        {item.done ? '✓' : ''}
-      </button>
-      {editing ? (
-        <input
-          ref={editRef}
-          className="wbs-edit"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitTitle}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commitTitle()
-            if (e.key === 'Escape') setEditing(false)
-          }}
-        />
-      ) : (
-        <span
-          className={`wbs-title wbs-checklist-title${item.done ? ' is-done' : ''}`}
-          onClick={() => setEditing(true)}
-          title={item.title || '(無題)'}
-        >
-          {item.title || '(無題)'}
-        </span>
-      )}
-      <div className="wbs-actions">
-        <button
-          className="wbs-act wbs-act-del"
-          onClick={() => actions.deleteChecklistItem(item.id)}
-          title="チェック項目を削除"
-          aria-label="チェック項目を削除"
-        >
-          <Trash2 size={13} strokeWidth={2} aria-hidden />
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function AddChecklistRow({ parentId, depth, onClose }) {
-  const { actions } = useStore()
-  const [title, setTitle] = useState('')
-  const ref = useRef(null)
-  useEffect(() => {
-    ref.current?.focus()
-  }, [])
-
-  function submit() {
-    const t = title.trim()
-    if (!t) return
-    actions.addChecklistItem(parentId, t)
-    setTitle('')
-    ref.current?.focus()
-  }
-
-  return (
-    <div className="gantt-name-inner wbs-add-child wbs-checklist-row" style={{ paddingLeft: depth * 12 }}>
-      <span className="wbs-checklist-tag">項</span>
-      <input
-        ref={ref}
-        className="wbs-edit"
-        value={title}
-        placeholder="チェック項目（Enter追加 / Esc閉じる）"
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') submit()

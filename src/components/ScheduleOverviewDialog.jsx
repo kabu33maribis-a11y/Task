@@ -206,16 +206,6 @@ export default function ScheduleOverviewDialog({
                 />
               ))}
 
-            {axis.ticks.some((t) => t.d === today) && (
-              <div
-                className="gantt-today-line"
-                style={{
-                  left: LEFT_W + colOf(today) * dayW + dayW / 2,
-                  top: headH,
-                }}
-              />
-            )}
-
             {nodes.map((node) => (
               <OverviewRow
                 key={node.task.id}
@@ -227,6 +217,16 @@ export default function ScheduleOverviewDialog({
                 tag={tagForWbsRow({ kind: 'node', node }, tasks, tags)}
               />
             ))}
+
+            {axis.ticks.some((t) => t.d === today) && (
+              <div
+                className="gantt-today-line"
+                style={{
+                  left: LEFT_W + colOf(today) * dayW + dayW / 2,
+                  top: headH,
+                }}
+              />
+            )}
           </div>
         </div>
       </div>

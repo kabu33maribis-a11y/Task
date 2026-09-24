@@ -12,7 +12,11 @@ import {
   snapMinutes,
 } from './date.js'
 
-const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+const bySort = (a, b) => {
+  const cmp = (a.sort_order ?? 0) - (b.sort_order ?? 0)
+  if (cmp !== 0) return cmp
+  return (a.title || '').localeCompare(b.title || '', 'ja')
+}
 
 function taskStart(task) {
   return task.start_date ?? task.scheduled_date ?? null
@@ -23,9 +27,9 @@ const byTitle = (a, b) => {
   return cmp !== 0 ? cmp : bySort(a, b)
 }
 
-// Default WBS sibling order: earliest start first; no start date goes last;
-// same start (or both undated) → title ascending.
-const byStartDate = (a, b) => {
+// Legacy sibling order (pre–manual sort): earliest start first; undated last;
+// same start → title. Used once to seed sort_order on migration.
+export const byStartDate = (a, b) => {
   const sa = taskStart(a)
   const sb = taskStart(b)
   if (!sa && !sb) return byTitle(a, b)
@@ -86,7 +90,7 @@ function aggregateChildren(children) {
 
 // Build a WBS tree from a flat, single-project task list.
 // Each node: { task, children, depth, wbsNo, rollup: {done, total}, allDone }
-// - wbsNo: '1', '1.1', '1.1.2' … (siblings ordered by start date, undated last)
+// - wbsNo: '1', '1.1', '1.1.2' … (siblings ordered by sort_order)
 // - rollup: leaf counts. A leaf is total=1, done=(DONE?1:0). Parents aggregate.
 export function buildTree(tasks, baseDepth = 0) {
   const byParent = new Map()
@@ -97,7 +101,7 @@ export function buildTree(tasks, baseDepth = 0) {
   }
 
   function make(task, prefix, depth) {
-    const kids = (byParent.get(task.id) ?? []).slice().sort(byStartDate)
+    const kids = (byParent.get(task.id) ?? []).slice().sort(bySort)
     const children = kids.map((child, i) => make(child, `${prefix}.${i + 1}`, depth + 1))
 
     let done, total, span
@@ -124,7 +128,7 @@ export function buildTree(tasks, baseDepth = 0) {
     }
   }
 
-  const roots = (byParent.get('__root__') ?? []).slice().sort(byStartDate)
+  const roots = (byParent.get('__root__') ?? []).slice().sort(bySort)
   return roots.map((t, i) => make(t, String(i + 1), baseDepth))
 }
 
@@ -161,14 +165,59 @@ export function buildProjectTrees(tasks, projects) {
   })
 }
 
-// Previous sibling of `task` within the same project + same parent (by start date).
+// Previous sibling of `task` within the same project + same parent (by sort_order).
 // Used by "indent" — the task becomes a child of its previous sibling.
 export function prevSibling(task, tasks) {
   const siblings = tasks
-    .filter((t) => (t.parent_id ?? null) === (task.parent_id ?? null))
-    .sort(byStartDate)
+    .filter(
+      (t) =>
+        (t.parent_id ?? null) === (task.parent_id ?? null) &&
+        (t.project_id ?? null) === (task.project_id ?? null),
+    )
+    .sort(bySort)
   const idx = siblings.findIndex((t) => t.id === task.id)
   return idx > 0 ? siblings[idx - 1] : null
+}
+
+/** True if `maybeDescendantId` is `ancestorId` or nested under it. */
+export function isSelfOrDescendant(maybeDescendantId, ancestorId, tasks) {
+  if (maybeDescendantId === ancestorId) return true
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+  let cur = byId.get(maybeDescendantId)
+  while (cur?.parent_id) {
+    if (cur.parent_id === ancestorId) return true
+    cur = byId.get(cur.parent_id)
+  }
+  return false
+}
+
+/**
+ * Seed sort_order from legacy start-date sibling order within each
+ * (project_id, parent_id) group. Returns { tasks, changed } — changed tasks only
+ * when any sort_order was rewritten.
+ */
+export function seedSortOrderFromStartDate(tasks) {
+  const groups = new Map()
+  for (const t of tasks) {
+    const key = `${t.project_id ?? ''}::${t.parent_id ?? ''}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(t)
+  }
+  const orderMap = new Map()
+  for (const list of groups.values()) {
+    list
+      .slice()
+      .sort(byStartDate)
+      .forEach((t, i) => orderMap.set(t.id, i))
+  }
+  let changed = false
+  const next = tasks.map((t) => {
+    const so = orderMap.get(t.id)
+    if (so === undefined || (t.sort_order ?? 0) === so) return t
+    changed = true
+    return { ...t, sort_order: so }
+  })
+  return { tasks: next, changed }
 }
 
 // Flatten visible nodes (respecting a set of collapsed ids) into a render list.

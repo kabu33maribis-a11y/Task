@@ -3,6 +3,9 @@ import { uid } from '../lib/id.js'
 import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, syncDatePatch } from '../lib/date.js'
 import { getDb } from '../lib/db.js'
 import { hasLink, wouldCreateCycle } from '../lib/dependencies.js'
+import { seedSortOrderFromStartDate, isSelfOrDescendant } from '../lib/wbs.js'
+
+const WBS_SORT_MIGRATED_KEY = 'taskmanager.wbs.sort_order_v1'
 
 // ---- initial data ------------------------------------------------------
 
@@ -111,9 +114,32 @@ async function loadState() {
       }
     }
 
+    let tasksOut = unifiedTasks
+    if (!localStorage.getItem(WBS_SORT_MIGRATED_KEY)) {
+      const { tasks: seeded, changed } = seedSortOrderFromStartDate(unifiedTasks)
+      if (changed) {
+        const now = new Date().toISOString()
+        tasksOut = seeded.map((t) => {
+          const prev = unifiedTasks.find((p) => p.id === t.id)
+          if (!prev || prev.sort_order === t.sort_order) return t
+          const next = { ...t, updated_at: now }
+          return next
+        })
+        for (const t of tasksOut) {
+          const prev = unifiedTasks.find((p) => p.id === t.id)
+          if (prev && prev.sort_order !== t.sort_order) await dbUpsertTask(db, t)
+        }
+      }
+      try {
+        localStorage.setItem(WBS_SORT_MIGRATED_KEY, '1')
+      } catch {
+        /* ignore quota / private mode */
+      }
+    }
+
     return {
       version: 1,
-      tasks: unifiedTasks,
+      tasks: tasksOut,
       categories: loadedCategories.map((c) => ({
         ...c,
         color: c.color ?? null,
@@ -138,6 +164,17 @@ async function loadState() {
 function nextSortOrder(tasks, predicate) {
   const group = tasks.filter(predicate)
   return group.length ? Math.max(...group.map((t) => t.sort_order ?? 0)) + 1 : 0
+}
+
+function sameParentGroup(a, parentId, projectId) {
+  return (a.parent_id ?? null) === (parentId ?? null) && (a.project_id ?? null) === (projectId ?? null)
+}
+
+function nextSiblingSortOrder(tasks, parentId, projectId, excludeId = null) {
+  return nextSortOrder(
+    tasks,
+    (t) => sameParentGroup(t, parentId, projectId) && t.id !== excludeId,
+  )
 }
 
 function normalizeChecklistItem(item) {
@@ -210,8 +247,10 @@ function makeTask(input, tasks) {
     tag_id: input.tag_id ?? null,
     priority: input.priority ?? null,
     sort_order: input.parent_id
-      ? nextSortOrder(tasks, (t) => t.parent_id === input.parent_id)
-      : nextSortOrder(tasks, (t) => t.scheduled_date === dates.scheduled_date),
+      ? nextSiblingSortOrder(tasks, input.parent_id, input.project_id ?? null)
+      : dates.scheduled_date
+        ? nextSortOrder(tasks, (t) => t.scheduled_date === dates.scheduled_date)
+        : nextSiblingSortOrder(tasks, null, input.project_id ?? null),
     recurrence: input.recurrence ?? null,
     created_at: now,
     updated_at: now,
@@ -319,21 +358,57 @@ function reducer(state, action) {
     }
 
     case 'SET_PARENT': {
+      const moving = state.tasks.find((t) => t.id === action.id)
+      if (!moving) return state
+      const parentId = action.parentId ?? null
+      if (parentId && isSelfOrDescendant(parentId, action.id, state.tasks)) return state
       return {
         ...state,
         tasks: state.tasks.map((t) =>
           t.id === action.id
             ? {
                 ...t,
-                parent_id: action.parentId,
-                sort_order: nextSortOrder(
+                parent_id: parentId,
+                sort_order: nextSiblingSortOrder(
                   state.tasks,
-                  (x) => x.parent_id === action.parentId && x.id !== action.id,
+                  parentId,
+                  moving.project_id ?? null,
+                  action.id,
                 ),
                 updated_at: stamp(),
               }
             : t,
         ),
+      }
+    }
+
+    case 'MOVE_IN_TREE': {
+      const moving = state.tasks.find((t) => t.id === action.id)
+      if (!moving) return state
+      const parentId = action.parentId ?? null
+      const projectId =
+        action.projectId !== undefined ? action.projectId : (moving.project_id ?? null)
+      if (parentId && isSelfOrDescendant(parentId, action.id, state.tasks)) return state
+      const orderMap = new Map((action.orderedIds ?? []).map((id, i) => [id, i]))
+      if (!orderMap.has(action.id)) return state
+      const now = stamp()
+      return {
+        ...state,
+        tasks: state.tasks.map((t) => {
+          if (t.id === action.id) {
+            return {
+              ...t,
+              parent_id: parentId,
+              project_id: projectId,
+              sort_order: orderMap.get(t.id),
+              updated_at: now,
+            }
+          }
+          if (orderMap.has(t.id)) {
+            return { ...t, sort_order: orderMap.get(t.id), updated_at: now }
+          }
+          return t
+        }),
       }
     }
 
@@ -703,18 +778,24 @@ async function doSyncToDb(prevState, nextState, action) {
           if (task) await dbUpsertTask(db, task)
           break
         }
-        case 'SET_DONE_CASCADE': {
+        case 'MOVE_IN_TREE':
+        case 'REORDER': {
           const changed = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
-            return prev && prev.status !== t.status
+            return (
+              prev &&
+              (prev.sort_order !== t.sort_order ||
+                prev.parent_id !== t.parent_id ||
+                prev.project_id !== t.project_id)
+            )
           })
           for (const t of changed) await dbUpsertTask(db, t)
           break
         }
-        case 'REORDER': {
+        case 'SET_DONE_CASCADE': {
           const changed = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
-            return prev && prev.sort_order !== t.sort_order
+            return prev && prev.status !== t.status
           })
           for (const t of changed) await dbUpsertTask(db, t)
           break
@@ -1007,6 +1088,8 @@ export function StoreProvider({ children }) {
     updateTask: (id, patch) => dispatchWithSync({ type: 'UPDATE_TASK', id, patch }),
     toggleComplete: (id) => dispatchWithSync({ type: 'TOGGLE_COMPLETE', id }),
     setTaskParent: (id, parentId) => dispatchWithSync({ type: 'SET_PARENT', id, parentId }),
+    moveInTree: (id, { parentId, projectId, orderedIds }) =>
+      dispatchWithSync({ type: 'MOVE_IN_TREE', id, parentId, projectId, orderedIds }),
     setTaskDates: (id, start_date, end_date) => {
       const patch = { start_date, end_date }
       if (!start_date && !end_date) {

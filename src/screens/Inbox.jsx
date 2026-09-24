@@ -36,7 +36,7 @@ export default function Inbox({ embedded = false, projectFilter = 'all' }) {
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false) }}
       onDrop={handleDrop}
     >
-      {!embedded && <h1 className="screen-date">Inbox</h1>}
+      {!embedded && <h1 className="screen-date screen-title">Inbox</h1>}
       <p className="help" style={{ marginTop: embedded ? 0 : -8, marginBottom: 16 }}>
         日付を決めていないタスクの一時保管場所です。思いついたら素早く登録しましょう。
       </p>
