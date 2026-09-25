@@ -519,7 +519,15 @@ function WbsGantt({ project, multi }) {
           (pn.project.id != null && idSet.has(pn.project.id)),
       )
 
-      const opts = { catMap, today, showWeekends: exportWeekends, showHolidays }
+      const opts = {
+        catMap,
+        today,
+        showWeekends: exportWeekends,
+        showHolidays,
+        tags: state.tags,
+        members: state.members,
+        taskAssignees: state.taskAssignees,
+      }
       const withTasks = projectNodes.filter((pn) => pn.rollup.total > 0)
       if (withTasks.length === 0) {
         alert('選択したプロジェクトに出力できるタスクがありません。')
@@ -830,7 +838,6 @@ function WbsGantt({ project, multi }) {
         y1: i1 * ROW_H + ROW_H / 2,
         x2: xOfSpanStart(s2),
         y2: i2 * ROW_H + ROW_H / 2,
-        succRight: xOfSpanEnd(s2),
         overlap: spansOverlap(s1, s2),
       })
     }
@@ -867,7 +874,6 @@ function WbsGantt({ project, multi }) {
               y1: i1 * ROW_H + ROW_H / 2,
               x2: xOfSpanStart(s2),
               y2: i2 * ROW_H + ROW_H / 2,
-              succRight: xOfSpanEnd(s2),
               overlap: spansOverlap(s1, s2),
             }],
             { rowH: ROW_H, maxX: canvasW },
@@ -935,19 +941,36 @@ function WbsGantt({ project, multi }) {
   useEffect(() => {
     if (!selectedId && !linkDrag) return
     function onKey(e) {
-      if (e.key !== 'Escape') return
       if (datePopover || linkPopover || tagPopover || assigneePopover || editingId) return
-      if (linkDragRef.current) {
-        setLinkDrag(null)
-        document.documentElement.style.cursor = ''
-        document.documentElement.style.userSelect = ''
+      if (e.key === 'Escape') {
+        if (linkDragRef.current) {
+          setLinkDrag(null)
+          document.documentElement.style.cursor = ''
+          document.documentElement.style.userSelect = ''
+          return
+        }
+        setSelectedId(null)
         return
       }
-      setSelectedId(null)
+      if (!selectedId || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return
+      if (e.target?.closest?.('input, textarea, [contenteditable="true"]')) return
+      const task = scopedTasks.find((t) => t.id === selectedId)
+      if (!task) return
+      e.preventDefault()
+      if (e.key === 'ArrowRight') {
+        const prev = prevSibling(task, scopedTasks)
+        if (prev) {
+          actions.setTaskParent(task.id, prev.id)
+          expand(prev.id)
+        }
+      } else if (task.parent_id != null) {
+        const parent = scopedTasks.find((t) => t.id === task.parent_id)
+        actions.setTaskParent(task.id, parent ? parent.parent_id ?? null : null)
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [selectedId, linkDrag, datePopover, linkPopover, tagPopover, assigneePopover, editingId])
+  }, [selectedId, linkDrag, datePopover, linkPopover, tagPopover, assigneePopover, editingId, scopedTasks, actions])
 
   useEffect(() => {
     if (!selectedId) return
@@ -1927,6 +1950,7 @@ function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }
       <button
         className="wbs-caret"
         onClick={() => onToggleCollapse(node.task.id)}
+        onMouseDown={(e) => e.preventDefault()}
         tabIndex={0}
         aria-label={isCollapsed ? '展開' : '折りたたむ'}
       >
@@ -2036,7 +2060,6 @@ function LeftRow({
   const deadline = endDate
     ? deadlineInfo(endDate, { today, completed: done, progressPct })
     : null
-  const waiting = !done && isWaiting(task.id, state.dependencies, state.tasks)
   const hasSuccessor = successorIds(task.id, state.dependencies).length > 0
   const hasPredecessor = predecessorIds(task.id, state.dependencies).length > 0
   const hasAnyDep = hasSuccessor || hasPredecessor
@@ -2098,6 +2121,7 @@ function LeftRow({
     if (editing) return
     if (e.target.closest('input, textarea')) return
     e.preventDefault()
+    onSelect?.()
     const menuW = 176
     setMorePos({
       top: e.clientY,
@@ -2144,6 +2168,7 @@ function LeftRow({
       <button
         className={`wbs-caret${canCollapse ? '' : ' empty'}`}
         onClick={() => canCollapse && onToggleCollapse(task.id)}
+        onMouseDown={(e) => e.preventDefault()}
         tabIndex={canCollapse ? 0 : -1}
         aria-label={isCollapsed ? '展開' : '折りたたむ'}
       >
@@ -2193,11 +2218,6 @@ function LeftRow({
           {checkTotal > 0 && (
             <span className="wbs-check-badge" title={`チェックリスト ${checkDone}/${checkTotal}`}>
               {checkDone}/{checkTotal}
-            </span>
-          )}
-          {waiting && (
-            <span className="wbs-waiting-badge" title="前のタスクが未完了">
-              待ち
             </span>
           )}
           {tag && (

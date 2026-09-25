@@ -131,7 +131,7 @@ export default function ExportExcelDialog({
             <span className="export-opt-label">祝日を表示する</span>
           </label>
           <p className="help" style={{ marginTop: 6 }}>
-            土日オフで週末列を省き、祝日オンで祝日を朱く着色します。
+            土日オフで週末列を省き、祝日オンで祝日を朱く着色します。カテゴリ・タグ・担当者は常に列として出力されます。
           </p>
         </div>
 

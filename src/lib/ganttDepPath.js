@@ -41,7 +41,6 @@ function pathD(link, rowH) {
  *   y1: number,
  *   x2: number,
  *   y2: number,
- *   succRight?: number,
  *   overlap?: boolean,
  * }>} links
  * @param {{ rowH?: number, maxX?: number }} [opts]
@@ -68,16 +67,11 @@ export function buildGanttDepPaths(links, { rowH = 38, maxX = Infinity } = {}) {
     for (const link of forwards) {
       routed.push({ ...link, kind: 'forward', vx: sharedVx })
     }
-    if (bypasses.length) {
-      let bypassX = sharedVx
-      for (const link of bypasses) {
-        bypassX = Math.max(bypassX, link.x1, link.succRight ?? link.x2)
-      }
-      bypassX += STUB
-      if (Number.isFinite(maxX)) bypassX = Math.min(bypassX, Math.max(0, maxX - 2))
-      for (const link of bypasses) {
-        routed.push({ ...link, kind: 'bypass', vx: bypassX })
-      }
+    // Bypass links drop from the predecessor's own stub into the row gutter
+    // above/below the successor, then run back left to its start, so the line
+    // never stretches out to the successor's end.
+    for (const link of bypasses) {
+      routed.push({ ...link, kind: 'bypass', vx: sharedVx })
     }
   }
 

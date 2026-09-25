@@ -7,6 +7,8 @@
 import { addDays, diffDays } from './date.js'
 import { getJapaneseHolidays } from './holidays.js'
 import { flattenVisible } from './wbs.js'
+import { inheritedTag } from './tags.js'
+import { assigneesOf } from './members.js'
 
 // --- パレット（ARGB: 先頭 FF は不透明）------------------------------------
 const C = {
@@ -30,8 +32,10 @@ const FONT = 'Yu Gothic'
 // 表側（左固定）の列構成
 const COLS = [
   { key: 'no', header: 'No', width: 8 },
-  { key: 'title', header: 'タスク名', width: 42 },
-  { key: 'category', header: 'カテゴリ', width: 14 },
+  { key: 'title', header: 'タスク名', width: 34 },
+  { key: 'category', header: 'カテゴリ', width: 12 },
+  { key: 'tag', header: 'タグ', width: 12 },
+  { key: 'assignee', header: '担当者', width: 18 },
   { key: 'start', header: '開始', width: 12 },
   { key: 'end', header: '終了', width: 12 },
   { key: 'days', header: '日数', width: 7 },
@@ -40,6 +44,14 @@ const COLS = [
 ]
 const TABLE_COLS = COLS.length
 const DAY0 = TABLE_COLS + 1 // 最初の日付列（1-indexed）
+const COL_IDX = Object.fromEntries(COLS.map((c, i) => [c.key, i + 1]))
+
+// タグ／メンバーの色（"#RRGGBB"）を ARGB に変換。不正な値は null。
+function toArgb(hex) {
+  if (typeof hex !== 'string') return null
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim())
+  return m ? `FF${m[1].toUpperCase()}` : null
+}
 
 // 列番号 → 列記号（1→A, 27→AA）。条件付き書式の数式で使う。
 function colLetter(n) {
@@ -130,8 +142,13 @@ function addWbsSheet(wb, {
   usedNames,
   showWeekends = true,
   showHolidays = true,
+  tags = [],
+  members = [],
+  taskAssignees = [],
 }) {
   const nodes = flattenVisible(roots, new Set()) // 折りたたみ無視＝全件展開
+  const nodeTasks = nodes.map((n) => n.task) // タグの親継承をこのシート内だけで解決する
+  const assigneeState = { members, taskAssignees }
   const range = externalRange ?? computeRange(nodes, today)
   const calendarDays = diffDays(range.start, range.end) + 1
   const holidays = showHolidays ? holidayMapForRange(range) : null
@@ -271,27 +288,41 @@ function addWbsSheet(wb, {
     row.height = 19
 
     // No
-    const noCell = ws.getCell(r, 1)
+    const noCell = ws.getCell(r, COL_IDX.no)
     noCell.value = wbsNo
     noCell.font = { name: 'Consolas', size: 9, color: { argb: C.inkFaint } }
     noCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 }
 
     // タスク名（階層インデント・親は太字）
-    const titleCellD = ws.getCell(r, 2)
+    const titleCellD = ws.getCell(r, COL_IDX.title)
     titleCellD.value = task.title || '(無題)'
     titleCellD.font = { name: FONT, size: 10, bold: !isLeaf, color: { argb: C.ink } }
     titleCellD.alignment = { vertical: 'middle', horizontal: 'left', indent: depth + 1, wrapText: false }
 
     // カテゴリ
-    const catCell = ws.getCell(r, 3)
+    const catCell = ws.getCell(r, COL_IDX.category)
     const cat = task.category_id ? catMap.get(task.category_id) : null
     catCell.value = cat ? cat.name : ''
     catCell.font = { name: FONT, size: 9, color: { argb: C.inkSoft } }
     catCell.alignment = { vertical: 'middle', horizontal: 'center' }
 
+    // タグ（画面と同じく、未設定なら親から継承）
+    const tagCell = ws.getCell(r, COL_IDX.tag)
+    const tag = inheritedTag(task, nodeTasks, tags)
+    tagCell.value = tag ? tag.name : ''
+    tagCell.font = { name: FONT, size: 9, color: { argb: toArgb(tag?.color) ?? C.inkSoft } }
+    tagCell.alignment = { vertical: 'middle', horizontal: 'center' }
+
+    // 担当者（複数可・カンマ区切り）
+    const assigneeCell = ws.getCell(r, COL_IDX.assignee)
+    const assignees = assigneesOf(task.id, assigneeState)
+    assigneeCell.value = assignees.map((m) => m.name).join('、')
+    assigneeCell.font = { name: FONT, size: 9, color: { argb: C.inkSoft } }
+    assigneeCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1, wrapText: false }
+
     // 開始 / 終了
-    const startCell = ws.getCell(r, 4)
-    const endCell = ws.getCell(r, 5)
+    const startCell = ws.getCell(r, COL_IDX.start)
+    const endCell = ws.getCell(r, COL_IDX.end)
     if (span) {
       startCell.value = toJsDate(span.start)
       endCell.value = toJsDate(span.end)
@@ -304,20 +335,20 @@ function addWbsSheet(wb, {
     }
 
     // 日数
-    const daysCell = ws.getCell(r, 6)
+    const daysCell = ws.getCell(r, COL_IDX.days)
     daysCell.value = span ? diffDays(span.start, span.end) + 1 : ''
     daysCell.font = { name: 'Consolas', size: 9, color: { argb: C.inkSoft } }
     daysCell.alignment = { vertical: 'middle', horizontal: 'center' }
 
     // 進捗（%）
-    const progCell = ws.getCell(r, 7)
+    const progCell = ws.getCell(r, COL_IDX.progress)
     progCell.value = pct
     progCell.numFmt = '0%'
     progCell.font = { name: 'Consolas', size: 9, bold: pct >= 1, color: { argb: pct >= 1 ? C.shu : C.inkSoft } }
     progCell.alignment = { vertical: 'middle', horizontal: 'center' }
 
     // 完了 (done/total)
-    const countCell = ws.getCell(r, 8)
+    const countCell = ws.getCell(r, COL_IDX.count)
     countCell.value = `${done}/${total}`
     countCell.font = { name: 'Consolas', size: 9, color: { argb: C.inkFaint } }
     countCell.alignment = { vertical: 'middle', horizontal: 'center' }
@@ -355,9 +386,9 @@ function addWbsSheet(wb, {
     const dN = colLetter(TABLE_COLS + totalDays) // 帯の右端列記号
     const H = colLetter(HELPER_COL) // 隠しフラグ列
     const hdr = `${d0}$${HEAD_BOT}` // その列の日付ヘッダー（行固定）
-    const s = `$D${R}` // 開始日（列固定）
-    const e = `$E${R}` // 終了日
-    const p = `$G${R}` // 進捗（0〜1）
+    const s = `$${colLetter(COL_IDX.start)}${R}` // 開始日（列固定）
+    const e = `$${colLetter(COL_IDX.end)}${R}` // 終了日
+    const p = `$${colLetter(COL_IDX.progress)}${R}` // 進捗（0〜1）
     const flag = `$${H}${R}` // 親=1 / 葉=0
     const doneThru = `${s}+ROUND(${p}*(${e}-${s}+1),0)-1` // 達成分の最終日
     const guard = `${s}<>""`
@@ -403,6 +434,9 @@ function addWbsSheet(wb, {
  * @param {string}   opts.today     'YYYY-MM-DD'
  * @param {boolean}  [opts.showWeekends=true]
  * @param {boolean}  [opts.showHolidays=true]
+ * @param {Array}    [opts.tags]
+ * @param {Array}    [opts.members]
+ * @param {Array}    [opts.taskAssignees]
  */
 export async function buildWbsWorkbook({
   project,
@@ -411,13 +445,27 @@ export async function buildWbsWorkbook({
   today,
   showWeekends = true,
   showHolidays = true,
+  tags = [],
+  members = [],
+  taskAssignees = [],
 }) {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   wb.creator = 'タスク管理'
   wb.created = toJsDate(today) || undefined
   const usedNames = new Set()
-  addWbsSheet(wb, { project, roots, catMap, today, usedNames, showWeekends, showHolidays })
+  addWbsSheet(wb, {
+    project,
+    roots,
+    catMap,
+    today,
+    usedNames,
+    showWeekends,
+    showHolidays,
+    tags,
+    members,
+    taskAssignees,
+  })
   return wb
 }
 
@@ -427,6 +475,9 @@ export async function buildAllProjectsWorkbook({
   today,
   showWeekends = true,
   showHolidays = true,
+  tags = [],
+  members = [],
+  taskAssignees = [],
 }) {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
@@ -450,6 +501,9 @@ export async function buildAllProjectsWorkbook({
       usedNames,
       showWeekends,
       showHolidays,
+      tags,
+      members,
+      taskAssignees,
     })
   }
 
