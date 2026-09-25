@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { useStore, flushSync } from '../store/StoreContext.jsx'
 import { reconnectDb, resetDbConnection } from '../lib/db.js'
 import { getDbPath, pickDbFile, setDbPath } from '../lib/appConfig.js'
@@ -11,12 +11,7 @@ import {
 } from '../lib/ganttBarColor.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
-
-const PRESET_COLORS = [
-  '#C0402E', '#E07040', '#D4A820', '#7AAF3C',
-  '#2E8A60', '#2080AA', '#2A52A0', '#6B4CA0',
-  '#B85C8A', '#7A6A5A', '#404040', '#909090',
-]
+import { ColorPickerSwatch, SettingsAccordion } from './settingsShared.jsx'
 
 /** 旧設定（フォルダパス）は表示時に tasks.db を付与する */
 function formatDbPathDisplay(path) {
@@ -25,87 +20,12 @@ function formatDbPathDisplay(path) {
   return path.replace(/[\\/]+$/, '') + '\\tasks.db'
 }
 
-function ColorPickerSwatch({ color, onChange }) {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
-  const customRef = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handle(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative', flexShrink: 0 }}>
-      <button
-        type="button"
-        className="cat-color-swatch"
-        style={{ background: color || 'var(--rule-strong)' }}
-        title="クリックで色を変更"
-        onClick={() => setOpen((o) => !o)}
-      />
-      {open && (
-        <div className="color-preset-popup">
-          {PRESET_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              className={'color-preset-dot' + (color === c ? ' selected' : '')}
-              style={{ background: c }}
-              title={c}
-              onClick={() => {
-                onChange(c)
-                setOpen(false)
-              }}
-            />
-          ))}
-          <label className="color-preset-custom" title="カスタム色を選ぶ">
-            <input
-              ref={customRef}
-              type="color"
-              value={color || '#cccccc'}
-              onChange={(e) => onChange(e.target.value)}
-            />
-            …
-          </label>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SettingsAccordion({ id, title, meta, openId, onToggle, children }) {
-  const open = openId === id
-  return (
-    <div className={'settings-acc' + (open ? ' is-open' : '')}>
-      <button
-        type="button"
-        className="settings-acc-head"
-        aria-expanded={open}
-        onClick={() => onToggle(id)}
-      >
-        <span className="settings-acc-title">{title}</span>
-        {meta != null && meta !== '' && (
-          <span className="settings-acc-meta">{meta}</span>
-        )}
-        <ChevronDown size={16} strokeWidth={2} className="settings-acc-chevron" aria-hidden />
-      </button>
-      {open && <div className="settings-acc-body">{children}</div>}
-    </div>
-  )
-}
-
 // Settings: project / category management, DB path, data reset.
 // This is one of the few places a modal is used, per spec (avoid modals for
 // everyday actions, but settings are infrequent).
 export default function SettingsModal({ onClose }) {
   const { state, actions } = useStore()
   const [newCat, setNewCat] = useState('')
-  const [newProj, setNewProj] = useState('')
   const [newTag, setNewTag] = useState('')
   const [dbPath, setDbPathState] = useState(null)
   const [dbMsg, setDbMsg] = useState('')
@@ -142,6 +62,9 @@ export default function SettingsModal({ onClose }) {
       checklistItems: state.checklistItems ?? [],
       dependencies: state.dependencies ?? [],
       tags: state.tags ?? [],
+      members: state.members ?? [],
+      projectMembers: state.projectMembers ?? [],
+      taskAssignees: state.taskAssignees ?? [],
     }
   }
 
@@ -176,7 +99,6 @@ export default function SettingsModal({ onClose }) {
 
 
   const sortedCats = [...state.categories].sort((a, b) => a.sort_order - b.sort_order)
-  const sortedProjs = [...state.projects].sort((a, b) => a.sort_order - b.sort_order)
   const sortedTags = [...(state.tags ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
   return (
@@ -219,48 +141,6 @@ export default function SettingsModal({ onClose }) {
                   リセット
                 </button>
               )}
-            </div>
-          </SettingsAccordion>
-
-          <SettingsAccordion
-            id="projects"
-            title="プロジェクト"
-            meta={sortedProjs.length}
-            openId={openSection}
-            onToggle={toggleSection}
-          >
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              タスクをまとめる大枠。カレンダーではプロジェクトの色でラベルを見分けられます。非表示にするとカレンダー・WBSから隠れます。
-            </p>
-            <div className="settings-list">
-              {sortedProjs.map((p) => (
-                <ProjectRow key={p.id} project={p} />
-              ))}
-            </div>
-            <div className="cat-edit-row">
-              <input
-                type="text"
-                value={newProj}
-                placeholder="新しいプロジェクト"
-                onChange={(e) => setNewProj(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newProj.trim()) {
-                    actions.addProject(newProj)
-                    setNewProj('')
-                  }
-                }}
-              />
-              <button
-                className="btn btn-sm btn-primary"
-                onClick={() => {
-                  if (newProj.trim()) {
-                    actions.addProject(newProj)
-                    setNewProj('')
-                  }
-                }}
-              >
-                追加
-              </button>
             </div>
           </SettingsAccordion>
 
@@ -517,64 +397,3 @@ function CategoryRow({ category }) {
   )
 }
 
-function ProjectRow({ project }) {
-  const { actions } = useStore()
-  const [name, setName] = useState(project.name)
-  const [confirm, setConfirm] = useState(null)
-  const color = project.color || ''
-  const hidden = Boolean(project.hidden)
-
-  return (
-    <>
-    <div className={`cat-edit-row${hidden ? ' is-hidden' : ''}`}>
-      <ColorPickerSwatch
-        color={color}
-        onChange={(c) => actions.updateProject(project.id, { color: c })}
-      />
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => {
-          const n = name.trim()
-          if (n && n !== project.name) actions.updateProject(project.id, { name: n })
-          else setName(project.name)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            const n = name.trim()
-            if (n && n !== project.name) actions.updateProject(project.id, { name: n })
-            e.target.blur()
-          }
-        }}
-      />
-      <button
-        className="btn btn-sm"
-        onClick={() => actions.updateProject(project.id, { hidden: !hidden })}
-        title={hidden ? '表示する' : '非表示にする'}
-      >
-        {hidden ? '表示' : '非表示'}
-      </button>
-      <button
-        className="btn btn-sm btn-icon-del"
-        onClick={() =>
-          setConfirm({
-            message: `「${project.name}」を削除しますか？`,
-            detail: 'このプロジェクトのタスクはプロジェクトなしになります。',
-            okLabel: '削除する',
-            danger: true,
-            onOk: () => { setConfirm(null); actions.deleteProject(project.id) },
-          })
-        }
-        title="削除"
-        aria-label="削除"
-      >
-        <Trash2 size={14} strokeWidth={2} aria-hidden />
-      </button>
-    </div>
-    {confirm && (
-      <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />
-    )}
-    </>
-  )
-}

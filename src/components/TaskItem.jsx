@@ -4,6 +4,7 @@ import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.j
 import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays } from '../lib/date.js'
 import { unfinishedPredecessors, successorsOf } from '../lib/dependencies.js'
 import { ownTag } from '../lib/tags.js'
+import { assigneesOf, candidateMembersFor } from '../lib/members.js'
 import ActivityPanel from './ActivityPanel.jsx'
 import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
 import TaskPicker from './TaskPicker.jsx'
@@ -18,7 +19,7 @@ export default function TaskItem({
   showProject = true,
   dnd = null,
 }) {
-  const { state, actions } = useStore()
+  const { state, actions, clipboardTask } = useStore()
   const catMap = useCategoryMap()
   const projMap = useProjectMap()
   const [editing, setEditing] = useState(false)
@@ -127,6 +128,7 @@ export default function TaskItem({
   const category = task.category_id ? catMap.get(task.category_id) : null
   const project = task.project_id ? projMap.get(task.project_id) : null
   const tag = ownTag(task, state.tags)
+  const assignees = assigneesOf(task.id, state)
   const isHighPriority = task.priority === 'high'
 
   function handleDragStart(e) {
@@ -158,6 +160,12 @@ export default function TaskItem({
         }
       }}
       onDragEnd={() => dnd?.onDragEnd?.()}
+      onContextMenu={(e) => {
+        if (editing) return
+        if (e.target.closest('input, textarea')) return
+        e.preventDefault()
+        setMenuOpen(true)
+      }}
     >
       <div className="task-row">
         {dnd && (
@@ -208,6 +216,16 @@ export default function TaskItem({
                     [{tag.name}]
                   </span>
                 )}
+                {assignees.map((m) => (
+                  <span
+                    key={m.id}
+                    className="chip chip-assignee"
+                    title={`担当: ${m.name}`}
+                    style={m.color ? { borderColor: m.color } : undefined}
+                  >
+                    {m.name}
+                  </span>
+                ))}
                 {showDate && task.scheduled_date && (
                   <span className="meta-note">{formatConsoleDateRange(task)}</span>
                 )}
@@ -327,6 +345,24 @@ export default function TaskItem({
               >
                 編集
               </button>
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  actions.copyTask(task)
+                }}
+              >
+                コピー
+              </button>
+              {clipboardTask && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false)
+                    actions.pasteTask(task)
+                  }}
+                >
+                  貼り付け
+                </button>
+              )}
               <button
                 onClick={() => {
                   setMenuOpen(false)
@@ -750,6 +786,34 @@ function InlineEditor({ task, categories, onClose }) {
           </label>
         )}
       </div>
+      <AssigneeToggles task={task} />
+    </div>
+  )
+}
+
+function AssigneeToggles({ task }) {
+  const { state, actions } = useStore()
+  const candidates = candidateMembersFor(task, state)
+  if (candidates.length === 0) return null
+  const assigned = new Set(assigneesOf(task.id, state).map((m) => m.id))
+  return (
+    <div className="editor-row assignee-toggles" role="group" aria-label="担当者">
+      <span className="assignee-toggles-label">担当</span>
+      {candidates.map((m) => {
+        const on = assigned.has(m.id)
+        return (
+          <button
+            key={m.id}
+            type="button"
+            className={`chip chip-assignee assignee-toggle${on ? ' is-on' : ''}`}
+            aria-pressed={on}
+            style={m.color ? { borderColor: m.color } : undefined}
+            onClick={() => actions.toggleTaskAssignee(task.id, m.id)}
+          >
+            {m.name}
+          </button>
+        )
+      })}
     </div>
   )
 }

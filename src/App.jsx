@@ -7,6 +7,7 @@ import { StoreProvider, useStore } from './store/StoreContext.jsx'
 import { BottomNav } from './components/Nav.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import SettingsModal from './components/SettingsModal.jsx'
+import MasterModal from './components/MasterModal.jsx'
 import ProjectFilter from './components/ProjectFilter.jsx'
 import Today from './screens/Today.jsx'
 import Calendar from './screens/Calendar.jsx'
@@ -76,7 +77,7 @@ function Shell() {
 
 function Dashboard() {
   const { state } = useStore()
-  const [overlay, setOverlay] = useState(null) // 'inbox' | 'log' | 'settings' | null
+  const [overlay, setOverlay] = useState(null) // 'inbox' | 'log' | 'settings' | 'master' | null
   const [calDate, setCalDate] = useState(todayStr)
   const [calResetKey, setCalResetKey] = useState(0)
   const [projectFilter, setProjectFilter] = useState('all')
@@ -125,6 +126,9 @@ function Dashboard() {
           <button className="header-btn" onClick={() => setOverlay('log')}>
             Log
           </button>
+          <button className="header-btn" onClick={() => setOverlay('master')}>
+            マスタ
+          </button>
           <button className="header-btn" onClick={() => setOverlay('settings')}>
             設定
           </button>
@@ -171,6 +175,7 @@ function Dashboard() {
           <Log embedded />
         </SlideOver>
       )}
+      {overlay === 'master' && <MasterModal onClose={close} />}
       {overlay === 'settings' && <SettingsModal onClose={close} />}
 
       <UndoToast />
@@ -207,6 +212,7 @@ function SlideOver({ title, size = 440, onClose, children }) {
 function Tabbed() {
   const [tab, setTab] = useState('today')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [masterOpen, setMasterOpen] = useState(false)
   const [projectFilter, setProjectFilter] = useState('all')
   const [view, setView] = useState('console') // 'console' | 'wbs'
   const [calDate, setCalDate] = useState(todayStr)
@@ -218,6 +224,9 @@ function Tabbed() {
         <div className="topbar-inner">
           <div className="topbar-inner-actions">
             <ViewToggle view={view} onChange={setView} />
+            <button className="header-btn" onClick={() => setMasterOpen(true)}>
+              マスタ
+            </button>
             <button className="header-btn" onClick={() => setSettingsOpen(true)}>
               設定
             </button>
@@ -274,6 +283,7 @@ function Tabbed() {
         }}
       />
       <UndoToast />
+      {masterOpen && <MasterModal onClose={() => setMasterOpen(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>
   )

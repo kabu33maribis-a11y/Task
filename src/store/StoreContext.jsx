@@ -30,13 +30,19 @@ function makeInitialState() {
     created_at: now,
     updated_at: now,
   }))
-  return { version: 1, tasks: [], categories, projects: [], activities: [], checklistItems: [], dependencies: [], tags }
+  return {
+    version: 1, tasks: [], categories, projects: [], activities: [], checklistItems: [], dependencies: [], tags,
+    members: [], projectMembers: [], taskAssignees: [],
+  }
 }
 
 async function loadState() {
   try {
     const db = await getDb()
-    const [tasks, categories, projects, activities, checklistItems, dependencies, tags] = await Promise.all([
+    const [
+      tasks, categories, projects, activities, checklistItems, dependencies, tags,
+      members, projectMembers, taskAssignees,
+    ] = await Promise.all([
       db.select('SELECT * FROM tasks'),
       db.select('SELECT * FROM categories'),
       db.select('SELECT * FROM projects'),
@@ -44,6 +50,9 @@ async function loadState() {
       db.select('SELECT * FROM checklist_items'),
       db.select('SELECT * FROM task_dependencies'),
       db.select('SELECT * FROM tags'),
+      db.select('SELECT * FROM members'),
+      db.select('SELECT * FROM project_members'),
+      db.select('SELECT * FROM task_assignees'),
     ])
 
     // 初回起動: カテゴリもタスクも空ならデフォルトを挿入
@@ -152,6 +161,9 @@ async function loadState() {
       checklistItems: (checklistItems ?? []).map(normalizeChecklistItem),
       dependencies: (dependencies ?? []).map(normalizeDependency),
       tags: loadedTags,
+      members: (members ?? []).map(normalizeMember),
+      projectMembers: (projectMembers ?? []).map(normalizeProjectMember),
+      taskAssignees: (taskAssignees ?? []).map(normalizeTaskAssignee),
     }
   } catch (e) {
     console.error('loadState error', e)
@@ -212,6 +224,36 @@ function normalizeTag(tag) {
     sort_order: tag.sort_order ?? 0,
     created_at: tag.created_at ?? null,
     updated_at: tag.updated_at ?? null,
+  }
+}
+
+function normalizeMember(m) {
+  return {
+    id: m.id,
+    name: m.name ?? '',
+    color: m.color ?? null,
+    sort_order: m.sort_order ?? 0,
+    created_at: m.created_at ?? new Date().toISOString(),
+    updated_at: m.updated_at ?? null,
+  }
+}
+
+function normalizeProjectMember(pm) {
+  return {
+    id: pm.id,
+    project_id: pm.project_id,
+    member_id: pm.member_id,
+    sort_order: pm.sort_order ?? 0,
+    created_at: pm.created_at ?? new Date().toISOString(),
+  }
+}
+
+function normalizeTaskAssignee(a) {
+  return {
+    id: a.id,
+    task_id: a.task_id,
+    member_id: a.member_id,
+    created_at: a.created_at ?? new Date().toISOString(),
   }
 }
 
@@ -318,6 +360,27 @@ async function dbUpsertDependency(db, d) {
   )
 }
 
+async function dbUpsertMember(db, m) {
+  await db.execute(
+    'INSERT OR REPLACE INTO members (id,name,color,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)',
+    [m.id, m.name, m.color ?? null, m.sort_order ?? 0, m.created_at, m.updated_at ?? m.created_at],
+  )
+}
+
+async function dbUpsertProjectMember(db, pm) {
+  await db.execute(
+    'INSERT OR REPLACE INTO project_members (id,project_id,member_id,sort_order,created_at) VALUES (?,?,?,?,?)',
+    [pm.id, pm.project_id, pm.member_id, pm.sort_order ?? 0, pm.created_at],
+  )
+}
+
+async function dbUpsertTaskAssignee(db, a) {
+  await db.execute(
+    'INSERT OR REPLACE INTO task_assignees (id,task_id,member_id,created_at) VALUES (?,?,?,?)',
+    [a.id, a.task_id, a.member_id, a.created_at],
+  )
+}
+
 // ---- reducer -----------------------------------------------------------
 
 function reducer(state, action) {
@@ -354,6 +417,7 @@ function reducer(state, action) {
         dependencies: (state.dependencies ?? []).filter(
           (d) => d.predecessor_id !== action.id && d.successor_id !== action.id,
         ),
+        taskAssignees: (state.taskAssignees ?? []).filter((a) => a.task_id !== action.id),
       }
     }
 
@@ -536,11 +600,47 @@ function reducer(state, action) {
       const restoredDeps = (action.dependencies ?? []).filter(
         (d) => !existingDepKeys.has(`${d.predecessor_id}->${d.successor_id}`),
       )
+      const memberIds = new Set((state.members ?? []).map((m) => m.id))
+      const restoredAssignees = (action.assignees ?? []).filter(
+        (a) =>
+          memberIds.has(a.member_id) &&
+          !(state.taskAssignees ?? []).some((x) => x.task_id === a.task_id && x.member_id === a.member_id),
+      )
       return {
         ...state,
         tasks: [...state.tasks, unifyTaskDates(action.task)],
         checklistItems: [...state.checklistItems, ...restoredItems],
         dependencies: [...(state.dependencies ?? []), ...restoredDeps],
+        taskAssignees: [...(state.taskAssignees ?? []), ...restoredAssignees],
+      }
+    }
+
+    case 'PASTE_TASK': {
+      const { source, target } = action
+      const overrides = target
+        ? {
+            scheduled_date: target.scheduled_date ?? null,
+            console_end_date: target.console_end_date ?? null,
+            start_date: target.start_date ?? null,
+            end_date: target.end_date ?? null,
+            parent_id: target.parent_id ?? null,
+            project_id: target.project_id ?? null,
+          }
+        : {}
+      const task = makeTask({ ...source.task, ...overrides }, state.tasks)
+      const newChecklist = (source.checklistItems ?? []).map((c) => ({
+        id: uid('cl'),
+        task_id: task.id,
+        title: c.title,
+        done: false,
+        sort_order: c.sort_order,
+        created_at: task.created_at,
+        updated_at: task.created_at,
+      }))
+      return {
+        ...state,
+        tasks: [...state.tasks, task],
+        checklistItems: [...state.checklistItems, ...newChecklist],
       }
     }
 
@@ -551,6 +651,9 @@ function reducer(state, action) {
         checklistItems: (action.state.checklistItems ?? []).map(normalizeChecklistItem),
         dependencies: (action.state.dependencies ?? []).map(normalizeDependency),
         tags: (action.state.tags ?? []).map(normalizeTag),
+        members: (action.state.members ?? []).map(normalizeMember),
+        projectMembers: (action.state.projectMembers ?? []).map(normalizeProjectMember),
+        taskAssignees: (action.state.taskAssignees ?? []).map(normalizeTaskAssignee),
       }
     }
 
@@ -655,6 +758,7 @@ function reducer(state, action) {
         ...state,
         projects: state.projects.filter((p) => p.id !== action.id),
         tasks: state.tasks.map((t) => (t.project_id === action.id ? { ...t, project_id: null } : t)),
+        projectMembers: (state.projectMembers ?? []).filter((pm) => pm.project_id !== action.id),
       }
     }
 
@@ -686,6 +790,78 @@ function reducer(state, action) {
         ...state,
         tags: (state.tags ?? []).filter((t) => t.id !== action.id),
         tasks: state.tasks.map((t) => (t.tag_id === action.id ? { ...t, tag_id: null, updated_at: stamp() } : t)),
+      }
+    }
+
+    case 'ADD_MEMBER': {
+      const now = stamp()
+      const member = {
+        id: uid('m'),
+        name: action.name.trim(),
+        color: action.color ?? null,
+        sort_order: (state.members ?? []).length,
+        created_at: now,
+        updated_at: now,
+      }
+      return { ...state, members: [...(state.members ?? []), member] }
+    }
+
+    case 'UPDATE_MEMBER': {
+      const patch = typeof action.patch === 'string' ? { name: action.patch.trim() } : action.patch
+      return {
+        ...state,
+        members: (state.members ?? []).map((m) =>
+          m.id === action.id ? { ...m, ...patch, updated_at: stamp() } : m,
+        ),
+      }
+    }
+
+    case 'DELETE_MEMBER': {
+      return {
+        ...state,
+        members: (state.members ?? []).filter((m) => m.id !== action.id),
+        projectMembers: (state.projectMembers ?? []).filter((pm) => pm.member_id !== action.id),
+        taskAssignees: (state.taskAssignees ?? []).filter((a) => a.member_id !== action.id),
+      }
+    }
+
+    case 'ADD_PROJECT_MEMBER': {
+      const list = state.projectMembers ?? []
+      if (list.some((pm) => pm.project_id === action.projectId && pm.member_id === action.memberId)) return state
+      const pm = {
+        id: uid('pm'),
+        project_id: action.projectId,
+        member_id: action.memberId,
+        sort_order: nextSortOrder(list, (x) => x.project_id === action.projectId),
+        created_at: stamp(),
+      }
+      return { ...state, projectMembers: [...list, pm] }
+    }
+
+    case 'REMOVE_PROJECT_MEMBER': {
+      // プロジェクトから外したメンバーは、そのプロジェクトのタスクの担当からも外す
+      const projectTaskIds = new Set(
+        state.tasks.filter((t) => (t.project_id ?? null) === action.projectId).map((t) => t.id),
+      )
+      return {
+        ...state,
+        projectMembers: (state.projectMembers ?? []).filter(
+          (pm) => !(pm.project_id === action.projectId && pm.member_id === action.memberId),
+        ),
+        taskAssignees: (state.taskAssignees ?? []).filter(
+          (a) => !(a.member_id === action.memberId && projectTaskIds.has(a.task_id)),
+        ),
+      }
+    }
+
+    case 'TOGGLE_TASK_ASSIGNEE': {
+      const list = state.taskAssignees ?? []
+      const exists = list.some((a) => a.task_id === action.taskId && a.member_id === action.memberId)
+      return {
+        ...state,
+        taskAssignees: exists
+          ? list.filter((a) => !(a.task_id === action.taskId && a.member_id === action.memberId))
+          : [...list, { id: uid('a'), task_id: action.taskId, member_id: action.memberId, created_at: stamp() }],
       }
     }
 
@@ -808,6 +984,7 @@ async function doSyncToDb(prevState, nextState, action) {
             'DELETE FROM task_dependencies WHERE predecessor_id = ? OR successor_id = ?',
             [action.id, action.id],
           )
+          await db.execute('DELETE FROM task_assignees WHERE task_id = ?', [action.id])
           // 子タスクの parent_id 更新
           const reparented = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
@@ -821,6 +998,9 @@ async function doSyncToDb(prevState, nextState, action) {
           if (task) await dbUpsertTask(db, task)
           for (const item of action.checklistItems ?? []) await dbUpsertChecklistItem(db, item)
           for (const dep of action.dependencies ?? []) await dbUpsertDependency(db, dep)
+          for (const a of (nextState.taskAssignees ?? []).filter((x) => x.task_id === action.task.id)) {
+            await dbUpsertTaskAssignee(db, a)
+          }
           break
         }
         case 'ADD_CHECKLIST_ITEM': {
@@ -865,6 +1045,15 @@ async function doSyncToDb(prevState, nextState, action) {
         case 'ADD_TASK_WITH_CHILDREN': {
           const newTasks = nextState.tasks.filter((t) => !prevState.tasks.some((p) => p.id === t.id))
           for (const t of newTasks) await dbUpsertTask(db, t)
+          break
+        }
+        case 'PASTE_TASK': {
+          const task = nextState.tasks.find((t) => !prevState.tasks.some((p) => p.id === t.id))
+          if (task) await dbUpsertTask(db, task)
+          const newItems = nextState.checklistItems.filter(
+            (i) => !prevState.checklistItems.some((p) => p.id === i.id),
+          )
+          for (const item of newItems) await dbUpsertChecklistItem(db, item)
           break
         }
         case 'ADD_DEPENDENCY': {
@@ -918,6 +1107,7 @@ async function doSyncToDb(prevState, nextState, action) {
         }
         case 'DELETE_PROJECT': {
           await db.execute('DELETE FROM projects WHERE id = ?', [action.id])
+          await db.execute('DELETE FROM project_members WHERE project_id = ?', [action.id])
           const updated = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
             return prev && prev.project_id !== t.project_id
@@ -944,7 +1134,49 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const t of updated) await dbUpsertTask(db, t)
           break
         }
+        case 'ADD_MEMBER': {
+          const m = (nextState.members ?? []).find((x) => !(prevState.members ?? []).some((p) => p.id === x.id))
+          if (m) await dbUpsertMember(db, m)
+          break
+        }
+        case 'UPDATE_MEMBER': {
+          const m = (nextState.members ?? []).find((x) => x.id === action.id)
+          if (m) await dbUpsertMember(db, m)
+          break
+        }
+        case 'DELETE_MEMBER': {
+          await db.execute('DELETE FROM members WHERE id = ?', [action.id])
+          await db.execute('DELETE FROM project_members WHERE member_id = ?', [action.id])
+          await db.execute('DELETE FROM task_assignees WHERE member_id = ?', [action.id])
+          break
+        }
+        case 'ADD_PROJECT_MEMBER': {
+          const pm = (nextState.projectMembers ?? []).find(
+            (x) => !(prevState.projectMembers ?? []).some((p) => p.id === x.id),
+          )
+          if (pm) await dbUpsertProjectMember(db, pm)
+          break
+        }
+        case 'REMOVE_PROJECT_MEMBER':
+        case 'TOGGLE_TASK_ASSIGNEE': {
+          const nextPm = new Set((nextState.projectMembers ?? []).map((x) => x.id))
+          for (const pm of prevState.projectMembers ?? []) {
+            if (!nextPm.has(pm.id)) await db.execute('DELETE FROM project_members WHERE id = ?', [pm.id])
+          }
+          const prevA = new Set((prevState.taskAssignees ?? []).map((x) => x.id))
+          const nextA = new Set((nextState.taskAssignees ?? []).map((x) => x.id))
+          for (const a of prevState.taskAssignees ?? []) {
+            if (!nextA.has(a.id)) await db.execute('DELETE FROM task_assignees WHERE id = ?', [a.id])
+          }
+          for (const a of nextState.taskAssignees ?? []) {
+            if (!prevA.has(a.id)) await dbUpsertTaskAssignee(db, a)
+          }
+          break
+        }
         case 'IMPORT': {
+          await db.execute('DELETE FROM task_assignees')
+          await db.execute('DELETE FROM project_members')
+          await db.execute('DELETE FROM members')
           await db.execute('DELETE FROM task_dependencies')
           await db.execute('DELETE FROM checklist_items')
           await db.execute('DELETE FROM activities')
@@ -959,9 +1191,15 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const a of nextState.activities) await dbUpsertActivity(db, a)
           for (const item of nextState.checklistItems) await dbUpsertChecklistItem(db, item)
           for (const dep of nextState.dependencies ?? []) await dbUpsertDependency(db, dep)
+          for (const m of nextState.members ?? []) await dbUpsertMember(db, m)
+          for (const pm of nextState.projectMembers ?? []) await dbUpsertProjectMember(db, pm)
+          for (const a of nextState.taskAssignees ?? []) await dbUpsertTaskAssignee(db, a)
           break
         }
         case 'RESET': {
+          await db.execute('DELETE FROM task_assignees')
+          await db.execute('DELETE FROM project_members')
+          await db.execute('DELETE FROM members')
           await db.execute('DELETE FROM task_dependencies')
           await db.execute('DELETE FROM checklist_items')
           await db.execute('DELETE FROM activities')
@@ -1007,6 +1245,12 @@ export function StoreProvider({ children }) {
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
   const prevStateRef = useRef(state)
+  const [clipboardTask, setClipboardTaskState] = useState(null)
+  const clipboardRef = useRef(null)
+  function setClipboardTask(v) {
+    clipboardRef.current = v
+    setClipboardTaskState(v)
+  }
 
   const reloadFromDb = useCallback(async () => {
     const s = await loadState()
@@ -1125,6 +1369,15 @@ export function StoreProvider({ children }) {
     addTag: (name, color) => dispatchWithSync({ type: 'ADD_TAG', name, color }),
     updateTag: (id, patch) => dispatchWithSync({ type: 'UPDATE_TAG', id, patch }),
     deleteTag: (id) => dispatchWithSync({ type: 'DELETE_TAG', id }),
+    addMember: (name, color) => dispatchWithSync({ type: 'ADD_MEMBER', name, color }),
+    updateMember: (id, patch) => dispatchWithSync({ type: 'UPDATE_MEMBER', id, patch }),
+    deleteMember: (id) => dispatchWithSync({ type: 'DELETE_MEMBER', id }),
+    addProjectMember: (projectId, memberId) =>
+      dispatchWithSync({ type: 'ADD_PROJECT_MEMBER', projectId, memberId }),
+    removeProjectMember: (projectId, memberId) =>
+      dispatchWithSync({ type: 'REMOVE_PROJECT_MEMBER', projectId, memberId }),
+    toggleTaskAssignee: (taskId, memberId) =>
+      dispatchWithSync({ type: 'TOGGLE_TASK_ASSIGNEE', taskId, memberId }),
     importState: (s) => dispatchWithSync({ type: 'IMPORT', state: s }),
     resetAllData: () => dispatchWithSync({ type: 'RESET' }),
     reloadFromDb,
@@ -1150,14 +1403,23 @@ export function StoreProvider({ children }) {
         patch: { priority: task.priority === 'high' ? null : 'high' },
       })
     },
+    copyTask: (task) => {
+      const checklistItems = (prevStateRef.current.checklistItems ?? []).filter((i) => i.task_id === task.id)
+      setClipboardTask({ task, checklistItems })
+    },
+    pasteTask: (target = null) => {
+      if (!clipboardRef.current) return
+      dispatchWithSync({ type: 'PASTE_TASK', source: clipboardRef.current, target })
+    },
     deleteTask: (task) => {
       const checklistItems = (prevStateRef.current.checklistItems ?? []).filter((i) => i.task_id === task.id)
+      const assignees = (prevStateRef.current.taskAssignees ?? []).filter((a) => a.task_id === task.id)
       const dependencies = (prevStateRef.current.dependencies ?? []).filter(
         (d) => d.predecessor_id === task.id || d.successor_id === task.id,
       )
       dispatchWithSync({ type: 'DELETE_TASK', id: task.id })
       showToast('タスクを削除しました', () =>
-        dispatchWithSync({ type: 'RESTORE_TASK', task, checklistItems, dependencies }),
+        dispatchWithSync({ type: 'RESTORE_TASK', task, checklistItems, dependencies, assignees }),
       )
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1200,7 +1462,7 @@ export function StoreProvider({ children }) {
     )
   }
 
-  const value = { state, actions, toast, dismissToast }
+  const value = { state, actions, toast, dismissToast, clipboardTask }
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
 

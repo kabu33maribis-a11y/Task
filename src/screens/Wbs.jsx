@@ -37,6 +37,8 @@ import AddTaskBar from '../components/AddTaskBar.jsx'
 import DatePicker from '../components/DatePicker.jsx'
 import TaskPicker from '../components/TaskPicker.jsx'
 import TagPicker from '../components/TagPicker.jsx'
+import AssigneePicker from '../components/AssigneePicker.jsx'
+import { assigneesOf, assigneeSummary } from '../lib/members.js'
 import ExportExcelDialog from '../components/ExportExcelDialog.jsx'
 import ScheduleOverviewDialog from '../components/ScheduleOverviewDialog.jsx'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
@@ -151,6 +153,7 @@ function WbsGantt({ project, multi }) {
   const [datePopover, setDatePopover] = useState(null) // { taskId, x, y }
   const [linkPopover, setLinkPopover] = useState(null) // { taskId, x, y }
   const [tagPopover, setTagPopover] = useState(null) // { taskId, x, y }
+  const [assigneePopover, setAssigneePopover] = useState(null) // { taskId, x, y }
   const [zoom, setZoom] = useState('day')
   const [focusDate, setFocusDate] = useState(() => todayStr())
   const [showWeekends, setShowWeekends] = useState(() => {
@@ -796,6 +799,10 @@ function WbsGantt({ project, multi }) {
     setTagPopover({ taskId, x: Math.max(8, rect.right - 220), y: rect.bottom + 4 })
   }
 
+  function openAssigneePopover(taskId, rect) {
+    setAssigneePopover({ taskId, x: Math.max(8, rect.right - 220), y: rect.bottom + 4 })
+  }
+
   const depLinks = useMemo(() => {
     const deps = state.dependencies ?? []
     if (!deps.length) return []
@@ -929,7 +936,7 @@ function WbsGantt({ project, multi }) {
     if (!selectedId && !linkDrag) return
     function onKey(e) {
       if (e.key !== 'Escape') return
-      if (datePopover || linkPopover || tagPopover || editingId) return
+      if (datePopover || linkPopover || tagPopover || assigneePopover || editingId) return
       if (linkDragRef.current) {
         setLinkDrag(null)
         document.documentElement.style.cursor = ''
@@ -940,7 +947,7 @@ function WbsGantt({ project, multi }) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [selectedId, linkDrag, datePopover, linkPopover, tagPopover, editingId])
+  }, [selectedId, linkDrag, datePopover, linkPopover, tagPopover, assigneePopover, editingId])
 
   useEffect(() => {
     if (!selectedId) return
@@ -961,6 +968,22 @@ function WbsGantt({ project, multi }) {
   const pct = overall.total ? Math.round((overall.done / overall.total) * 100) : 0
   const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
   const hasContent = multi ? visibleProjects.length > 0 : roots.length > 0
+
+  const [hoverColDate, setHoverColDate] = useState(null)
+  function onMatrixMouseMove(e) {
+    const rect = matrixRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const x = e.clientX - rect.left - leftW
+    if (x < 0 || x >= canvasW) {
+      if (hoverColDate) setHoverColDate(null)
+      return
+    }
+    const d = axis.days[Math.floor(x / dayW)]?.d ?? null
+    if (d !== hoverColDate) setHoverColDate(d)
+  }
+  function onMatrixMouseLeave() {
+    if (hoverColDate) setHoverColDate(null)
+  }
 
   const selectedTask = useMemo(
     () => (selectedId ? scopedTasks.find((t) => t.id === selectedId) ?? null : null),
@@ -1141,6 +1164,8 @@ function WbsGantt({ project, multi }) {
               '--headh': `${headH}px`,
               '--rowh': `${ROW_H}px`,
             }}
+            onMouseMove={onMatrixMouseMove}
+            onMouseLeave={onMatrixMouseLeave}
           >
             {/* ヘッダー帯（sticky top） */}
             <div className="gantt-head-band" style={{ height: headH }}>
@@ -1162,7 +1187,7 @@ function WbsGantt({ project, multi }) {
                       {axis.days.map((t) => (
                         <div
                           key={t.d}
-                          className={`gantt-axis-hour-day${t.weekend ? ' weekend' : ''}${t.holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}${t.isFocus ? ' focus' : ''}`}
+                          className={`gantt-axis-hour-day${t.weekend ? ' weekend' : ''}${t.holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}${t.isFocus ? ' focus' : ''}${t.d === hoverColDate ? ' col-hover' : ''}`}
                           style={{ width: hourLayout.dayWidth }}
                           title={t.holiday || undefined}
                         >
@@ -1210,7 +1235,7 @@ function WbsGantt({ project, multi }) {
                         return (
                           <div
                             key={t.d}
-                            className={`gantt-axis-day${weekend ? ' weekend' : ''}${holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}${showDow ? ' with-dow' : ''}`}
+                            className={`gantt-axis-day${weekend ? ' weekend' : ''}${holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}${showDow ? ' with-dow' : ''}${t.d === hoverColDate ? ' col-hover' : ''}`}
                             style={{ width: dayW }}
                             title={t.holiday || undefined}
                           >
@@ -1411,6 +1436,7 @@ function WbsGantt({ project, multi }) {
                           onOpenDatePopover={openDatePopover}
                           onOpenLinkPopover={openLinkPopover}
                           onOpenTagPopover={openTagPopover}
+                          onOpenAssigneePopover={openAssigneePopover}
                           onAddChild={() => {
                             setAddingChildOf(node.task.id)
                             expand(node.task.id)
@@ -1606,6 +1632,14 @@ function WbsGantt({ project, multi }) {
           onClose={() => setTagPopover(null)}
           fixed
           style={{ left: tagPopover.x, top: tagPopover.y }}
+        />
+      )}
+      {assigneePopover && (
+        <AssigneePicker
+          taskId={assigneePopover.taskId}
+          onClose={() => setAssigneePopover(null)}
+          fixed
+          style={{ left: assigneePopover.x, top: assigneePopover.y }}
         />
       )}
       {exportDialogOpen && (
@@ -1935,11 +1969,12 @@ function LeftRow({
   onOpenDatePopover,
   onOpenLinkPopover,
   onOpenTagPopover,
+  onOpenAssigneePopover,
   onAddChild,
   onTreeDragStart,
   onTreeDragEnd,
 }) {
-  const { state, actions } = useStore()
+  const { state, actions, clipboardTask } = useStore()
   const { task, depth, wbsNo, allDone, isLeaf } = node
   const hasChildren = !isLeaf
   const checkTotal = checklistItems.length
@@ -1977,6 +2012,20 @@ function LeftRow({
     }
   }, [moreOpen])
 
+  useLayoutEffect(() => {
+    if (!moreOpen) return
+    const menuEl = moreMenuRef.current
+    const btnEl = moreBtnRef.current
+    if (!menuEl) return
+    const menuRect = menuEl.getBoundingClientRect()
+    const overflow = menuRect.bottom - (window.innerHeight - 8)
+    if (overflow > 0) {
+      const btnRect = btnEl?.getBoundingClientRect()
+      const above = btnRect ? btnRect.top - menuRect.height - 4 : menuRect.top - overflow
+      setMorePos((prev) => ({ ...prev, top: Math.max(8, above) }))
+    }
+  }, [moreOpen])
+
   const done = hasChildren ? allDone : task.status === 'DONE'
   const endDate = node.span?.end ?? null
   const progressPct = hasChildren
@@ -1992,8 +2041,10 @@ function LeftRow({
   const hasPredecessor = predecessorIds(task.id, state.dependencies).length > 0
   const hasAnyDep = hasSuccessor || hasPredecessor
   const tag = ownTag(task, state.tags)
+  const assignees = assigneesOf(task.id, state)
+  const assigneeInfo = assigneeSummary(assignees)
   const hasDate = !!(task.start_date || task.scheduled_date)
-  const moreHasSet = !!(tag || hasAnyDep || hasDate)
+  const moreHasSet = !!(tag || assignees.length || hasAnyDep || hasDate)
 
   function commitTitle() {
     const t = draft.trim()
@@ -2043,6 +2094,25 @@ function LeftRow({
     setMoreOpen(false)
     setEditing(true)
   }
+  function openContextMenu(e) {
+    if (editing) return
+    if (e.target.closest('input, textarea')) return
+    e.preventDefault()
+    const menuW = 176
+    setMorePos({
+      top: e.clientY,
+      left: Math.max(8, Math.min(e.clientX, window.innerWidth - menuW - 8)),
+    })
+    setMoreOpen(true)
+  }
+  function copyTaskFromMore() {
+    setMoreOpen(false)
+    actions.copyTask(task)
+  }
+  function pasteTaskFromMore() {
+    setMoreOpen(false)
+    actions.pasteTask(task)
+  }
   function focusTaskDate() {
     onSelect?.()
     const d =
@@ -2054,7 +2124,7 @@ function LeftRow({
   }
 
   return (
-    <div className="gantt-name-inner">
+    <div className="gantt-name-inner" onContextMenu={openContextMenu}>
       <span
         className="grip wbs-grip"
         draggable={!editing}
@@ -2139,6 +2209,22 @@ function LeftRow({
               [{tag.name}]
             </span>
           )}
+          {assignees.length > 0 && (
+            <span className="wbs-assignee-list" title={`担当: ${assigneeInfo.title}`}>
+              {assigneeInfo.shown.map((m) => (
+                <span
+                  key={m.id}
+                  className="wbs-assignee-badge"
+                  style={m.color ? { borderColor: m.color } : undefined}
+                >
+                  {m.name}
+                </span>
+              ))}
+              {assigneeInfo.rest > 0 && (
+                <span className="wbs-assignee-badge is-more">他{assigneeInfo.rest}</span>
+              )}
+            </span>
+          )}
         </>
       )}
 
@@ -2168,6 +2254,14 @@ function LeftRow({
                 <button type="button" role="menuitem" onClick={startEditFromMore}>
                   名前を編集
                 </button>
+                <button type="button" role="menuitem" onClick={copyTaskFromMore}>
+                  コピー
+                </button>
+                {clipboardTask && (
+                  <button type="button" role="menuitem" onClick={pasteTaskFromMore}>
+                    貼り付け
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"
@@ -2175,6 +2269,17 @@ function LeftRow({
                   onClick={openFromMore(onOpenTagPopover)}
                 >
                   タグ{tag ? ` · ${tag.name}` : ''}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={assignees.length ? 'set' : undefined}
+                  onClick={openFromMore(onOpenAssigneePopover)}
+                >
+                  担当者
+                  {assignees.length
+                    ? ` · ${assignees[0].name}${assignees.length > 1 ? ` 他${assignees.length - 1}` : ''}`
+                    : ''}
                 </button>
                 <button
                   type="button"
