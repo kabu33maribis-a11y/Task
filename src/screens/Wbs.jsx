@@ -25,8 +25,6 @@ import {
   isWaiting,
   successorIds,
   predecessorIds,
-  predecessorsOf,
-  successorsOf,
   hasLink,
   wouldCreateCycle,
 } from '../lib/dependencies.js'
@@ -41,6 +39,7 @@ import AssigneePicker from '../components/AssigneePicker.jsx'
 import { assigneesOf, assigneeSummary } from '../lib/members.js'
 import ExportExcelDialog from '../components/ExportExcelDialog.jsx'
 import ScheduleOverviewDialog from '../components/ScheduleOverviewDialog.jsx'
+import WbsTaskDetail from '../components/WbsTaskDetail.jsx'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
@@ -154,6 +153,7 @@ function WbsGantt({ project, multi }) {
   const [linkPopover, setLinkPopover] = useState(null) // { taskId, x, y }
   const [tagPopover, setTagPopover] = useState(null) // { taskId, x, y }
   const [assigneePopover, setAssigneePopover] = useState(null) // { taskId, x, y }
+  const [detailId, setDetailId] = useState(null)
   const [zoom, setZoom] = useState('day')
   const [focusDate, setFocusDate] = useState(() => todayStr())
   const [showWeekends, setShowWeekends] = useState(() => {
@@ -475,6 +475,26 @@ function WbsGantt({ project, multi }) {
     }
   }, [isHourZoom, clampHourScroll, canvasW, leftW])
 
+  // ---- 左上コーナー: 縦スクロール中の現在プロジェクトを表示 ----------------
+  const [topRowIdx, setTopRowIdx] = useState(0)
+  const hasRows = rows.length > 0
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const update = () => setTopRowIdx(Math.max(0, Math.floor(el.scrollTop / ROW_H)))
+    el.addEventListener('scroll', update, { passive: true })
+    update()
+    return () => el.removeEventListener('scroll', update)
+  }, [hasRows])
+  const cornerProject = useMemo(() => {
+    if (!multi) return project
+    for (let i = Math.min(topRowIdx, rows.length - 1); i >= 0; i--) {
+      const n = rows[i]?.node
+      if (n?.isProject) return n.project
+    }
+    return null
+  }, [multi, project, rows, topRowIdx])
+
   function toggleWeekends() {
     setShowWeekends((prev) => {
       const next = !prev
@@ -795,6 +815,8 @@ function WbsGantt({ project, multi }) {
     return node.span
   }
 
+  const closeDetail = useCallback(() => setDetailId(null), [])
+
   function openDatePopover(taskId, rect) {
     setDatePopover({ taskId, x: rect.right, y: rect.bottom })
   }
@@ -1008,19 +1030,6 @@ function WbsGantt({ project, multi }) {
     if (hoverColDate) setHoverColDate(null)
   }
 
-  const selectedTask = useMemo(
-    () => (selectedId ? scopedTasks.find((t) => t.id === selectedId) ?? null : null),
-    [selectedId, scopedTasks],
-  )
-  const selectedPreds = useMemo(
-    () => (selectedId ? predecessorsOf(selectedId, state.dependencies, state.tasks) : []),
-    [selectedId, state.dependencies, state.tasks],
-  )
-  const selectedSuccs = useMemo(
-    () => (selectedId ? successorsOf(selectedId, state.dependencies, state.tasks) : []),
-    [selectedId, state.dependencies, state.tasks],
-  )
-  const showDepBar = selectedTask && (selectedPreds.length > 0 || selectedSuccs.length > 0)
   const taskIndex = useMemo(
     () => buildTaskIndex(state.tasks, state.projects),
     [state.tasks, state.projects],
@@ -1077,21 +1086,24 @@ function WbsGantt({ project, multi }) {
             全体表示
           </button>
           <button
-            className={`btn btn-sm${showWeekends ? ' btn-primary' : ''}`}
+            className={`btn btn-sm btn-toggle${showWeekends ? ' is-on' : ''}`}
+            aria-pressed={showWeekends}
             onClick={toggleWeekends}
             title={showWeekends ? '土日を非表示にする' : '土日を表示する'}
           >
             土日
           </button>
           <button
-            className={`btn btn-sm${showWeekdays ? ' btn-primary' : ''}`}
+            className={`btn btn-sm btn-toggle${showWeekdays ? ' is-on' : ''}`}
+            aria-pressed={showWeekdays}
             onClick={toggleWeekdays}
             title={showWeekdays ? '曜日を非表示にする' : '曜日を表示する'}
           >
             曜日
           </button>
           <button
-            className={`btn btn-sm${showCompleted ? ' btn-primary' : ''}`}
+            className={`btn btn-sm btn-toggle${showCompleted ? ' is-on' : ''}`}
+            aria-pressed={showCompleted}
             onClick={toggleCompleted}
             title={showCompleted ? '完了タスクを非表示にする' : '完了タスクを表示する'}
           >
@@ -1133,18 +1145,6 @@ function WbsGantt({ project, multi }) {
           </div>
         </div>
       </div>
-
-      {showDepBar && (
-        <WbsDepBar
-          task={selectedTask}
-          taskIndex={taskIndex}
-          predecessors={selectedPreds}
-          successors={selectedSuccs}
-          onRemove={(predecessorId, successorId) =>
-            actions.removeDependency(predecessorId, successorId)
-          }
-        />
-      )}
 
       <AddTaskBar
         defaultDate={null}
@@ -1193,7 +1193,19 @@ function WbsGantt({ project, multi }) {
             {/* ヘッダー帯（sticky top） */}
             <div className="gantt-head-band" style={{ height: headH }}>
               <div className="gantt-corner" style={{ width: leftW }}>
-                <span className="gantt-corner-title">タスク</span>
+                {cornerProject ? (
+                  <div className="gantt-corner-proj" title={cornerProject.name}>
+                    <span className="gantt-corner-title">プロジェクト</span>
+                    <span className="gantt-corner-proj-name">
+                      {cornerProject.color && (
+                        <span className="proj-dot" style={{ background: cornerProject.color }} />
+                      )}
+                      <span className="gantt-corner-proj-text">{cornerProject.name}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <span className="gantt-corner-title">タスク</span>
+                )}
                 <span
                   className="gantt-col-resize"
                   onMouseDown={startColResize}
@@ -1460,6 +1472,10 @@ function WbsGantt({ project, multi }) {
                           onOpenLinkPopover={openLinkPopover}
                           onOpenTagPopover={openTagPopover}
                           onOpenAssigneePopover={openAssigneePopover}
+                          onOpenDetail={() => {
+                            setSelectedId(node.task.id)
+                            setDetailId(node.task.id)
+                          }}
                           onAddChild={() => {
                             setAddingChildOf(node.task.id)
                             expand(node.task.id)
@@ -1677,6 +1693,24 @@ function WbsGantt({ project, multi }) {
           onCancel={() => !exporting && setExportDialogOpen(false)}
         />
       )}
+      {detailId && (
+        <WbsTaskDetail
+          taskId={detailId}
+          node={findTreeNode(displayRoots, detailId)}
+          wbsNo={taskIndex.get(detailId)?.wbsNo}
+          today={today}
+          blockEscape={!!(datePopover || linkPopover || tagPopover || assigneePopover || editingId)}
+          onClose={closeDetail}
+          onSelectTask={(id) => {
+            setSelectedId(id)
+            setDetailId(id)
+          }}
+          onOpenDatePopover={openDatePopover}
+          onOpenLinkPopover={openLinkPopover}
+          onOpenTagPopover={openTagPopover}
+          onOpenAssigneePopover={openAssigneePopover}
+        />
+      )}
       {scheduleOverviewOpen && (
         <ScheduleOverviewDialog
           title={multi ? 'すべてのプロジェクト' : project.name}
@@ -1693,6 +1727,15 @@ function WbsGantt({ project, multi }) {
       )}
     </div>
   )
+}
+
+function findTreeNode(nodes, id) {
+  for (const n of nodes ?? []) {
+    if (!n.isProject && n.task?.id === id) return n
+    const hit = findTreeNode(n.children, id)
+    if (hit) return hit
+  }
+  return null
 }
 
 /** 現在時刻 — 線はバー/行ボーダーの下、バッジだけ前面 */
@@ -1994,6 +2037,7 @@ function LeftRow({
   onOpenLinkPopover,
   onOpenTagPopover,
   onOpenAssigneePopover,
+  onOpenDetail,
   onAddChild,
   onTreeDragStart,
   onTreeDragEnd,
@@ -2128,6 +2172,10 @@ function LeftRow({
       left: Math.max(8, Math.min(e.clientX, window.innerWidth - menuW - 8)),
     })
     setMoreOpen(true)
+  }
+  function openDetailFromMore() {
+    setMoreOpen(false)
+    onOpenDetail?.()
   }
   function copyTaskFromMore() {
     setMoreOpen(false)
@@ -2271,6 +2319,9 @@ function LeftRow({
                 role="menu"
                 style={{ top: morePos.top, left: morePos.left }}
               >
+                <button type="button" role="menuitem" onClick={openDetailFromMore}>
+                  詳細
+                </button>
                 <button type="button" role="menuitem" onClick={startEditFromMore}>
                   名前を編集
                 </button>
@@ -2342,72 +2393,6 @@ function LeftRow({
         >
           <Trash2 size={13} strokeWidth={2} aria-hidden />
         </button>
-      </div>
-    </div>
-  )
-}
-
-function WbsDepChip({ task, taskIndex, direction, onRemove }) {
-  const meta = taskIndex.get(task.id)
-  const title = task.title || '(無題)'
-  return (
-    <span className={`chip ${direction === 'pred' ? 'chip-waiting' : 'chip-next'}`}>
-      <span className="chip-label">
-        <span className="wbs-dep-chip-dir">{direction === 'pred' ? '←' : '→'}</span>
-        {meta?.wbsNo && <span className="wbs-dep-chip-wbs">{meta.wbsNo}</span>}
-        <span className="wbs-dep-chip-title">{title}</span>
-        {meta?.project && (
-          <span className="wbs-dep-chip-project">
-            {meta.project.color && (
-              <span className="proj-dot" style={{ background: meta.project.color }} />
-            )}
-            {meta.project.name}
-          </span>
-        )}
-      </span>
-      <button
-        type="button"
-        className="chip-x"
-        title="依存関係を解除"
-        aria-label={`${title} との依存を解除`}
-        onClick={onRemove}
-      >
-        ×
-      </button>
-    </span>
-  )
-}
-
-function WbsDepBar({ task, taskIndex, predecessors, successors, onRemove }) {
-  const focusMeta = taskIndex.get(task.id)
-  return (
-    <div className="wbs-dep-bar" role="region" aria-label="依存関係">
-      <div className="wbs-dep-bar-head">
-        <span className="wbs-dep-bar-title">
-          {focusMeta?.wbsNo && <span className="wbs-dep-bar-wbs">{focusMeta.wbsNo}</span>}
-          {task.title || '(無題)'}
-        </span>
-        <span className="wbs-dep-bar-hint">× または線をクリックで解除</span>
-      </div>
-      <div className="wbs-dep-bar-links">
-        {predecessors.map((p) => (
-          <WbsDepChip
-            key={p.id}
-            task={p}
-            taskIndex={taskIndex}
-            direction="pred"
-            onRemove={() => onRemove(p.id, task.id)}
-          />
-        ))}
-        {successors.map((s) => (
-          <WbsDepChip
-            key={s.id}
-            task={s}
-            taskIndex={taskIndex}
-            direction="succ"
-            onRemove={() => onRemove(task.id, s.id)}
-          />
-        ))}
       </div>
     </div>
   )

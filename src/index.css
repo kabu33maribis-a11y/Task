@@ -930,6 +930,7 @@ select {
   box-shadow: none;
   transition: border-color 0.15s;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
 }
 .addbar:focus-within {
@@ -3210,85 +3211,6 @@ select {
   margin-left: auto;
 }
 
-.wbs-dep-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-  padding: 8px 12px;
-  background: var(--primary-subtle);
-  border: 1px solid var(--primary-light);
-  border-radius: var(--r);
-}
-.wbs-dep-bar-head {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 0 0 auto;
-}
-.wbs-dep-bar-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--sumi);
-}
-.wbs-dep-bar-hint {
-  font-size: 11px;
-  color: var(--sumi-soft);
-}
-.wbs-dep-bar-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-}
-.wbs-dep-bar-links .chip {
-  max-width: 340px;
-}
-.wbs-dep-bar-links .chip-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.wbs-dep-chip-dir {
-  flex: 0 0 auto;
-}
-.wbs-dep-chip-wbs {
-  flex: 0 0 auto;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
-.wbs-dep-chip-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wbs-dep-chip-project {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10px;
-  font-weight: 500;
-  opacity: 0.8;
-}
-.wbs-dep-bar-wbs {
-  margin-right: 6px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--sumi-faint);
-  font-variant-numeric: tabular-nums;
-}
-
 /* progress bar — 完了率をプロジェクト色で表示 */
 .wbs-bar {
   display: inline-block;
@@ -3498,6 +3420,49 @@ select {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+/* 表示トグル（土日・曜日・完了）: 色だけに頼らず ✓ マークと塗りで ON/OFF を示す */
+.btn-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--sumi-faint);
+  background: transparent;
+  border-style: dashed;
+}
+.btn-toggle::before {
+  content: '';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--sumi-faint);
+  border-radius: 50%;
+  box-sizing: border-box;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.btn-toggle.is-on {
+  color: var(--sumi);
+  font-weight: 600;
+  background: var(--shu-wash, rgba(192, 64, 46, 0.08));
+  border-style: solid;
+  border-color: var(--shu);
+}
+.btn-toggle.is-on::before {
+  content: '✓';
+  background: var(--shu);
+  border-color: var(--shu);
+  color: #fff;
+}
+.btn-toggle:hover {
+  color: var(--sumi);
+}
+.btn-toggle.is-on:hover {
+  border-color: var(--shu-deep);
 }
 .btn-export {
   font-weight: 600;
@@ -3730,6 +3695,32 @@ select {
   color: var(--sumi-faint);
   text-transform: uppercase;
 }
+/* 縦スクロール中の現在プロジェクト */
+.gantt-corner-proj {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  width: 100%;
+}
+.gantt-corner-proj-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sumi);
+  line-height: 1.3;
+}
+.gantt-corner-proj-name .proj-dot {
+  flex: 0 0 auto;
+}
+.gantt-corner-proj-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* draggable grip on the task-column edge */
 .gantt-col-resize {
   position: absolute;
@@ -3889,18 +3880,20 @@ select {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   width: 100%;
   min-width: 0;
-  padding: 0 6px 0 4px;
+  padding: 0 6px 0 2px;
   box-sizing: border-box;
 }
 .wbs-grip {
   flex: 0 0 auto;
+  width: 9px;
   opacity: 0;
-  padding: 2px 1px 0;
+  padding: 2px 0 0;
   font-size: 11px;
   line-height: 1;
+  text-align: center;
   transition: opacity 0.12s;
 }
 .gantt-matrix-row:hover .wbs-grip,
@@ -4860,4 +4853,225 @@ select {
 }
 .project-members-empty {
   margin: 2px 0 10px 36px;
+}
+
+/* =====================================================================
+   WBS タスク詳細スライダー（右から・非モーダル）
+   ===================================================================== */
+
+.wbs-detail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 65;
+  width: 420px;
+  max-width: 92vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--washi-raised);
+  border-left: 1px solid var(--rule-strong);
+  box-shadow: -4px 0 32px rgba(33, 32, 27, 0.13), -1px 0 6px rgba(33, 32, 27, 0.07);
+  transform: translateX(100%);
+  transition: transform 0.2s ease-out;
+}
+.wbs-detail.is-shown {
+  transform: translateX(0);
+}
+.wbs-detail-head .slideover-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.wbs-detail-no {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.wbs-detail-body {
+  gap: 18px;
+}
+.wbs-detail-titlebar {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.wbs-detail-titlebar .check {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+.wbs-detail-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: none;
+  field-sizing: content;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.wbs-detail-title:hover {
+  border-color: var(--rule);
+}
+.wbs-detail-title:focus {
+  outline: none;
+  border-color: var(--rule-strong);
+  background: var(--washi);
+}
+.wbs-detail-props {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 10px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.wbs-detail-props dt {
+  color: var(--text-muted);
+  padding-top: 2px;
+}
+.wbs-detail-props dd {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.wbs-detail-sub {
+  color: var(--text-muted);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wbs-detail-empty {
+  color: var(--text-muted);
+}
+.wbs-detail-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.wbs-detail-progress-bar {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--rule);
+  overflow: hidden;
+}
+.wbs-detail-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+.wbs-detail-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wbs-detail-project .tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.wbs-detail-period {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wbs-detail-edit {
+  margin-left: auto;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.wbs-detail-edit:hover {
+  border-color: var(--rule-strong);
+  color: var(--text);
+}
+.wbs-detail-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
+}
+.wbs-detail-link:hover {
+  text-decoration-color: currentColor;
+}
+.wbs-detail-deps,
+.wbs-detail-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.wbs-detail-deps li,
+.wbs-detail-children li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wbs-detail-dep-dir {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.wbs-detail-x {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.wbs-detail-x:hover {
+  color: var(--shu);
+}
+.wbs-detail-section h3 {
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-soft);
+  letter-spacing: 0.04em;
+}
+.wbs-detail-child-mark {
+  flex: 0 0 auto;
+  width: 14px;
+  color: var(--text-muted);
+}
+.wbs-detail-children li.is-done .wbs-detail-link {
+  color: var(--text-muted);
+  text-decoration-line: line-through;
+}
+.wbs-detail-stamps {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
 }

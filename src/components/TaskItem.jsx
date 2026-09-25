@@ -548,7 +548,7 @@ export default function TaskItem({
   )
 }
 
-function ChecklistItemRow({ item }) {
+export function ChecklistItemRow({ item }) {
   const { actions } = useStore()
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(item.title)

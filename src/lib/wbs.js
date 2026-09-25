@@ -148,7 +148,7 @@ export function buildProjectTrees(tasks, projects) {
   }
 
   return groups.map(({ project, tasks: groupTasks }) => {
-    const children = buildTree(groupTasks, 1)
+    const children = buildTree(groupTasks, 0)
     const { rollup, allDone, span } = aggregateChildren(children)
     return {
       isProject: true,
