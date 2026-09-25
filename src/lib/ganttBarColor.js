@@ -1,7 +1,7 @@
 export const GANTT_BAR_COLOR_KEY = 'taskmanager.ganttBarColor'
 
 /** Fallback shown in the settings swatch when no custom color is saved. */
-export const DEFAULT_GANTT_BAR_SWATCH = '#2FBFAD'
+export const DEFAULT_GANTT_BAR_SWATCH = '#909090'
 
 const HEX6 = /^#[0-9A-Fa-f]{6}$/
 

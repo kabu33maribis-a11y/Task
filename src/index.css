@@ -124,9 +124,9 @@
   --font-mono: 'SF Mono', 'SFMono-Regular', 'Consolas', 'Menlo', monospace;
 
   /* ── WBS Gantt bars (overridable via settings) ─── */
-  --gantt-bar-bg: var(--primary-light);
-  --gantt-bar-fill: var(--primary);
-  --gantt-bar-border: var(--border-strong);
+  --gantt-bar-bg: #90909044;
+  --gantt-bar-fill: #909090;
+  --gantt-bar-border: #909090;
 
   font-family: var(--font-sans);
   color: var(--text);
@@ -3688,6 +3688,17 @@ select {
   background: var(--washi-sink);
   box-sizing: border-box;
 }
+/* 分数スケーリング時に sticky 列と背後のトラックの境目に 1px の透けが出ることがあるため背景を少し延長してふさぐ */
+.gantt-corner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -1px;
+  width: 1px;
+  background: inherit;
+  pointer-events: none;
+}
 .gantt-corner-title {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -3865,6 +3876,17 @@ select {
   background: var(--washi-raised);
   border-right: 1px solid var(--rule-strong);
   box-sizing: border-box;
+}
+/* 分数スケーリング時に sticky 列と背後のトラックの境目に 1px の透けが出ることがあるため背景を少し延長してふさぐ */
+.gantt-namecell::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -1px;
+  width: 1px;
+  background: inherit;
+  pointer-events: none;
 }
 .gantt-matrix-row:hover .gantt-namecell {
   background: var(--hover-yellow);
