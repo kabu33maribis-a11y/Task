@@ -65,7 +65,7 @@ const ZOOMS = {
   month: { label: '月', w: 7 },
 }
 
-const HOUR_RANGE_DAYS = 3 // focus date as start → N consecutive days
+const HOUR_RANGE_DAYS = 4 // focus date as start → N consecutive days
 
 function spansOverlap(s1, s2) {
   if (!s1 || !s2) return false

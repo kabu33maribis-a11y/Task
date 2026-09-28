@@ -297,7 +297,7 @@ function addWbsSheet(wb, {
     const titleCellD = ws.getCell(r, COL_IDX.title)
     titleCellD.value = task.title || '(無題)'
     titleCellD.font = { name: FONT, size: 10, bold: !isLeaf, color: { argb: C.ink } }
-    titleCellD.alignment = { vertical: 'middle', horizontal: 'left', indent: depth + 1, wrapText: false }
+    titleCellD.alignment = { vertical: 'middle', horizontal: 'left', indent: depth, wrapText: false }
 
     // カテゴリ
     const catCell = ws.getCell(r, COL_IDX.category)
