@@ -31,6 +31,7 @@ import {
 import { buildGanttDepPaths } from '../lib/ganttDepPath.js'
 import { ownTag, tagForWbsRow } from '../lib/tags.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
+import { exportWorkPlanToExcel, exportAllWorkPlanToExcel } from '../lib/exportWorkPlan.js'
 import AddTaskBar from '../components/AddTaskBar.jsx'
 import DatePicker from '../components/DatePicker.jsx'
 import TaskPicker from '../components/TaskPicker.jsx'
@@ -519,7 +520,7 @@ function WbsGantt({ project, multi }) {
     })
   }
 
-  async function handleExport({ projectIds, showWeekends: exportWeekends, showHolidays }) {
+  async function handleExport({ kind = 'gantt', projectIds, showWeekends: exportWeekends, showHolidays }) {
     if (exporting) return
     setExporting(true)
     try {
@@ -547,7 +548,9 @@ function WbsGantt({ project, multi }) {
         tags: state.tags,
         members: state.members,
         taskAssignees: state.taskAssignees,
+        dependencies: state.dependencies,
       }
+      const plan = kind === 'plan'
       const withTasks = projectNodes.filter((pn) => pn.rollup.total > 0)
       if (withTasks.length === 0) {
         alert('選択したプロジェクトに出力できるタスクがありません。')
@@ -555,13 +558,13 @@ function WbsGantt({ project, multi }) {
       }
       if (withTasks.length === 1) {
         const pn = withTasks[0]
-        await exportWbsToExcel({
+        await (plan ? exportWorkPlanToExcel : exportWbsToExcel)({
           ...opts,
           project: pn.project,
           roots: pn.children,
         })
       } else {
-        await exportAllWbsToExcel({ ...opts, projectNodes: withTasks })
+        await (plan ? exportAllWorkPlanToExcel : exportAllWbsToExcel)({ ...opts, projectNodes: withTasks })
       }
       setExportDialogOpen(false)
     } catch (err) {

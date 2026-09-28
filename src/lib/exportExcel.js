@@ -11,7 +11,7 @@ import { inheritedTag } from './tags.js'
 import { assigneesOf } from './members.js'
 
 // --- パレット（ARGB: 先頭 FF は不透明）------------------------------------
-const C = {
+export const C = {
   paper: 'FFFBFAF6', // washi-raised
   paperSink: 'FFEEECE4', // washi-sink（週末・偶数帯）
   ink: 'FF21201B', // sumi
@@ -27,7 +27,7 @@ const C = {
   trackSummary: 'FFCDC7B8', // 親の未達トラック（やや濃い）
 }
 
-const FONT = 'Yu Gothic'
+export const FONT = 'Yu Gothic'
 
 // 表側（左固定）の列構成
 const COLS = [
@@ -54,7 +54,7 @@ function toArgb(hex) {
 }
 
 // 列番号 → 列記号（1→A, 27→AA）。条件付き書式の数式で使う。
-function colLetter(n) {
+export function colLetter(n) {
   let s = ''
   while (n > 0) {
     const m = (n - 1) % 26
@@ -64,19 +64,19 @@ function colLetter(n) {
   return s
 }
 
-const thin = (color) => ({ style: 'thin', color: { argb: color } })
-const border = (o = {}) => ({
+export const thin = (color) => ({ style: 'thin', color: { argb: color } })
+export const border = (o = {}) => ({
   top: o.top ?? thin(C.rule),
   bottom: o.bottom ?? thin(C.rule),
   left: o.left ?? thin(C.rule),
   right: o.right ?? thin(C.rule),
 })
-const fill = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } })
+export const fill = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } })
 
 // ExcelJS は Date を UTC 基準でシリアル化し、タイムゾーン補正をしない。
 // ローカル深夜で作ると +TZ の端数が付き日付が1日ずれる（JST では前日表示）。
 // UTC 深夜で作れば端数のない正しい日付シリアルになる。
-function toJsDate(s) {
+export function toJsDate(s) {
   if (!s) return null
   const [y, m, d] = s.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d))
@@ -101,12 +101,12 @@ function computeRange(nodes, today) {
 }
 
 // Excel が許さない文字を除きシート名に（最大31文字）
-function sheetName(name) {
+export function sheetName(name) {
   const cleaned = (name || 'WBS').replace(/[\\/?*[\]:]/g, ' ').trim() || 'WBS'
   return cleaned.slice(0, 31)
 }
 
-function uniqueSheetName(name, usedNames) {
+export function uniqueSheetName(name, usedNames) {
   const base = sheetName(name)
   if (!usedNames.has(base)) {
     usedNames.add(base)
@@ -124,7 +124,7 @@ function uniqueSheetName(name, usedNames) {
   }
 }
 
-function holidayMapForRange(range) {
+export function holidayMapForRange(range) {
   const years = new Set()
   const span = diffDays(range.start, range.end) + 1
   for (let i = 0; i < span; i++) years.add(Number(addDays(range.start, i).slice(0, 4)))
@@ -510,7 +510,7 @@ export async function buildAllProjectsWorkbook({
   return wb
 }
 
-async function downloadWorkbook(wb, filename) {
+export async function downloadWorkbook(wb, filename) {
   const buffer = await wb.xlsx.writeBuffer()
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

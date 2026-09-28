@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 /**
  * Excel 出力オプションダイアログ。
- * 対象プロジェクト・土日／祝日の表示を選んでから出力する。
+ * 帳票種別（ガントチャート／作業計画書）・対象プロジェクト・土日／祝日の表示を選んでから出力する。
  */
 export default function ExportExcelDialog({
   projects,
@@ -17,6 +17,7 @@ export default function ExportExcelDialog({
   const [selected, setSelected] = useState(() => new Set(initialSelectedIds))
   const [showWeekends, setShowWeekends] = useState(initialShowWeekends)
   const [showHolidays, setShowHolidays] = useState(initialShowHolidays)
+  const [kind, setKind] = useState('gantt')
 
   useEffect(() => {
     function onKey(e) {
@@ -49,6 +50,7 @@ export default function ExportExcelDialog({
   function handleOk() {
     if (noneSelected || exporting) return
     onExport({
+      kind,
       projectIds: [...selected],
       showWeekends,
       showHolidays,
@@ -73,6 +75,28 @@ export default function ExportExcelDialog({
         <h2>Excel出力</h2>
 
         <div className="section-title" style={{ marginTop: 0 }}>
+          帳票種別
+        </div>
+        <label className="export-opt-row">
+          <input
+            type="radio"
+            name="export-kind"
+            checked={kind === 'gantt'}
+            onChange={() => setKind('gantt')}
+          />
+          <span className="export-opt-label">ガントチャート（画面表示どおり）</span>
+        </label>
+        <label className="export-opt-row">
+          <input
+            type="radio"
+            name="export-kind"
+            checked={kind === 'plan'}
+            onChange={() => setKind('plan')}
+          />
+          <span className="export-opt-label">作業計画書（提出用ひな形）</span>
+        </label>
+
+        <div className="section-title">
           プロジェクト
         </div>
         <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
@@ -110,30 +134,36 @@ export default function ExportExcelDialog({
           )}
         </div>
 
-        <div className="modal-section">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            表示オプション
-          </div>
-          <label className="export-opt-row">
-            <input
-              type="checkbox"
-              checked={showWeekends}
-              onChange={(e) => setShowWeekends(e.target.checked)}
-            />
-            <span className="export-opt-label">土日を表示する</span>
-          </label>
-          <label className="export-opt-row">
-            <input
-              type="checkbox"
-              checked={showHolidays}
-              onChange={(e) => setShowHolidays(e.target.checked)}
-            />
-            <span className="export-opt-label">祝日を表示する</span>
-          </label>
-          <p className="help" style={{ marginTop: 6 }}>
-            土日オフで週末列を省き、祝日オンで祝日を朱く着色します。カテゴリ・タグ・担当者は常に列として出力されます。
+        {kind === 'plan' ? (
+          <p className="help" style={{ marginTop: 12 }}>
+            作業順・予定時間（営業日×9〜18時、昼休憩除く）・ステータス（未着手／作業中／完了）を自動で埋めた A4 横の計画書を出力します。数値やステータスは Excel 上で修正できます。
           </p>
-        </div>
+        ) : (
+          <div className="modal-section">
+            <div className="section-title" style={{ marginTop: 0 }}>
+              表示オプション
+            </div>
+            <label className="export-opt-row">
+              <input
+                type="checkbox"
+                checked={showWeekends}
+                onChange={(e) => setShowWeekends(e.target.checked)}
+              />
+              <span className="export-opt-label">土日を表示する</span>
+            </label>
+            <label className="export-opt-row">
+              <input
+                type="checkbox"
+                checked={showHolidays}
+                onChange={(e) => setShowHolidays(e.target.checked)}
+              />
+              <span className="export-opt-label">祝日を表示する</span>
+            </label>
+            <p className="help" style={{ marginTop: 6 }}>
+              土日オフで週末列を省き、祝日オンで祝日を朱く着色します。カテゴリ・タグ・担当者は常に列として出力されます。
+            </p>
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
           <button className="btn btn-sm" onClick={onCancel} disabled={exporting}>
