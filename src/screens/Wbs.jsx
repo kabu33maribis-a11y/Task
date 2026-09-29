@@ -52,6 +52,10 @@ const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
 const SHOW_WEEKDAYS_KEY = 'taskmanager.wbs.showWeekdays'
 const SHOW_COMPLETED_KEY = 'taskmanager.wbs.showCompleted'
 const AXIS_LOCKED_KEY = 'taskmanager.wbs.axisLocked'
+const HOUR_RANGE_DAYS_KEY = 'taskmanager.wbs.hourRangeDays'
+const HOUR_RANGE_DAYS_DEFAULT = 3
+const HOUR_RANGE_DAYS_MIN = 1
+const HOUR_RANGE_DAYS_MAX = 7
 
 /** sticky タスク列セパレータの右を基準に、contentX を可視トラック上の fraction 位置へ置く */
 function scrollLeftForContentX(el, contentX, leftW, fraction = 0) {
@@ -65,8 +69,6 @@ const ZOOMS = {
   week: { label: '週', w: 16 },
   month: { label: '月', w: 7 },
 }
-
-const HOUR_RANGE_DAYS = 4 // focus date as start → N consecutive days
 
 function spansOverlap(s1, s2) {
   if (!s1 || !s2) return false
@@ -171,6 +173,10 @@ function WbsGantt({ project, multi }) {
     return s === null ? true : s === '1'
   })
   const [axisLocked, setAxisLocked] = useState(() => localStorage.getItem(AXIS_LOCKED_KEY) === '1')
+  const [hourRangeDays, setHourRangeDays] = useState(() => {
+    const n = Number(localStorage.getItem(HOUR_RANGE_DAYS_KEY))
+    return n >= HOUR_RANGE_DAYS_MIN && n <= HOUR_RANGE_DAYS_MAX ? n : HOUR_RANGE_DAYS_DEFAULT
+  })
   const [drag, setDrag] = useState(null) // {ids, mode, start, end} | {id, mode, start, end}
   const [now, setNow] = useState(() => new Date())
   const [selectedId, setSelectedId] = useState(null)
@@ -324,7 +330,7 @@ function WbsGantt({ project, multi }) {
     if (isHourZoom) {
       return {
         start: focusDate,
-        end: addDays(focusDate, HOUR_RANGE_DAYS - 1),
+        end: addDays(focusDate, hourRangeDays - 1),
       }
     }
     let min = null
@@ -341,7 +347,7 @@ function WbsGantt({ project, multi }) {
     min = min < today ? min : today
     max = max > today ? max : today
     return { start: addDays(min, -2), end: addDays(max, 4) }
-  }, [visible, today, isHourZoom, focusDate])
+  }, [visible, today, isHourZoom, focusDate, hourRangeDays])
 
   const totalDays = diffDays(range.start, range.end) + 1
 
@@ -531,6 +537,12 @@ function WbsGantt({ project, multi }) {
     })
   }
 
+  function changeHourRangeDays(n) {
+    const next = Math.max(HOUR_RANGE_DAYS_MIN, Math.min(HOUR_RANGE_DAYS_MAX, n))
+    setHourRangeDays(next)
+    localStorage.setItem(HOUR_RANGE_DAYS_KEY, String(next))
+  }
+
   async function handleExport({ kind = 'gantt', projectIds, showWeekends: exportWeekends, showHolidays }) {
     if (exporting) return
     setExporting(true)
@@ -644,6 +656,7 @@ function WbsGantt({ project, multi }) {
     const el = scrollRef.current
     if (!el || !dateStr) return
     if (isHourZoom) {
+      if (axisLocked) return
       setFocusDate(dateStr)
       return
     }
@@ -1204,6 +1217,27 @@ function WbsGantt({ project, multi }) {
               >
                 ▶
               </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => changeHourRangeDays(hourRangeDays - 1)}
+                disabled={hourRangeDays <= HOUR_RANGE_DAYS_MIN}
+                title="表示日数を減らす"
+              >
+                −
+              </button>
+              <span className="wbs-focus-days-val" title="表示日数">
+                {hourRangeDays}日
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => changeHourRangeDays(hourRangeDays + 1)}
+                disabled={hourRangeDays >= HOUR_RANGE_DAYS_MAX}
+                title="表示日数を増やす"
+              >
+                ＋
+              </button>
             </div>
           )}
           <div className="view-toggle wbs-zoom">
@@ -1401,24 +1435,31 @@ function WbsGantt({ project, multi }) {
                   />
                 ))}
 
-            {drag?.unit === 'hour' && drag.data?.[0] && (
-              <>
-                <GanttTimeGuide
-                  left={leftW + Math.max(0, Math.min(canvasW, hourXOf(drag.data[0].start, drag.data[0].startTime, range.start, hourLayout)))}
-                  label={drag.data[0].startTime}
-                  sub={formatMonthDayJP(drag.data[0].start)}
-                  active={drag.mode === 'start' || drag.mode === 'move'}
-                  kind="start"
-                />
-                <GanttTimeGuide
-                  left={leftW + Math.max(0, Math.min(canvasW, hourXOf(drag.data[0].end, drag.data[0].endTime, range.start, hourLayout)))}
-                  label={drag.data[0].endTime}
-                  sub={formatMonthDayJP(drag.data[0].end)}
-                  active={drag.mode === 'end' || drag.mode === 'move'}
-                  kind="end"
-                />
-              </>
-            )}
+            {drag?.unit === 'hour' && drag.data?.[0] && (() => {
+              const d0 = drag.data[0]
+              const startLeft = leftW + Math.max(0, Math.min(canvasW, hourXOf(d0.start, d0.startTime, range.start, hourLayout)))
+              const endLeft = leftW + Math.max(0, Math.min(canvasW, hourXOf(d0.end, d0.endTime, range.start, hourLayout)))
+              const durationMin = toAbsoluteMinutes(d0.end, d0.endTime) - toAbsoluteMinutes(d0.start, d0.startTime)
+              return (
+                <>
+                  <GanttTimeGuide
+                    left={startLeft}
+                    label={d0.startTime}
+                    sub={formatMonthDayJP(d0.start)}
+                    active={drag.mode === 'start' || drag.mode === 'move'}
+                    kind="start"
+                  />
+                  <GanttTimeGuide
+                    left={endLeft}
+                    label={d0.endTime}
+                    sub={formatMonthDayJP(d0.end)}
+                    active={drag.mode === 'end' || drag.mode === 'move'}
+                    kind="end"
+                  />
+                  <GanttDurationBadge left={(startLeft + endLeft) / 2} minutes={durationMin} />
+                </>
+              )
+            })()}
 
             {/* 行 */}
             {rows.map((row, i) => {
@@ -1866,6 +1907,28 @@ function GanttTimeGuide({ left, label, sub, active, kind }) {
   )
 }
 
+/** 開始〜終了間の所要時間表示（例: "3時間30分", "1日2時間"） */
+function formatDurationJP(totalMinutes) {
+  const total = Math.max(0, Math.round(totalMinutes))
+  const days = Math.floor(total / 1440)
+  const hours = Math.floor((total % 1440) / 60)
+  const minutes = total % 60
+  let s = ''
+  if (days > 0) s += `${days}日`
+  if (days > 0 || hours > 0) s += `${hours}時間`
+  s += `${minutes}分`
+  return s
+}
+
+/** ドラッグ中の開始〜終了の所要時間バッジ */
+function GanttDurationBadge({ left, minutes }) {
+  return (
+    <div className="gantt-time-duration" style={{ left }} aria-hidden>
+      <span className="gantt-time-duration-label">{formatDurationJP(minutes)}</span>
+    </div>
+  )
+}
+
 /** 期間未設定の葉タスク行: ダブルクリックで日付/時刻追加、ホバーでヒント表示 */
 function UnscheduledGanttTrack({
   width,
@@ -1987,7 +2050,7 @@ function GanttBar({
   if (isHourZoom) {
     const rawLeft = hourXOf(span.start, span.startTime, rangeStart, hourLayout)
     const rawRight = hourXOf(span.end, span.endTime, rangeStart, hourLayout)
-    // 時間ズームは focus 起点の3日のみ。長いタスクは見える範囲だけ描画し横スクロール肥大を防ぐ
+    // 時間ズームは focus 起点の設定日数分のみ。長いタスクは見える範囲だけ描画し横スクロール肥大を防ぐ
     const clippedLeft = Math.max(0, rawLeft)
     const clippedRight = Math.min(canvasW, Math.max(rawLeft, rawRight))
     if (clippedRight <= 0 || clippedLeft >= canvasW) return null
