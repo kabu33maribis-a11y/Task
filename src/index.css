@@ -4626,6 +4626,12 @@ select {
   z-index: 1;
   overflow: visible;
 }
+.gantt-dep-hit-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+  overflow: visible;
+}
 .gantt-dep-path-hit {
   fill: none;
   stroke: transparent;

@@ -1401,19 +1401,19 @@ function WbsGantt({ project, multi }) {
                   />
                 ))}
 
-            {drag?.unit === 'hour' && (
+            {drag?.unit === 'hour' && drag.data?.[0] && (
               <>
                 <GanttTimeGuide
-                  left={leftW + Math.max(0, Math.min(canvasW, hourXOf(drag.start, drag.startTime, range.start, hourLayout)))}
-                  label={drag.startTime}
-                  sub={formatMonthDayJP(drag.start)}
+                  left={leftW + Math.max(0, Math.min(canvasW, hourXOf(drag.data[0].start, drag.data[0].startTime, range.start, hourLayout)))}
+                  label={drag.data[0].startTime}
+                  sub={formatMonthDayJP(drag.data[0].start)}
                   active={drag.mode === 'start' || drag.mode === 'move'}
                   kind="start"
                 />
                 <GanttTimeGuide
-                  left={leftW + Math.max(0, Math.min(canvasW, hourXOf(drag.end, drag.endTime, range.start, hourLayout)))}
-                  label={drag.endTime}
-                  sub={formatMonthDayJP(drag.end)}
+                  left={leftW + Math.max(0, Math.min(canvasW, hourXOf(drag.data[0].end, drag.data[0].endTime, range.start, hourLayout)))}
+                  label={drag.data[0].endTime}
+                  sub={formatMonthDayJP(drag.data[0].end)}
                   active={drag.mode === 'end' || drag.mode === 'move'}
                   kind="end"
                 />
@@ -1699,25 +1699,12 @@ function WbsGantt({ project, multi }) {
                   if (active) cls.push('is-active')
                   if (muted) cls.push('is-muted')
                   return (
-                    <g key={l.id}>
-                      <path
-                        d={l.d}
-                        className="gantt-dep-path-hit"
-                        onMouseEnter={() => setHoveredLinkId(l.id)}
-                        onMouseLeave={() => setHoveredLinkId(null)}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          actions.removeDependency(l.predecessorId, l.successorId)
-                        }}
-                      >
-                        <title>クリックで依存関係を解除</title>
-                      </path>
-                      <path
-                        d={l.d}
-                        className={cls.join(' ')}
-                        markerEnd="url(#gantt-dep-arrow)"
-                      />
-                    </g>
+                    <path
+                      key={l.id}
+                      d={l.d}
+                      className={cls.join(' ')}
+                      markerEnd="url(#gantt-dep-arrow)"
+                    />
                   )
                 })}
                 {linkPreview && (
@@ -1727,6 +1714,33 @@ function WbsGantt({ project, multi }) {
                     markerEnd="url(#gantt-dep-arrow)"
                   />
                 )}
+              </svg>
+            )}
+
+            {/* 依存線のクリック当たり判定はタスクバーより手前の別レイヤーに分離
+                （バーの下に隠れる区間もクリックで解除できるようにする） */}
+            {depLinks.length > 0 && (
+              <svg
+                className="gantt-dep-hit-overlay"
+                style={{ left: leftW, top: headH, width: canvasW, height: rows.length * ROW_H }}
+                viewBox={`0 0 ${canvasW} ${rows.length * ROW_H}`}
+                aria-hidden
+              >
+                {depLinks.map((l) => (
+                  <path
+                    key={l.id}
+                    d={l.d}
+                    className="gantt-dep-path-hit"
+                    onMouseEnter={() => setHoveredLinkId(l.id)}
+                    onMouseLeave={() => setHoveredLinkId(null)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      actions.removeDependency(l.predecessorId, l.successorId)
+                    }}
+                  >
+                    <title>クリックで依存関係を解除</title>
+                  </path>
+                ))}
               </svg>
             )}
           </div>
