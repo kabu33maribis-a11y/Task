@@ -51,6 +51,7 @@ const LEFT_W_KEY = 'taskmanager.wbs.leftw'
 const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
 const SHOW_WEEKDAYS_KEY = 'taskmanager.wbs.showWeekdays'
 const SHOW_COMPLETED_KEY = 'taskmanager.wbs.showCompleted'
+const AXIS_LOCKED_KEY = 'taskmanager.wbs.axisLocked'
 
 /** sticky タスク列セパレータの右を基準に、contentX を可視トラック上の fraction 位置へ置く */
 function scrollLeftForContentX(el, contentX, leftW, fraction = 0) {
@@ -169,9 +170,11 @@ function WbsGantt({ project, multi }) {
     const s = localStorage.getItem(SHOW_COMPLETED_KEY)
     return s === null ? true : s === '1'
   })
-  const [drag, setDrag] = useState(null) // {id, mode, start, end}
+  const [axisLocked, setAxisLocked] = useState(() => localStorage.getItem(AXIS_LOCKED_KEY) === '1')
+  const [drag, setDrag] = useState(null) // {ids, mode, start, end} | {id, mode, start, end}
   const [now, setNow] = useState(() => new Date())
   const [selectedId, setSelectedId] = useState(null)
+  const [selectedIds, setSelectedIds] = useState(new Set())
   const [hoveredId, setHoveredId] = useState(null)
   const [hoveredLinkId, setHoveredLinkId] = useState(null)
   const [linkDrag, setLinkDrag] = useState(null) // { fromId, fromSide, x1, y1, x2, y2, overId, valid }
@@ -520,6 +523,14 @@ function WbsGantt({ project, multi }) {
     })
   }
 
+  function toggleAxisLock() {
+    setAxisLocked((prev) => {
+      const next = !prev
+      localStorage.setItem(AXIS_LOCKED_KEY, next ? '1' : '0')
+      return next
+    })
+  }
+
   async function handleExport({ kind = 'gantt', projectIds, showWeekends: exportWeekends, showHolidays }) {
     if (exporting) return
     setExporting(true)
@@ -647,86 +658,102 @@ function WbsGantt({ project, multi }) {
       if (drag.unit === 'hour') {
         const deltaPx = e.clientX - drag.startX
         setDrag((d) => {
-          if (!d) return d
+          if (!d || !d.data) return d
+          if (d.mode === 'move') {
+            const newData = d.data.map((item) => {
+              const origStartX = absoluteMinutesToHourX(
+                toAbsoluteMinutes(item.origStart, item.origStartTime),
+                range.start,
+                hourLayout,
+              )
+              const origEndX = absoluteMinutesToHourX(
+                toAbsoluteMinutes(item.origEnd, item.origEndTime),
+                range.start,
+                hourLayout,
+              )
+              const ns = hourXToSchedule(origStartX + deltaPx, range.start, hourLayout)
+              const ne = hourXToSchedule(origEndX + deltaPx, range.start, hourLayout)
+              return {
+                ...item,
+                start: ns.date,
+                startTime: ns.time,
+                end: ne.date,
+                endTime: ne.time,
+              }
+            })
+            return { ...d, data: newData }
+          }
+          // start/end リサイズは常に単一タスク（data[0]）のみ対象
+          const item = d.data[0]
           const origStartX = absoluteMinutesToHourX(
-            toAbsoluteMinutes(d.origStart, d.origStartTime),
+            toAbsoluteMinutes(item.origStart, item.origStartTime),
             range.start,
             hourLayout,
           )
           const origEndX = absoluteMinutesToHourX(
-            toAbsoluteMinutes(d.origEnd, d.origEndTime),
+            toAbsoluteMinutes(item.origEnd, item.origEndTime),
             range.start,
             hourLayout,
           )
-          if (d.mode === 'move') {
-            const ns = hourXToSchedule(origStartX + deltaPx, range.start, hourLayout)
-            const ne = hourXToSchedule(origEndX + deltaPx, range.start, hourLayout)
-            return {
-              ...d,
-              start: ns.date,
-              startTime: ns.time,
-              end: ne.date,
-              endTime: ne.time,
-            }
-          }
           if (d.mode === 'start') {
             const ns = hourXToSchedule(origStartX + deltaPx, range.start, hourLayout)
             const startKey = dateTimeKey(ns.date, ns.time)
-            const endKey = dateTimeKey(d.origEnd, d.origEndTime)
-            const minEnd = addMinutesToDateTime(d.origEnd, d.origEndTime, -TIME_SNAP_MINUTES)
-            if (startKey >= endKey) {
-              return {
-                ...d,
-                start: minEnd.date,
-                startTime: minEnd.time,
-                end: d.origEnd,
-                endTime: d.origEndTime,
-              }
-            }
-            return { ...d, start: ns.date, startTime: ns.time, end: d.origEnd, endTime: d.origEndTime }
+            const endKey = dateTimeKey(item.origEnd, item.origEndTime)
+            const minEnd = addMinutesToDateTime(item.origEnd, item.origEndTime, -TIME_SNAP_MINUTES)
+            const next = startKey >= endKey
+              ? { ...item, start: minEnd.date, startTime: minEnd.time, end: item.origEnd, endTime: item.origEndTime }
+              : { ...item, start: ns.date, startTime: ns.time, end: item.origEnd, endTime: item.origEndTime }
+            return { ...d, data: [next] }
           }
           const ne = hourXToSchedule(origEndX + deltaPx, range.start, hourLayout)
-          const startKey = dateTimeKey(d.origStart, d.origStartTime)
+          const startKey = dateTimeKey(item.origStart, item.origStartTime)
           const endKey = dateTimeKey(ne.date, ne.time)
           if (endKey <= startKey) {
-            const minEnd = addMinutesToDateTime(d.origStart, d.origStartTime, TIME_SNAP_MINUTES)
+            const minEnd = addMinutesToDateTime(item.origStart, item.origStartTime, TIME_SNAP_MINUTES)
             return {
               ...d,
-              start: d.origStart,
-              startTime: d.origStartTime,
-              end: minEnd.date,
-              endTime: minEnd.time,
+              data: [{ ...item, start: item.origStart, startTime: item.origStartTime, end: minEnd.date, endTime: minEnd.time }],
             }
           }
-          return { ...d, start: d.origStart, startTime: d.origStartTime, end: ne.date, endTime: ne.time }
+          return {
+            ...d,
+            data: [{ ...item, start: item.origStart, startTime: item.origStartTime, end: ne.date, endTime: ne.time }],
+          }
         })
         return
       }
       const deltaCols = Math.round((e.clientX - drag.startX) / dayW)
       setDrag((d) => {
-        if (!d) return d
+        if (!d || !d.data) return d
         if (d.mode === 'move') {
-          return {
-            ...d,
-            start: showWeekends ? addDays(d.origStart, deltaCols) : addWorkDays(d.origStart, deltaCols),
-            end: showWeekends ? addDays(d.origEnd, deltaCols) : addWorkDays(d.origEnd, deltaCols),
-          }
+          const newData = d.data.map((item) => ({
+            ...item,
+            start: showWeekends ? addDays(item.origStart, deltaCols) : addWorkDays(item.origStart, deltaCols),
+            end: showWeekends ? addDays(item.origEnd, deltaCols) : addWorkDays(item.origEnd, deltaCols),
+          }))
+          return { ...d, data: newData }
         }
+        // start/end リサイズは常に単一タスク（data[0]）のみ対象
+        const item = d.data[0]
         if (d.mode === 'start') {
-          const ns = showWeekends ? addDays(d.origStart, deltaCols) : addWorkDays(d.origStart, deltaCols)
-          return { ...d, start: ns <= d.origEnd ? ns : d.origEnd }
+          const ns = showWeekends ? addDays(item.origStart, deltaCols) : addWorkDays(item.origStart, deltaCols)
+          return { ...d, data: [{ ...item, start: ns <= item.origEnd ? ns : item.origEnd, end: item.origEnd }] }
         }
-        const ne = showWeekends ? addDays(d.origEnd, deltaCols) : addWorkDays(d.origEnd, deltaCols)
-        return { ...d, end: ne >= d.origStart ? ne : d.origStart }
+        const ne = showWeekends ? addDays(item.origEnd, deltaCols) : addWorkDays(item.origEnd, deltaCols)
+        return { ...d, data: [{ ...item, start: item.origStart, end: ne >= item.origStart ? ne : item.origStart }] }
       })
     }
     function onUp() {
       setDrag((d) => {
-        if (d) {
+        if (d && d.data) {
           if (d.unit === 'hour') {
-            actions.setTaskSchedule(d.id, d.start, d.end, d.startTime, d.endTime)
+            d.data.forEach((item) => {
+              actions.setTaskSchedule(item.id, item.start, item.end, item.startTime, item.endTime)
+            })
           } else {
-            actions.setTaskDates(d.id, d.start, d.end)
+            d.data.forEach((item) => {
+              actions.setTaskDates(item.id, item.start, item.end)
+            })
           }
         }
         return null
@@ -743,40 +770,53 @@ function WbsGantt({ project, multi }) {
   }, [drag, dayW, hourLayout, range.start, actions, showWeekends])
 
   function startDrag(e, node, mode) {
+    if (axisLocked) return
     e.preventDefault()
     e.stopPropagation()
     document.documentElement.style.cursor = mode === 'move' ? 'grabbing' : 'ew-resize'
     document.documentElement.style.userSelect = 'none'
-    setSelectedId(node.task.id)
-    const span = node.span
+
+    // 端のリサイズ（start/end ハンドル）は常に単一タスクのみ。
+    // 複数タスクのまとめ移動は本体ドラッグ（move）のときだけ対象にする。
+    const dragIds = mode === 'move' && selectedIds.size > 0 && selectedIds.has(node.task.id)
+      ? Array.from(selectedIds)
+      : [node.task.id]
+
+    const dragData = dragIds.map((id) => {
+      const dragNode = rows.find((r) => r.kind === 'node' && r.node?.task.id === id)?.node
+      if (!dragNode) return null
+      const dragSpan = spanFor(dragNode)
+      if (!dragSpan) return null
+      return {
+        id,
+        origStart: dragSpan.start,
+        origEnd: dragSpan.end,
+        origStartTime: dragSpan.startTime,
+        origEndTime: dragSpan.endTime,
+        start: dragSpan.start,
+        end: dragSpan.end,
+        startTime: dragSpan.startTime,
+        endTime: dragSpan.endTime,
+      }
+    }).filter(Boolean)
+
+    if (dragData.length === 0) return
     if (isHourZoom) {
       setDrag({
-        id: node.task.id,
+        ids: dragIds,
+        data: dragData,
         mode,
         unit: 'hour',
         startX: e.clientX,
-        origStart: span.start,
-        origEnd: span.end,
-        origStartTime: span.startTime,
-        origEndTime: span.endTime,
-        start: span.start,
-        end: span.end,
-        startTime: span.startTime,
-        endTime: span.endTime,
       })
       return
     }
     setDrag({
-      id: node.task.id,
+      ids: dragIds,
+      data: dragData,
       mode,
       unit: 'day',
       startX: e.clientX,
-      origStart: span.start,
-      origEnd: span.end,
-      start: span.start,
-      end: span.end,
-      startTime: span.startTime,
-      endTime: span.endTime,
     })
   }
 
@@ -807,12 +847,15 @@ function WbsGantt({ project, multi }) {
   }
 
   function spanFor(node) {
-    if (drag && drag.id === node.task.id) {
-      return {
-        start: drag.start,
-        end: drag.end,
-        startTime: drag.startTime ?? node.span?.startTime,
-        endTime: drag.endTime ?? node.span?.endTime,
+    if (drag && drag.data) {
+      const dragItem = drag.data.find((item) => item.id === node.task.id)
+      if (dragItem) {
+        return {
+          start: dragItem.start,
+          end: dragItem.end,
+          startTime: dragItem.startTime ?? node.span?.startTime,
+          endTime: dragItem.endTime ?? node.span?.endTime,
+        }
       }
     }
     return node.span
@@ -975,6 +1018,7 @@ function WbsGantt({ project, multi }) {
           return
         }
         setSelectedId(null)
+        setSelectedIds(new Set())
         return
       }
       if (!selectedId || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return
@@ -1005,8 +1049,23 @@ function WbsGantt({ project, multi }) {
     if (!visible) setSelectedId(null)
   }, [rows, selectedId])
 
+  useEffect(() => {
+    if (selectedIds.size === 0) return
+    const visibleIds = new Set(
+      rows
+        .filter((row) => row.kind === 'node' && row.node && !row.node.isProject)
+        .map((row) => row.node.task.id),
+    )
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows])
+
   function clearTaskSelect() {
     setSelectedId(null)
+    setSelectedIds(new Set())
   }
 
   function onDepHover(id) {
@@ -1112,6 +1171,14 @@ function WbsGantt({ project, multi }) {
           >
             完了
           </button>
+          <button
+            className={`btn btn-sm btn-toggle${axisLocked ? ' is-on' : ''}`}
+            aria-pressed={axisLocked}
+            onClick={toggleAxisLock}
+            title={axisLocked ? '時間軸の固定を解除する（タスクの移動・伸縮を許可）' : '時間軸を固定する（タスクを押しても移動しない）'}
+          >
+            固定
+          </button>
           {isHourZoom && (
             <div className="wbs-focus-nav">
               <button
@@ -1180,7 +1247,7 @@ function WbsGantt({ project, multi }) {
         >
           <div
             ref={matrixRef}
-            className={`gantt-matrix${linkDrag ? ' dep-linking' : ''}${isHourZoom ? ' hour-zoom' : ''}${drag?.unit === 'hour' ? ' hour-dragging' : ''}`}
+            className={`gantt-matrix${linkDrag ? ' dep-linking' : ''}${isHourZoom ? ' hour-zoom' : ''}${drag?.unit === 'hour' ? ' hour-dragging' : ''}${axisLocked ? ' axis-locked' : ''}`}
             data-link-side={linkDrag?.fromSide || undefined}
             style={{
               width: leftW + canvasW,
@@ -1547,10 +1614,24 @@ function WbsGantt({ project, multi }) {
                           canvasW={canvasW}
                           today={today}
                           colOf={colOf}
-                          dragging={drag?.id === node.task.id}
+                          dragging={!!drag?.ids?.includes(node.task.id)}
+                          isSelected={selectedIds.has(node.task.id)}
                           onStartDrag={startDrag}
                           onStartLink={startLinkDrag}
-                          onSelect={node.isProject ? undefined : () => setSelectedId(node.task.id)}
+                          onSelect={node.isProject ? undefined : (e) => {
+                            if (e.ctrlKey || e.metaKey) {
+                              setSelectedIds((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(node.task.id)) next.delete(node.task.id)
+                                else next.add(node.task.id)
+                                return next
+                              })
+                              setSelectedId(node.task.id)
+                            } else {
+                              setSelectedId(node.task.id)
+                              setSelectedIds(new Set())
+                            }
+                          }}
                           onFocusDate={isHourZoom ? scrollToDate : undefined}
                           tagColor={node.isProject ? null : rowTag?.color}
                           linking={!!linkDrag}
@@ -1875,6 +1956,7 @@ function GanttBar({
   today,
   colOf,
   dragging,
+  isSelected,
   onStartDrag,
   onStartLink,
   onSelect,
@@ -1911,6 +1993,7 @@ function GanttBar({
   if (isProject) cls.push('project')
   else cls.push(isLeaf ? 'leaf' : 'summary')
   if (dragging) cls.push('dragging')
+  if (isSelected) cls.push('is-multi-selected')
   if (deadline) cls.push(`deadline-end--${deadline.tier}`)
   if (!isProject && linking && linkFromId === node.task.id) cls.push('is-link-source')
   if (!isProject && linking && linkOverId === node.task.id) {
@@ -1946,7 +2029,7 @@ function GanttBar({
           e.stopPropagation()
           return
         }
-        if (onSelect) onSelect()
+        if (onSelect) onSelect(e)
         if (isLeaf) onStartDrag(e, node, 'move')
         else e.stopPropagation()
       }}

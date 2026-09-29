@@ -4464,6 +4464,18 @@ select {
   box-shadow: 0 4px 12px rgba(33, 32, 27, 0.2);
   border-color: var(--sumi);
 }
+.gantt-bar.leaf.is-multi-selected {
+  border-color: var(--primary-deep);
+  border-width: 2px;
+  box-shadow: 0 0 0 1px var(--primary-deep);
+}
+.gantt-matrix.axis-locked .gantt-bar.leaf {
+  cursor: default;
+}
+.gantt-matrix.axis-locked .gantt-bar-handle {
+  cursor: default;
+  pointer-events: none;
+}
 
 .gantt-bar.summary {
   top: 14px;
@@ -4617,7 +4629,7 @@ select {
 .gantt-dep-path-hit {
   fill: none;
   stroke: transparent;
-  stroke-width: 12;
+  stroke-width: 24;
   pointer-events: stroke;
   cursor: pointer;
 }
