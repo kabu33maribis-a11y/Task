@@ -4260,24 +4260,40 @@ select {
 .gantt-time-duration {
   position: absolute;
   top: 0;
-  z-index: 7;
+  bottom: 0;
+  width: 0;
+  z-index: 8;
   pointer-events: none;
 }
 .gantt-time-duration-label {
   position: sticky;
   top: calc(var(--headh) + 4px);
   transform: translateX(-50%);
-  display: inline-block;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
   padding: 2px 8px;
   border-radius: var(--r);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  font-weight: 600;
   color: #fff;
   background: var(--accent, #d97706);
   box-shadow: 0 2px 8px rgba(33, 32, 27, 0.18);
   white-space: nowrap;
+}
+.gantt-time-duration-range {
+  font-size: 11px;
+  font-weight: 600;
+}
+.gantt-time-duration-value {
+  font-size: 11px;
+  font-weight: 600;
+}
+.gantt-time-duration-range + .gantt-time-duration-value {
+  font-size: 9px;
+  font-weight: 500;
+  opacity: 0.85;
 }
 
 /* Hour zoom axis */

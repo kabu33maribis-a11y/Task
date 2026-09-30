@@ -1440,23 +1440,31 @@ function WbsGantt({ project, multi }) {
               const startLeft = leftW + Math.max(0, Math.min(canvasW, hourXOf(d0.start, d0.startTime, range.start, hourLayout)))
               const endLeft = leftW + Math.max(0, Math.min(canvasW, hourXOf(d0.end, d0.endTime, range.start, hourLayout)))
               const durationMin = toAbsoluteMinutes(d0.end, d0.endTime) - toAbsoluteMinutes(d0.start, d0.startTime)
+              // ラベル同士が重なるほど近い場合は個別表示をやめ、線だけ残して中央にまとめて表示する
+              const tooClose = Math.abs(endLeft - startLeft) < GANTT_TIME_LABEL_MERGE_PX
+              const startActive = drag.mode === 'start' || drag.mode === 'move'
+              const endActive = drag.mode === 'end' || drag.mode === 'move'
               return (
                 <>
                   <GanttTimeGuide
                     left={startLeft}
-                    label={d0.startTime}
-                    sub={formatMonthDayJP(d0.start)}
-                    active={drag.mode === 'start' || drag.mode === 'move'}
+                    label={tooClose ? null : d0.startTime}
+                    sub={tooClose ? null : formatMonthDayJP(d0.start)}
+                    active={startActive}
                     kind="start"
                   />
                   <GanttTimeGuide
                     left={endLeft}
-                    label={d0.endTime}
-                    sub={formatMonthDayJP(d0.end)}
-                    active={drag.mode === 'end' || drag.mode === 'move'}
+                    label={tooClose ? null : d0.endTime}
+                    sub={tooClose ? null : formatMonthDayJP(d0.end)}
+                    active={endActive}
                     kind="end"
                   />
-                  <GanttDurationBadge left={(startLeft + endLeft) / 2} minutes={durationMin} />
+                  <GanttDurationBadge
+                    left={(startLeft + endLeft) / 2}
+                    minutes={durationMin}
+                    range={tooClose ? `${d0.startTime}〜${d0.endTime}` : null}
+                  />
                 </>
               )
             })()}
@@ -1891,7 +1899,10 @@ function GanttNowMarker({ left, time }) {
   )
 }
 
-/** ドラッグ中の開始/終了時刻ガイド */
+// 開始/終了ラベルの中心間がこの距離未満なら重なるとみなし、まとめ表示に切り替える
+const GANTT_TIME_LABEL_MERGE_PX = 96
+
+/** ドラッグ中の開始/終了時刻ガイド。label が無いときは線だけ表示する */
 function GanttTimeGuide({ left, label, sub, active, kind }) {
   return (
     <div
@@ -1899,10 +1910,12 @@ function GanttTimeGuide({ left, label, sub, active, kind }) {
       style={{ left }}
       aria-hidden
     >
-      <span className="gantt-time-guide-label">
-        <span className="gantt-time-guide-time">{label}</span>
-        {sub && <span className="gantt-time-guide-date">{sub}</span>}
-      </span>
+      {label && (
+        <span className="gantt-time-guide-label">
+          <span className="gantt-time-guide-time">{label}</span>
+          {sub && <span className="gantt-time-guide-date">{sub}</span>}
+        </span>
+      )}
     </div>
   )
 }
@@ -1920,11 +1933,14 @@ function formatDurationJP(totalMinutes) {
   return s
 }
 
-/** ドラッグ中の開始〜終了の所要時間バッジ */
-function GanttDurationBadge({ left, minutes }) {
+/** ドラッグ中の開始〜終了の所要時間バッジ。range 指定時は開始〜終了時刻も併記する */
+function GanttDurationBadge({ left, minutes, range }) {
   return (
     <div className="gantt-time-duration" style={{ left }} aria-hidden>
-      <span className="gantt-time-duration-label">{formatDurationJP(minutes)}</span>
+      <span className="gantt-time-duration-label">
+        {range && <span className="gantt-time-duration-range">{range}</span>}
+        <span className="gantt-time-duration-value">{formatDurationJP(minutes)}</span>
+      </span>
     </div>
   )
 }
