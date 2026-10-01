@@ -70,18 +70,20 @@ function Shell() {
 
   // Laptop-first: at >=1024px show Today + Calendar side by side in one screen.
   const wide = useMediaQuery('(min-width: 1024px)')
-  return wide ? <Dashboard /> : <Tabbed />
+  // view / projectFilter live here so they survive the Dashboard <-> Tabbed remount on resize.
+  const [view, setView] = useState('console') // 'console' | 'wbs'
+  const [projectFilter, setProjectFilter] = useState('all')
+  const shared = { view, setView, projectFilter, setProjectFilter }
+  return wide ? <Dashboard {...shared} /> : <Tabbed {...shared} />
 }
 
 // ---- laptop: two-pane console ------------------------------------------
 
-function Dashboard() {
+function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
   const { state } = useStore()
   const [overlay, setOverlay] = useState(null) // 'inbox' | 'log' | 'settings' | 'master' | null
   const [calDate, setCalDate] = useState(todayStr)
   const [calResetKey, setCalResetKey] = useState(0)
-  const [projectFilter, setProjectFilter] = useState('all')
-  const [view, setView] = useState('console') // 'console' | 'wbs'
   const [split, setSplit] = useState(() => {
     const s = localStorage.getItem('taskmanager.split')
     return s ? parseFloat(s) : 57.5
@@ -209,12 +211,10 @@ function SlideOver({ title, size = 440, onClose, children }) {
 
 // ---- tablet / phone: tabbed --------------------------------------------
 
-function Tabbed() {
+function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
   const [tab, setTab] = useState('today')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [masterOpen, setMasterOpen] = useState(false)
-  const [projectFilter, setProjectFilter] = useState('all')
-  const [view, setView] = useState('console') // 'console' | 'wbs'
   const [calDate, setCalDate] = useState(todayStr)
   const [calResetKey, setCalResetKey] = useState(0)
 

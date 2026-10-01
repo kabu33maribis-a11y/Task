@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { useStore, useCategoryMap, useProjectMap, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import {
   currentMonth,
@@ -152,6 +153,25 @@ function CalResizeHandles({ task, showStart, showEnd, onStartResize }) {
         />
       )}
     </>
+  )
+}
+
+// 未完了タスク用の削除ボタン（ラベルはボタン内にあるため span で実装）
+function CalDeleteButton({ task, onDelete }) {
+  if (task.status === 'DONE') return null
+  return (
+    <span
+      role="button"
+      tabIndex={-1}
+      className="cal-task-del"
+      title="削除"
+      aria-label="タスクを削除"
+      draggable={false}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete(task) }}
+    >
+      <Trash2 size={11} strokeWidth={2} aria-hidden />
+    </span>
   )
 }
 
@@ -431,6 +451,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                             >
                               <CalResizeHandles task={t} showStart showEnd onStartResize={startResize} />
                               {t.title}
+                              <CalDeleteButton task={t} onDelete={actions.deleteTask} />
                             </span>
                           )
                         })}
@@ -475,6 +496,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                             onStartResize={startResize}
                           />
                           {isBarStart ? t.title : ''}
+                          {isBarEnd && <CalDeleteButton task={t} onDelete={actions.deleteTask} />}
                         </div>
                       )
                     })}
@@ -526,6 +548,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                         onDragEnd={handleTaskDragEnd}
                       >
                         {cont ? `↳ ${t.title}` : t.title}
+                        <CalDeleteButton task={t} onDelete={actions.deleteTask} />
                       </span>
                     )
                   }) : <span className="cal-list-empty">—</span>}

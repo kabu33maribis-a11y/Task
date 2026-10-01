@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Trash2 } from 'lucide-react'
+import {
+  Trash2, Plus, FileSpreadsheet, Maximize2, Calendar, CalendarDays, CheckCircle2,
+  Lock, Unlock, ChevronsUpDown, ChevronsDownUp, CornerDownRight,
+} from 'lucide-react'
+import { useIconMode, useBarLabel } from '../lib/iconMode.js'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import {
   buildTree,
@@ -32,7 +36,7 @@ import { buildGanttDepPaths } from '../lib/ganttDepPath.js'
 import { ownTag, tagForWbsRow } from '../lib/tags.js'
 import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import { exportWorkPlanToExcel, exportAllWorkPlanToExcel } from '../lib/exportWorkPlan.js'
-import AddTaskBar from '../components/AddTaskBar.jsx'
+import WbsAddTaskDialog from '../components/WbsAddTaskDialog.jsx'
 import DatePicker from '../components/DatePicker.jsx'
 import TaskPicker from '../components/TaskPicker.jsx'
 import TagPicker from '../components/TagPicker.jsx'
@@ -56,6 +60,12 @@ const HOUR_RANGE_DAYS_KEY = 'taskmanager.wbs.hourRangeDays'
 const HOUR_RANGE_DAYS_DEFAULT = 3
 const HOUR_RANGE_DAYS_MIN = 1
 const HOUR_RANGE_DAYS_MAX = 7
+
+/** アイコンモード時はアイコンのみ、通常時はテキストを表示する（名称は親ボタンの title/aria-label で補う） */
+function BtnLabel({ icon: Icon, children, size = 14 }) {
+  const iconMode = useIconMode()
+  return iconMode ? <Icon size={size} strokeWidth={2} aria-hidden /> : children
+}
 
 /** sticky タスク列セパレータの右を基準に、contentX を可視トラック上の fraction 位置へ置く */
 function scrollLeftForContentX(el, contentX, leftW, fraction = 0) {
@@ -128,6 +138,7 @@ function WbsGantt({ project, multi }) {
   const today = todayStr()
   const [exporting, setExporting] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [scheduleOverviewOpen, setScheduleOverviewOpen] = useState(false)
 
   const scopedTasks = useMemo(
@@ -195,16 +206,34 @@ function WbsGantt({ project, multi }) {
   const linkDragRef = useRef(null)
   const [hourNoHScroll, setHourNoHScroll] = useState(false)
   const isHourZoom = zoom === 'hour'
+  const [scale, setScale] = useState(1)
   const hourLayout = useMemo(
-    () => (isHourZoom ? createHourLayout(ZOOMS.hour.hourW) : null),
-    [isHourZoom],
+    () => (isHourZoom ? createHourLayout(ZOOMS.hour.hourW * scale) : null),
+    [isHourZoom, scale],
   )
   const hourSegments = useMemo(
     () => (hourLayout ? hourAxisPattern(hourLayout) : []),
     [hourLayout],
   )
-  const dayW = isHourZoom ? hourLayout.dayWidth : ZOOMS[zoom].w
+  const dayW = isHourZoom ? hourLayout.dayWidth : ZOOMS[zoom].w * scale
   const headH = ganttHeadH(showWeekdays, zoom)
+
+  // Ctrl+スクロールで横方向を拡大縮小（passive:false が必要なため手動で登録）
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return undefined
+    const onWheel = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      setScale((s) => {
+        const next = s * (e.deltaY < 0 ? 1.1 : 1 / 1.1)
+        const clamped = Math.min(3, Math.max(0.4, next))
+        return Math.abs(clamped - 1) < 0.03 ? 1 : Math.round(clamped * 100) / 100
+      })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  })
 
   useEffect(() => {
     if (!isHourZoom) return undefined
@@ -783,7 +812,8 @@ function WbsGantt({ project, multi }) {
   }, [drag, dayW, hourLayout, range.start, actions, showWeekends])
 
   function startDrag(e, node, mode) {
-    if (axisLocked) return
+    // 固定中でも時間軸表示ではバーの移動・伸縮は許可する（軸の照準合わせは scrollToDate 側で防ぐ）
+    if (axisLocked && !isHourZoom) return
     e.preventDefault()
     e.stopPropagation()
     document.documentElement.style.cursor = mode === 'move' ? 'grabbing' : 'ew-resize'
@@ -1126,11 +1156,11 @@ function WbsGantt({ project, multi }) {
           </h1>
           {collapseTargetIds.length > 0 && (
             <div className="wbs-title-actions">
-              <button className="btn btn-sm" onClick={expandAllProjects} title={multi ? '全プロジェクトを展開' : '全て展開'}>
-                全て展開
+              <button className="btn btn-sm" onClick={expandAllProjects} title={multi ? '全プロジェクトを展開' : '全て展開'} aria-label={multi ? '全プロジェクトを展開' : '全て展開'}>
+                <BtnLabel icon={ChevronsUpDown}>全て展開</BtnLabel>
               </button>
-              <button className="btn btn-sm" onClick={collapseAllProjects} title={multi ? '全プロジェクトを折りたたむ' : '全て折りたたむ'}>
-                全て折りたたむ
+              <button className="btn btn-sm" onClick={collapseAllProjects} title={multi ? '全プロジェクトを折りたたむ' : '全て折りたたむ'} aria-label={multi ? '全プロジェクトを折りたたむ' : '全て折りたたむ'}>
+                <BtnLabel icon={ChevronsDownUp}>全て折りたたむ</BtnLabel>
               </button>
             </div>
           )}
@@ -1145,52 +1175,66 @@ function WbsGantt({ project, multi }) {
         </div>
         <div className="wbs-toolbar">
           <button
+            className="btn btn-sm btn-primary"
+            onClick={() => setAddDialogOpen(true)}
+            title="タスクを追加"
+            aria-label="タスクを追加"
+          >
+            <BtnLabel icon={Plus}>＋ タスクを追加</BtnLabel>
+          </button>
+          <button
             className="btn btn-sm btn-export"
             onClick={() => setExportDialogOpen(true)}
             disabled={exporting || overall.total === 0}
             title="WBSとガントチャートをExcelに出力"
+            aria-label="Excel出力"
           >
-            {exporting ? '出力中…' : 'Excel出力'}
+            <BtnLabel icon={FileSpreadsheet}>{exporting ? '出力中…' : 'Excel出力'}</BtnLabel>
           </button>
           <button
             className="btn btn-sm"
             onClick={() => setScheduleOverviewOpen(true)}
             disabled={!hasContent || visible.length === 0 || isHourZoom}
             title={isHourZoom ? '全体表示は日/週/月ズームで利用できます' : 'スケジュール全体を縮小して表示'}
+            aria-label="全体表示"
           >
-            全体表示
+            <BtnLabel icon={Maximize2}>全体表示</BtnLabel>
           </button>
           <button
             className={`btn btn-sm btn-toggle${showWeekends ? ' is-on' : ''}`}
             aria-pressed={showWeekends}
             onClick={toggleWeekends}
             title={showWeekends ? '土日を非表示にする' : '土日を表示する'}
+            aria-label="土日"
           >
-            土日
+            <BtnLabel icon={Calendar}>土日</BtnLabel>
           </button>
           <button
             className={`btn btn-sm btn-toggle${showWeekdays ? ' is-on' : ''}`}
             aria-pressed={showWeekdays}
             onClick={toggleWeekdays}
             title={showWeekdays ? '曜日を非表示にする' : '曜日を表示する'}
+            aria-label="曜日"
           >
-            曜日
+            <BtnLabel icon={CalendarDays}>曜日</BtnLabel>
           </button>
           <button
             className={`btn btn-sm btn-toggle${showCompleted ? ' is-on' : ''}`}
             aria-pressed={showCompleted}
             onClick={toggleCompleted}
             title={showCompleted ? '完了タスクを非表示にする' : '完了タスクを表示する'}
+            aria-label="完了"
           >
-            完了
+            <BtnLabel icon={CheckCircle2}>完了</BtnLabel>
           </button>
           <button
             className={`btn btn-sm btn-toggle${axisLocked ? ' is-on' : ''}`}
             aria-pressed={axisLocked}
             onClick={toggleAxisLock}
             title={axisLocked ? '時間軸の固定を解除する（タスクの移動・伸縮を許可）' : '時間軸を固定する（タスクを押しても移動しない）'}
+            aria-label="固定"
           >
-            固定
+            <BtnLabel icon={axisLocked ? Lock : Unlock}>固定</BtnLabel>
           </button>
           {isHourZoom && (
             <div className="wbs-focus-nav">
@@ -1240,6 +1284,14 @@ function WbsGantt({ project, multi }) {
               </button>
             </div>
           )}
+          <button
+            className="btn btn-sm"
+            onClick={() => setScale(1)}
+            disabled={scale === 1}
+            title="Ctrl＋スクロールで拡大縮小。クリックで100%に戻す"
+          >
+            {Math.round(scale * 100)}%
+          </button>
           <div className="view-toggle wbs-zoom">
             {Object.entries(ZOOMS).map(([k, z]) => (
               <button key={k} className={zoom === k ? 'active' : ''} onClick={() => setZoom(k)}>
@@ -1250,29 +1302,25 @@ function WbsGantt({ project, multi }) {
         </div>
       </div>
 
-      <AddTaskBar
-        defaultDate={null}
-        projects={visibleProjects}
-        categories={state.categories}
-        defaultProjectId={multi ? null : project.id}
-        placeholder={
-          multi
-            ? 'タスクを追加（Shift+Enterで改行 · 詳細でプロジェクトを選択）'
-            : 'ルートタスクを追加（Shift+Enterで改行 · Enterで登録）'
-        }
-      />
+      {addDialogOpen && (
+        <WbsAddTaskDialog
+          projects={visibleProjects}
+          defaultProjectId={multi ? null : project.id}
+          onClose={() => setAddDialogOpen(false)}
+        />
+      )}
 
       {!hasContent ? (
         <p className="empty">
           {multi
             ? 'プロジェクトがありません。設定から追加してください。'
-            : 'タスクはまだありません。上のバーから追加してください。'}
+            : 'タスクはまだありません。「タスクを追加」ボタンから追加してください。'}
         </p>
       ) : rows.length === 0 ? (
         <p className="empty">
           {!showCompleted && overall.total > 0
             ? '完了タスクのみです。「完了」ボタンで表示できます。'
-            : 'タスクはまだありません。プロジェクト行の「＋子」または上のバーから追加してください。'}
+            : 'タスクはまだありません。プロジェクト行の「＋子」または「タスクを追加」ボタンから追加してください。'}
         </p>
       ) : (
         <div
@@ -1681,7 +1729,6 @@ function WbsGantt({ project, multi }) {
                               setSelectedIds(new Set())
                             }
                           }}
-                          onFocusDate={isHourZoom ? scrollToDate : undefined}
                           tagColor={node.isProject ? null : rowTag?.color}
                           linking={!!linkDrag}
                           linkFromId={linkDrag?.fromId}
@@ -2053,13 +2100,13 @@ function GanttBar({
   onStartDrag,
   onStartLink,
   onSelect,
-  onFocusDate,
   tagColor,
   linking,
   linkFromId,
   linkOverId,
   linkValid,
 }) {
+  const showBarLabel = useBarLabel()
   const { rollup, isLeaf, isProject, project } = node
   let left
   let width
@@ -2129,10 +2176,12 @@ function GanttBar({
       onClick={(e) => {
         if (linking) return
         e.stopPropagation()
-        if (onFocusDate && span?.start) onFocusDate(span.start)
       }}
     >
       <span className="gantt-bar-fill" style={fillStyle} />
+      {showBarLabel && isLeaf && !isProject && (
+        <span className="gantt-bar-label">{node.task.title}</span>
+      )}
       {isLeaf && (
         <>
           <span className="gantt-bar-handle left" onMouseDown={(e) => onStartDrag(e, node, 'start')} />
@@ -2194,7 +2243,7 @@ function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }
         {pct}% <span className="wbs-count-sub">({rollup.done}/{rollup.total})</span>
       </span>
       <div className="wbs-actions">
-        <button className="wbs-act" onClick={onAddChild} title="ルートタスクを追加">＋子</button>
+        <button className="wbs-act" onClick={onAddChild} title="ルートタスクを追加" aria-label="ルートタスクを追加"><BtnLabel icon={CornerDownRight} size={13}>＋子</BtnLabel></button>
       </div>
     </div>
   )
@@ -2476,7 +2525,7 @@ function LeftRow({
       )}
 
       <div className={`wbs-actions${moreOpen ? ' is-open' : ''}`}>
-        <button className="wbs-act" onClick={onAddChild} title="子タスクを追加">＋子</button>
+        <button className="wbs-act" onClick={onAddChild} title="子タスクを追加" aria-label="子タスクを追加"><BtnLabel icon={CornerDownRight} size={13}>＋子</BtnLabel></button>
         <span className="wbs-more-wrap">
           <button
             ref={moreBtnRef}

@@ -9,6 +9,7 @@ import {
   DEFAULT_GANTT_BAR_SWATCH,
   getSavedGanttBarColor,
 } from '../lib/ganttBarColor.js'
+import { setIconMode, useIconMode, setBarLabel, useBarLabel } from '../lib/iconMode.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { ColorPickerSwatch, SettingsAccordion } from './settingsShared.jsx'
@@ -33,6 +34,8 @@ export default function SettingsModal({ onClose }) {
   const [theme, setTheme] = useState(getSavedTheme)
   const [ganttBarColor, setGanttBarColor] = useState(getSavedGanttBarColor)
   const [openSection, setOpenSection] = useState('appearance')
+  const iconMode = useIconMode()
+  const barLabel = useBarLabel()
 
   function toggleSection(id) {
     setOpenSection((prev) => (prev === id ? null : id))
@@ -124,7 +127,22 @@ export default function SettingsModal({ onClose }) {
               <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
               <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
             </div>
+            <div className="section-title">WBSボタン表示</div>
+            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+              ONにすると、WBSのボタンをテキストなしのアイコンのみで表示します（ホバーで名称を表示）。
+            </p>
+            <div className="view-toggle" style={{ marginLeft: 0 }}>
+              <button className={!iconMode ? 'active' : ''} onClick={() => setIconMode(false)}>テキスト</button>
+              <button className={iconMode ? 'active' : ''} onClick={() => setIconMode(true)}>アイコンのみ</button>
+            </div>
             <div className="section-title">WBSガントバー</div>
+            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+              ONにすると、バー内にタスク名を表示します（バーの幅を超える分は折り返さず切り詰めます）。
+            </p>
+            <div className="view-toggle" style={{ marginLeft: 0, marginBottom: 8 }}>
+              <button className={!barLabel ? 'active' : ''} onClick={() => setBarLabel(false)}>タスク名なし</button>
+              <button className={barLabel ? 'active' : ''} onClick={() => setBarLabel(true)}>タスク名を表示</button>
+            </div>
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
               日付上のタスクバーの色です。未設定時はテーマのアクセント色を使います。
             </p>

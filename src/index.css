@@ -2339,6 +2339,30 @@ select {
   opacity: 1;
   background: linear-gradient(var(--today-accent), var(--today-accent)) center / 2px 60% no-repeat;
 }
+/* 未完了タスクの削除ボタン（ホバー時のみ表示） */
+.cal-task-del {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  color: var(--sumi-faint);
+  background: var(--washi, #fff);
+  cursor: pointer;
+  z-index: 4;
+}
+.cal-task-label:hover .cal-task-del,
+.cal-band-bar:hover .cal-task-del {
+  display: inline-flex;
+}
+.cal-task-del:hover {
+  color: var(--shu, #c0392b);
+}
 .cal-task-label.priority-high {
   border-left-color: #E8A000;
   background: rgba(232, 160, 0, 0.12);
@@ -3896,14 +3920,14 @@ select {
   pointer-events: none;
 }
 .gantt-matrix-row:hover .gantt-namecell {
-  background: var(--hover-yellow);
+  background: linear-gradient(var(--hover-yellow), var(--hover-yellow)), var(--washi-raised);
 }
 .gantt-matrix-row.project-row .gantt-namecell {
   background: var(--washi-sink);
   border-bottom: 1px solid var(--rule-strong);
 }
 .gantt-matrix-row.project-row:hover .gantt-namecell {
-  background: var(--hover-yellow);
+  background: linear-gradient(var(--hover-yellow), var(--hover-yellow)), var(--washi-sink);
 }
 .gantt-name-inner {
   position: relative;
@@ -4369,7 +4393,7 @@ select {
   font-size: 10px;
 }
 .gantt-axis-hour.night {
-  background: rgba(100, 116, 139, 0.06);
+  background: rgba(148, 163, 184, 0.22);
 }
 .gantt-axis-hour.off-block {
   font-size: 9px;
@@ -4391,17 +4415,17 @@ select {
   border-right: 1px solid transparent;
 }
 .gantt-hour-col.night {
-  background: rgba(100, 116, 139, 0.05);
+  background: rgba(148, 163, 184, 0.22);
 }
 .gantt-hour-col.off-block {
-  background: rgba(100, 116, 139, 0.08);
+  background: rgba(148, 163, 184, 0.22);
 }
 .gantt-hour-col.biz {
   background: color-mix(in srgb, var(--primary) 4%, transparent);
 }
 [data-theme="dark"] .gantt-hour-col.night,
 [data-theme="wabi-dark"] .gantt-hour-col.night {
-  background: rgba(148, 163, 184, 0.06);
+  background: rgba(148, 163, 184, 0.14);
 }
 [data-theme="dark"] .gantt-axis-hour-day.weekend,
 [data-theme="wabi-dark"] .gantt-axis-hour-day.weekend {
@@ -4515,10 +4539,10 @@ select {
   border-width: 2px;
   box-shadow: 0 0 0 1px var(--primary-deep);
 }
-.gantt-matrix.axis-locked .gantt-bar.leaf {
+.gantt-matrix.axis-locked:not(.hour-zoom) .gantt-bar.leaf {
   cursor: default;
 }
-.gantt-matrix.axis-locked .gantt-bar-handle {
+.gantt-matrix.axis-locked:not(.hour-zoom) .gantt-bar-handle {
   cursor: default;
   pointer-events: none;
 }
@@ -4718,10 +4742,10 @@ select {
 }
 
 .gantt-matrix-row.dep-selected .gantt-namecell {
-  background: var(--primary-light);
+  background: linear-gradient(var(--primary-light), var(--primary-light)), var(--washi-raised);
 }
 .gantt-matrix-row.dep-selected:hover .gantt-namecell {
-  background: var(--hover-yellow);
+  background: linear-gradient(var(--hover-yellow), var(--hover-yellow)), var(--washi-raised);
 }
 .gantt-matrix-row.dep-selected .gantt-bar:not(.project),
 .gantt-matrix-row.dep-hover .gantt-bar:not(.project) {
@@ -4850,7 +4874,7 @@ select {
   background: var(--washi);
 }
 .gantt-matrix-row.checklist-row:hover .gantt-namecell {
-  background: var(--hover-yellow);
+  background: linear-gradient(var(--hover-yellow), var(--hover-yellow)), var(--washi);
 }
 .gantt-matrix-row.done .wbs-check-badge {
   color: var(--text-muted);
@@ -5173,4 +5197,23 @@ select {
   gap: 4px 14px;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.gantt-bar-label {
+  position: absolute;
+  inset: 0 6px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 20px;
+  font-size: 11px;
+  color: var(--sumi);
+  pointer-events: none;
+  z-index: 1;
+}
+.gantt-bar.summary .gantt-bar-label {
+  line-height: 12px;
 }

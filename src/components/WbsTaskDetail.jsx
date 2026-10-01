@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore, useProjectMap } from '../store/StoreContext.jsx'
+import { useStore, useProjectMap, useVisibleProjects } from '../store/StoreContext.jsx'
 import { formatFullJP, deadlineInfo, diffDays, normalizeTimeStr } from '../lib/date.js'
 import { predecessorsOf, successorsOf } from '../lib/dependencies.js'
 import { ownTag, inheritedTag } from '../lib/tags.js'
@@ -42,7 +42,18 @@ export default function WbsTaskDetail({
 }) {
   const { state, actions } = useStore()
   const projMap = useProjectMap()
+  const visibleProjects = useVisibleProjects()
   const task = state.tasks.find((t) => t.id === taskId) ?? null
+
+  // 子孫タスクも同じプロジェクトに揃える（WBS ツリーはプロジェクト単位のため）
+  function changeProject(projectId) {
+    if (!task) return
+    const ids = [task.id]
+    for (let i = 0; i < ids.length; i++) {
+      for (const t of state.tasks) if (t.parent_id === ids[i]) ids.push(t.id)
+    }
+    for (const id of ids) actions.updateTask(id, { project_id: projectId })
+  }
   const [titleDraft, setTitleDraft] = useState(task?.title ?? '')
   const [addingCheck, setAddingCheck] = useState('')
   const [shown, setShown] = useState(false)
@@ -203,15 +214,31 @@ export default function WbsTaskDetail({
 
           <dt>プロジェクト</dt>
           <dd>
-            {project ? (
-              <span className="wbs-detail-project">
-                {project.color && (
-                  <span className="tag-dot" style={{ background: project.color }} />
-                )}
-                {project.name}
-              </span>
+            {parent ? (
+              project ? (
+                <span className="wbs-detail-project" title="親タスクのプロジェクトに従います">
+                  {project.color && (
+                    <span className="tag-dot" style={{ background: project.color }} />
+                  )}
+                  {project.name}
+                </span>
+              ) : (
+                <span className="wbs-detail-empty">未設定</span>
+              )
             ) : (
-              <span className="wbs-detail-empty">未設定</span>
+              <select
+                value={task.project_id ?? ''}
+                onChange={(e) => changeProject(e.target.value || null)}
+                className="btn btn-sm"
+                style={{ padding: '4px 8px' }}
+              >
+                <option value="">未設定</option>
+                {visibleProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
             )}
           </dd>
 
