@@ -156,6 +156,9 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
                 <button className="btn btn-sm" onClick={() => actions.moveToDate(t.id, today)}>
                   今日へ移動
                 </button>
+                <button className="btn btn-sm" onClick={() => actions.deleteTask(t)}>
+                  削除
+                </button>
               </span>
             </div>
           ))}

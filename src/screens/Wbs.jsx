@@ -204,6 +204,7 @@ function WbsGantt({ project, multi }) {
   const scrollRef = useRef(null)
   const matrixRef = useRef(null)
   const linkDragRef = useRef(null)
+  const dragSeedRef = useRef(null)
   const [hourNoHScroll, setHourNoHScroll] = useState(false)
   const isHourZoom = zoom === 'hour'
   const [scale, setScale] = useState(1)
@@ -821,8 +822,10 @@ function WbsGantt({ project, multi }) {
 
     // 端のリサイズ（start/end ハンドル）は常に単一タスクのみ。
     // 複数タスクのまとめ移動は本体ドラッグ（move）のときだけ対象にする。
-    const dragIds = mode === 'move' && selectedIds.size > 0 && selectedIds.has(node.task.id)
-      ? Array.from(selectedIds)
+    const sel = dragSeedRef.current ?? selectedIds
+    dragSeedRef.current = null
+    const dragIds = mode === 'move' && sel.size > 0 && sel.has(node.task.id)
+      ? Array.from(sel)
       : [node.task.id]
 
     const dragData = dragIds.map((id) => {
@@ -1716,16 +1719,22 @@ function WbsGantt({ project, multi }) {
                           onStartDrag={startDrag}
                           onStartLink={startLinkDrag}
                           onSelect={node.isProject ? undefined : (e) => {
+                            const id = node.task.id
                             if (e.ctrlKey || e.metaKey) {
-                              setSelectedIds((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(node.task.id)) next.delete(node.task.id)
-                                else next.add(node.task.id)
-                                return next
-                              })
-                              setSelectedId(node.task.id)
+                              // 通常クリックで選んだバーも複数選択の起点に含める
+                              const next = new Set(selectedIds)
+                              if (next.size === 0 && selectedId && selectedId !== id) next.add(selectedId)
+                              setSelectedId(id)
+                              if (next.has(id)) {
+                                next.delete(id)
+                                setSelectedIds(next)
+                                return false // 選択解除のみ。ドラッグは開始しない
+                              }
+                              next.add(id)
+                              setSelectedIds(next)
+                              dragSeedRef.current = next // 同じ mousedown のドラッグが最新の選択を使う
                             } else {
-                              setSelectedId(node.task.id)
+                              setSelectedId(id)
                               setSelectedIds(new Set())
                             }
                           }}
@@ -2169,7 +2178,10 @@ function GanttBar({
           e.stopPropagation()
           return
         }
-        if (onSelect) onSelect(e)
+        if (onSelect && onSelect(e) === false) {
+          e.stopPropagation()
+          return
+        }
         if (isLeaf) onStartDrag(e, node, 'move')
         else e.stopPropagation()
       }}
