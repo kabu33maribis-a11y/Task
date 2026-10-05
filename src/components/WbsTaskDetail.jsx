@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, useProjectMap, useVisibleProjects } from '../store/StoreContext.jsx'
 import { formatFullJP, deadlineInfo, diffDays, normalizeTimeStr } from '../lib/date.js'
 import { predecessorsOf, successorsOf } from '../lib/dependencies.js'
+import { descendantIds } from '../lib/wbs.js'
 import { ownTag, inheritedTag } from '../lib/tags.js'
 import { assigneesOf } from '../lib/members.js'
 import { ChecklistItemRow } from './TaskItem.jsx'
@@ -114,6 +115,13 @@ export default function WbsTaskDetail({
   const project = task.project_id ? projMap.get(task.project_id) : null
   const tag = ownTag(task, state.tags)
   const inherited = tag ? null : inheritedTag(task, state.tasks, state.tags)
+  const canApplyTagToChildren =
+    !!tag &&
+    hasChildren &&
+    descendantIds(task.id, state.tasks).some((id) => {
+      const child = state.tasks.find((t) => t.id === id)
+      return child && child.tag_id !== tag.id
+    })
   const assignees = assigneesOf(task.id, state)
   const preds = predecessorsOf(task.id, state.dependencies, state.tasks)
   const succs = successorsOf(task.id, state.dependencies, state.tasks)
@@ -313,9 +321,21 @@ export default function WbsTaskDetail({
             ) : (
               <span className="wbs-detail-empty">なし</span>
             )}
-            <button className="wbs-detail-edit" onClick={open(onOpenTagPopover)}>
-              変更
-            </button>
+            <span className="wbs-detail-actions">
+              {canApplyTagToChildren && (
+                <button
+                  type="button"
+                  className="wbs-detail-edit"
+                  title="配下のすべてのタスクに、このタグを付けます"
+                  onClick={() => actions.applyTagToDescendants(task.id)}
+                >
+                  子に付ける
+                </button>
+              )}
+              <button className="wbs-detail-edit" onClick={open(onOpenTagPopover)}>
+                変更
+              </button>
+            </span>
           </dd>
 
           <dt>担当者</dt>

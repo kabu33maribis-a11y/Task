@@ -170,7 +170,7 @@ export default function SettingsModal({ onClose }) {
             onToggle={toggleSection}
           >
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。子に別のタグを付けるとその配下だけ色が変わります。
+              WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。子に別のタグを付けるとその配下だけ色が変わります。⋯メニューの「子にタグを付ける」で、親のタグを配下のタスクへ一括で付けられます。
             </p>
             <div className="settings-list">
               {sortedTags.map((t) => (

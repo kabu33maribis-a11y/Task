@@ -179,6 +179,29 @@ export function prevSibling(task, tasks) {
   return idx > 0 ? siblings[idx - 1] : null
 }
 
+/** Task ids nested under `ancestorId` (the ancestor itself is excluded). */
+export function descendantIds(ancestorId, tasks) {
+  const byParent = new Map()
+  for (const t of tasks ?? []) {
+    if (t.parent_id == null) continue
+    let list = byParent.get(t.parent_id)
+    if (!list) {
+      list = []
+      byParent.set(t.parent_id, list)
+    }
+    list.push(t.id)
+  }
+  const ids = []
+  const walk = (id) => {
+    for (const childId of byParent.get(id) ?? []) {
+      ids.push(childId)
+      walk(childId)
+    }
+  }
+  walk(ancestorId)
+  return ids
+}
+
 /** True if `maybeDescendantId` is `ancestorId` or nested under it. */
 export function isSelfOrDescendant(maybeDescendantId, ancestorId, tasks) {
   if (maybeDescendantId === ancestorId) return true
@@ -291,7 +314,8 @@ export function filterCompletedTree(roots) {
 
 export const HOUR_BIZ_START = 9
 export const HOUR_BIZ_END = 18
-export const HOUR_OFF_HOUR_W = 12
+/** 0–9時・18–24時は細くして、9–18時が幅の大半を占める */
+export const HOUR_OFF_HOUR_W = 6
 
 /** @param {number} [bizHourW=28] full width per business hour */
 export function createHourLayout(bizHourW = 28, offHourW = HOUR_OFF_HOUR_W) {

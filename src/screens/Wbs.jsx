@@ -14,6 +14,7 @@ import {
   flattenVisible,
   filterCompletedTree,
   isSelfOrDescendant,
+  descendantIds,
   ganttHeadH,
   ganttAxisCellLabels,
   createHourLayout,
@@ -488,7 +489,8 @@ function WbsGantt({ project, multi }) {
     if (isHourZoom) {
       const now = new Date()
       const scrollDate = focusDate === today ? today : focusDate
-      const mins = focusDate === today ? now.getHours() * 60 + now.getMinutes() : 9 * 60
+      const nowMins = now.getHours() * 60 + now.getMinutes()
+      const mins = focusDate === today && nowMins >= 9 * 60 && nowMins < 18 * 60 ? nowMins : 9 * 60
       const x = leftW + hourXOf(scrollDate, minutesToTime(mins), range.start, hourLayout)
       const max = Math.max(0, el.scrollWidth - el.clientWidth)
       el.scrollLeft = Math.min(scrollLeftForContentX(el, x, leftW), max)
@@ -2348,6 +2350,13 @@ function LeftRow({
   const hasPredecessor = predecessorIds(task.id, state.dependencies).length > 0
   const hasAnyDep = hasSuccessor || hasPredecessor
   const tag = ownTag(task, state.tags)
+  const canApplyTagToChildren =
+    !!tag &&
+    hasChildren &&
+    descendantIds(task.id, state.tasks).some((id) => {
+      const child = state.tasks.find((t) => t.id === id)
+      return child && child.tag_id !== tag.id
+    })
   const assignees = assigneesOf(task.id, state)
   const assigneeInfo = assigneeSummary(assignees)
   const hasDate = !!(task.start_date || task.scheduled_date)
@@ -2374,6 +2383,10 @@ function LeftRow({
     if (task.parent_id == null) return
     const parent = projectTasks.find((t) => t.id === task.parent_id)
     actions.setTaskParent(task.id, parent ? parent.parent_id ?? null : null)
+    setMoreOpen(false)
+  }
+  function applyTagToChildren() {
+    actions.applyTagToDescendants(task.id)
     setMoreOpen(false)
   }
   function toggleMore(e) {
@@ -2581,6 +2594,16 @@ function LeftRow({
                 >
                   タグ{tag ? ` · ${tag.name}` : ''}
                 </button>
+                {canApplyTagToChildren && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={applyTagToChildren}
+                    title="配下のすべてのタスクに、このタグを付けます"
+                  >
+                    子にタグを付ける
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"

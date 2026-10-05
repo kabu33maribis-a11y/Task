@@ -3,7 +3,7 @@ import { uid } from '../lib/id.js'
 import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, syncDatePatch } from '../lib/date.js'
 import { getDb } from '../lib/db.js'
 import { hasLink, wouldCreateCycle } from '../lib/dependencies.js'
-import { seedSortOrderFromStartDate, isSelfOrDescendant } from '../lib/wbs.js'
+import { seedSortOrderFromStartDate, isSelfOrDescendant, descendantIds } from '../lib/wbs.js'
 
 const WBS_SORT_MIGRATED_KEY = 'taskmanager.wbs.sort_order_v1'
 
@@ -474,6 +474,22 @@ function reducer(state, action) {
           return t
         }),
       }
+    }
+
+    case 'APPLY_TAG_TO_DESCENDANTS': {
+      const task = state.tasks.find((t) => t.id === action.id)
+      if (!task?.tag_id) return state
+      const ids = new Set(descendantIds(action.id, state.tasks))
+      if (ids.size === 0) return state
+      const now = stamp()
+      let changed = false
+      const tasks = state.tasks.map((t) => {
+        if (!ids.has(t.id) || t.tag_id === task.tag_id) return t
+        changed = true
+        return { ...t, tag_id: task.tag_id, updated_at: now }
+      })
+      if (!changed) return state
+      return { ...state, tasks }
     }
 
     case 'SET_DONE_CASCADE': {
@@ -968,6 +984,14 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const t of changed) await dbUpsertTask(db, t)
           break
         }
+        case 'APPLY_TAG_TO_DESCENDANTS': {
+          const changed = nextState.tasks.filter((t) => {
+            const prev = prevState.tasks.find((p) => p.id === t.id)
+            return prev && prev.tag_id !== t.tag_id
+          })
+          for (const t of changed) await dbUpsertTask(db, t)
+          break
+        }
         case 'SET_DONE_CASCADE': {
           const changed = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
@@ -1349,6 +1373,18 @@ export function StoreProvider({ children }) {
         patch: { start_date, end_date, start_time, end_time },
       }),
     setSubtreeDone: (id, done) => dispatchWithSync({ type: 'SET_DONE_CASCADE', id, done }),
+    applyTagToDescendants: (id) => {
+      const cur = prevStateRef.current
+      const task = cur.tasks.find((t) => t.id === id)
+      if (!task?.tag_id) return
+      const n = descendantIds(id, cur.tasks).filter((cid) => {
+        const child = cur.tasks.find((t) => t.id === cid)
+        return child && child.tag_id !== task.tag_id
+      }).length
+      if (n === 0) return
+      dispatchWithSync({ type: 'APPLY_TAG_TO_DESCENDANTS', id })
+      showToast(`子タスク ${n} 件にタグを付けました`)
+    },
     addSubtask: (parent, title) =>
       dispatchWithSync({
         type: 'ADD_TASK',

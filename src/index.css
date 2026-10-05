@@ -2195,6 +2195,11 @@ select {
   letter-spacing: -0.01em;
   min-width: 130px;
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .cal-view-toggle {
   margin-left: auto;
@@ -2270,9 +2275,13 @@ select {
   box-shadow: inset 0 0 0 2px var(--today-accent);
   border-color: var(--today-accent);
 }
-.cal-cell.drag-over {
-  border-color: var(--primary);
+.cal-cell:active,
+.cal-cell.drag-over,
+.cal-cell.selected:active,
+.cal-cell.selected.drag-over {
+  border-color: var(--primary-deep);
   background: var(--primary-subtle);
+  box-shadow: inset 0 0 0 2px var(--primary-deep);
 }
 
 /* cell height by view mode */
@@ -2463,9 +2472,13 @@ select {
   box-shadow: inset 0 0 0 2px var(--today-accent);
   border-color: var(--today-accent);
 }
-.cal-list-row.drag-over {
-  border-color: var(--primary);
+.cal-list-row:active,
+.cal-list-row.drag-over,
+.cal-list-row.selected:active,
+.cal-list-row.selected.drag-over {
+  border-color: var(--primary-deep);
   background: var(--primary-subtle);
+  box-shadow: inset 0 0 0 2px var(--primary-deep);
 }
 .cal-list-row.holiday:not(.today) {
   background: rgba(192, 64, 46, 0.03);
@@ -2550,6 +2563,325 @@ select {
   border-radius: 4px;
   padding: 2px 7px;
   letter-spacing: 0.02em;
+}
+
+/* ---- Day timeline (vertical time axis) ---- */
+.cal-day-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 360px;
+}
+.cal-day-allday {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--washi-raised, #fff);
+  min-height: 40px;
+  transition: border-color 0.14s, background 0.14s;
+}
+.cal-day-allday.drop-target {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+.cal-day-allday-label {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--date-axis);
+  padding-top: 4px;
+  width: 36px;
+}
+.cal-day-allday-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.cal-day-allday-empty {
+  font-size: 12px;
+  color: var(--sumi-faint);
+  padding-top: 3px;
+}
+.cal-day-allday-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--washi-sink);
+  border-left: 3px solid transparent;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--sumi);
+  cursor: grab;
+  user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-day-allday-chip.multi {
+  cursor: default;
+  opacity: 0.92;
+}
+.cal-day-allday-chip.done {
+  color: var(--sumi-faint);
+  text-decoration: line-through;
+}
+.cal-day-allday-chip.dragging {
+  opacity: 0.45;
+}
+.cal-day-allday-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--sumi-soft);
+  background: var(--washi);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.cal-day-scroll {
+  flex: 1;
+  min-height: 320px;
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: #fff;
+}
+[data-theme="dark"] .cal-day-scroll,
+[data-theme="wabi-dark"] .cal-day-scroll {
+  background: var(--surface);
+}
+.cal-day-axis-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.cal-day-hours {
+  flex-shrink: 0;
+  width: 48px;
+  position: relative;
+  border-right: 1px solid var(--rule);
+  background: var(--washi-raised, #faf8f5);
+}
+[data-theme="dark"] .cal-day-hours,
+[data-theme="wabi-dark"] .cal-day-hours {
+  background: var(--surface-raised, var(--surface));
+}
+.cal-day-hour {
+  position: relative;
+  box-sizing: border-box;
+}
+.cal-day-hour.is-biz .cal-day-hour-label {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-soft);
+}
+.cal-day-hour.is-off .cal-day-hour-label {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--sumi-faint);
+}
+.cal-day-hour-label {
+  position: absolute;
+  top: -0.55em;
+  right: 8px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: var(--text-soft);
+  line-height: 1;
+}
+.cal-day-hour:first-child .cal-day-hour-label {
+  top: 2px;
+}
+.cal-day-axis {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.cal-day-axis.drop-active {
+  background: var(--primary-subtle);
+}
+.cal-day-off-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(148, 163, 184, 0.16);
+  pointer-events: none;
+  z-index: 0;
+}
+.cal-day-grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--rule-strong);
+  pointer-events: none;
+}
+.cal-day-grid-half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--rule);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.cal-day-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--shu);
+  z-index: 3;
+  pointer-events: none;
+}
+.cal-day-now-dot {
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--shu);
+}
+.cal-day-block {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  background: var(--washi-sink);
+  border-left: 3px solid var(--sumi-faint);
+  padding: 0 8px 0 8px;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  color: var(--sumi);
+  box-shadow: var(--shadow-xs);
+  transition: filter 0.1s, opacity 0.1s;
+}
+.cal-day-block:hover {
+  filter: brightness(0.96);
+}
+.cal-day-block.dragging {
+  opacity: 0.95;
+  cursor: grabbing;
+  z-index: 5;
+  overflow: visible;
+  border: 2px solid var(--primary-deep);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.cal-day-block.preview {
+  opacity: 0.85;
+  pointer-events: none;
+  overflow: visible;
+  border: 2px solid var(--primary-deep);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.cal-day-block.unscheduling {
+  opacity: 0.35;
+}
+.cal-day-block.done {
+  color: var(--sumi-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
+.cal-day-block-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-day-block-time {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  text-decoration: none;
+}
+.cal-day-block.dragging .cal-day-block-time,
+.cal-day-block.preview .cal-day-block-time {
+  color: var(--primary-deep);
+}
+.cal-day-drag-time {
+  position: absolute;
+  left: 4px;
+  z-index: 6;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 2px solid;
+  background: var(--washi-raised);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16);
+  pointer-events: none;
+}
+.cal-day-drag-time.is-start {
+  top: 0;
+  transform: translateY(-110%);
+  border-color: #059669;
+  color: #047857;
+}
+.cal-day-drag-time.is-end {
+  bottom: 0;
+  transform: translateY(110%);
+  border-color: #dc2626;
+  color: #b91c1c;
+}
+.cal-day-drag-time.is-both {
+  top: 0;
+  transform: translateY(-110%);
+  border-color: var(--primary-deep);
+  color: var(--primary-deep);
+}
+.cal-day-block.done .cal-day-block-time {
+  text-decoration: none;
+}
+.cal-day-block-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 1;
+  cursor: ns-resize;
+}
+.cal-day-block-handle.top { top: 0; }
+.cal-day-block-handle.bottom { bottom: 0; }
+[data-theme="dark"] .cal-day-allday,
+[data-theme="wabi-dark"] .cal-day-allday {
+  background: var(--surface);
+}
+[data-theme="dark"] .cal-day-allday-chip,
+[data-theme="wabi-dark"] .cal-day-allday-chip,
+[data-theme="dark"] .cal-day-block,
+[data-theme="wabi-dark"] .cal-day-block {
+  background: var(--surface-raised, var(--surface));
+  color: var(--sumi);
 }
 
 /* ---- グリッドモード: 週行ラッパー + 連続バンドオーバーレイ ---- */
@@ -2758,6 +3090,11 @@ select {
   padding: 48px 16px;
   z-index: 70;
   overflow-y: auto;
+}
+/* 設定アコーディオン（overflow + radius）の中から開いても切れないよう、body 直下に出す */
+.overlay.confirm-overlay {
+  z-index: 1000;
+  align-items: center;
 }
 .modal {
   background: var(--washi-raised);
@@ -4405,6 +4742,8 @@ select {
 }
 .gantt-axis-hour.biz {
   background: transparent;
+  color: var(--text);
+  font-weight: 700;
 }
 .gantt-hour-col {
   position: absolute;
@@ -4531,13 +4870,17 @@ select {
 }
 .gantt-bar.leaf.dragging {
   cursor: grabbing;
-  box-shadow: 0 4px 12px rgba(33, 32, 27, 0.2);
-  border-color: var(--sumi);
+  border-color: var(--primary-deep);
+  border-width: 2px;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 45%, transparent),
+    0 4px 12px rgba(33, 32, 27, 0.2);
+  z-index: 4;
 }
 .gantt-bar.leaf.is-multi-selected {
   border-color: var(--primary-deep);
   border-width: 2px;
-  box-shadow: 0 0 0 1px var(--primary-deep);
+  box-shadow: 0 0 0 2px var(--primary-deep);
 }
 .gantt-matrix.axis-locked:not(.hour-zoom) .gantt-bar.leaf {
   cursor: default;
@@ -4679,8 +5022,9 @@ select {
   box-shadow: 0 0 0 2px var(--primary-light);
 }
 .gantt-bar.is-link-target {
-  outline: 1px solid var(--primary-deep);
-  outline-offset: 1px;
+  outline: 2px solid var(--primary-deep);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 28%, transparent);
 }
 .gantt-bar.is-link-reject {
   outline: 1px solid var(--shu);
@@ -5108,6 +5452,15 @@ select {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.wbs-detail-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wbs-detail-actions .wbs-detail-edit {
+  margin-left: 0;
 }
 .wbs-detail-edit {
   margin-left: auto;

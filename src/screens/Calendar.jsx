@@ -17,6 +17,7 @@ import {
 import { getJapaneseHolidays } from '../lib/holidays.js'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 import TaskList from '../components/TaskList.jsx'
+import DayTimeline from '../components/DayTimeline.jsx'
 
 const DOW = ['月', '火', '水', '木', '金']
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
@@ -277,6 +278,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   }, [effectiveTasks, projectFilter, hiddenIds])
 
   const rows = useMemo(() => {
+    if (viewMode === 'day') return []
     if (viewMode === 'week') return weekRows(anchor)
     if (viewMode === 'twoweek') return twoWeekRows(anchor)
     return monthRows(month)
@@ -284,24 +286,52 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
 
   const holidayMap = useMemo(() => {
     const years = new Set()
+    if (selected) years.add(Number(selected.slice(0, 4)))
     for (const row of rows) for (const d of row) if (d) years.add(Number(d.slice(0, 4)))
     const map = new Map()
     for (const y of years) for (const [d, name] of getJapaneseHolidays(y)) map.set(d, name)
     return map
-  }, [rows])
+  }, [rows, selected])
+
+  function syncAroundDate(d) {
+    setAnchor(weekStart(d))
+    const [y, m] = d.split('-').map(Number)
+    setMonth({ year: y, month: m })
+  }
+
+  function enterDayView(dateStr) {
+    setSelected(dateStr)
+    syncAroundDate(dateStr)
+    setViewMode('day')
+  }
 
   function navPrev() {
+    if (viewMode === 'day') {
+      const d = addDays(selected, -1)
+      setSelected(d)
+      syncAroundDate(d)
+      return
+    }
     if (viewMode === 'week') setAnchor((a) => addDays(a, -7))
     else if (viewMode === 'twoweek') setAnchor((a) => addDays(a, -14))
     else setMonth((m) => addMonth(m, -1))
   }
   function navNext() {
+    if (viewMode === 'day') {
+      const d = addDays(selected, 1)
+      setSelected(d)
+      syncAroundDate(d)
+      return
+    }
     if (viewMode === 'week') setAnchor((a) => addDays(a, 7))
     else if (viewMode === 'twoweek') setAnchor((a) => addDays(a, 14))
     else setMonth((m) => addMonth(m, 1))
   }
 
   function headLabel() {
+    if (viewMode === 'day') {
+      return `${formatMonthDayJP(selected)}（${formatWeekdayJP(selected)}）`
+    }
     if (viewMode === 'month') return monthLabel(month)
     const endDate = addDays(anchor, viewMode === 'week' ? 4 : 11)
     return `${formatMonthDayJP(anchor)}〜${formatMonthDayJP(endDate)}`
@@ -370,28 +400,46 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     })
   }
 
-  const VIEW_LABELS = { week: '今週', twoweek: '2週間', month: '1か月' }
+  const VIEW_LABELS = { day: '1日', week: '今週', twoweek: '2週間', month: '1か月' }
   const flatDates = useMemo(() => rows.flat().filter(Boolean), [rows])
 
   return (
     <div>
       <div className="cal-head">
         <button className="btn btn-sm" onClick={navPrev}>‹</button>
-        <div className="m">{headLabel()}</div>
+        <div className="m">
+          {headLabel()}
+          {viewMode === 'day' && holidayMap.get(selected) && (
+            <span className="cal-day-holiday">{holidayMap.get(selected)}</span>
+          )}
+        </div>
         <button className="btn btn-sm" onClick={navNext}>›</button>
         <div className="cal-view-toggle">
           {Object.entries(VIEW_LABELS).map(([v, label]) => (
-            <button key={v} className={`btn btn-sm${viewMode === v ? ' btn-primary' : ''}`} onClick={() => setViewMode(v)}>
+            <button
+              key={v}
+              className={`btn btn-sm${viewMode === v ? ' btn-primary' : ''}`}
+              onClick={() => {
+                if (v === 'day') enterDayView(selected || today)
+                else setViewMode(v)
+              }}
+            >
               {label}
             </button>
           ))}
-          <div className="cal-layout-divider" />
-          <button className={`btn btn-sm${layoutMode === 'grid' ? ' btn-primary' : ''}`} title="グリッド表示" onClick={() => setLayoutMode('grid')}>⊞</button>
-          <button className={`btn btn-sm${layoutMode === 'list' ? ' btn-primary' : ''}`} title="リスト表示" onClick={() => setLayoutMode('list')}>☰</button>
+          {viewMode !== 'day' && (
+            <>
+              <div className="cal-layout-divider" />
+              <button className={`btn btn-sm${layoutMode === 'grid' ? ' btn-primary' : ''}`} title="グリッド表示" onClick={() => setLayoutMode('grid')}>⊞</button>
+              <button className={`btn btn-sm${layoutMode === 'list' ? ' btn-primary' : ''}`} title="リスト表示" onClick={() => setLayoutMode('list')}>☰</button>
+            </>
+          )}
         </div>
       </div>
 
-      {layoutMode === 'grid' ? (
+      {viewMode === 'day' ? (
+        <DayTimeline date={selected} tasks={selectedTasks} />
+      ) : layoutMode === 'grid' ? (
         <div className={`cal-grid-wrapper cal-view-${viewMode}`}>
           {/* Day-of-week header */}
           <div className="cal-dow-row">
@@ -423,6 +471,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                       data-date={dateStr}
                       className={cls.join(' ')}
                       onClick={() => setSelected(dateStr)}
+                      onDoubleClick={() => enterDayView(dateStr)}
                       onDragOver={(e) => { e.preventDefault(); setDragOver(dateStr) }}
                       onDragLeave={() => setDragOver((d) => (d === dateStr ? null : d))}
                       onDrop={(e) => handleDrop(e, dateStr)}
@@ -522,6 +571,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                 key={dateStr}
                 className={cls.join(' ')}
                 onClick={() => setSelected(dateStr)}
+                onDoubleClick={() => enterDayView(dateStr)}
                 onDragOver={(e) => { e.preventDefault(); setDragOver(dateStr) }}
                 onDragLeave={() => setDragOver((d) => (d === dateStr ? null : d))}
                 onDrop={(e) => handleDrop(e, dateStr)}
@@ -559,7 +609,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
         </div>
       )}
 
-      {selected && (
+      {viewMode !== 'day' && selected && (
         <div className="cal-day-list">
           <h3>
             {formatMonthDayJP(selected)}（{formatWeekdayJP(selected)}）
