@@ -10,6 +10,7 @@ import {
   getSavedGanttBarColor,
 } from '../lib/ganttBarColor.js'
 import { setIconMode, useIconMode, setBarLabel, useBarLabel } from '../lib/iconMode.js'
+import { CALENDAR_VIEWS, setCalendarDefaultView, useCalendarDefaultView } from '../lib/calendarView.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { ColorPickerSwatch, SettingsAccordion } from './settingsShared.jsx'
@@ -36,6 +37,7 @@ export default function SettingsModal({ onClose }) {
   const [openSection, setOpenSection] = useState('appearance')
   const iconMode = useIconMode()
   const barLabel = useBarLabel()
+  const calendarView = useCalendarDefaultView()
 
   function toggleSection(id) {
     setOpenSection((prev) => (prev === id ? null : id))
@@ -126,6 +128,21 @@ export default function SettingsModal({ onClose }) {
               <button className={theme === THEMES.dark ? 'active' : ''} onClick={() => applyTheme(THEMES.dark)}>ダーク</button>
               <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
               <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
+            </div>
+            <div className="section-title">カレンダーの表示</div>
+            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+              カレンダーを開いたときの表示です。未設定のときは1日です。カレンダー上の切り替えとも同じ設定を使います。
+            </p>
+            <div className="view-toggle" style={{ marginLeft: 0 }}>
+              {CALENDAR_VIEWS.map((v) => (
+                <button
+                  key={v.id}
+                  className={calendarView === v.id ? 'active' : ''}
+                  onClick={() => setCalendarDefaultView(v.id)}
+                >
+                  {v.label}
+                </button>
+              ))}
             </div>
             <div className="section-title">WBSボタン表示</div>
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>

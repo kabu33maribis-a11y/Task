@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import {
   Trash2, Plus, FileSpreadsheet, Maximize2, Calendar, CalendarDays, CheckCircle2,
-  Lock, Unlock, ChevronsUpDown, ChevronsDownUp, CornerDownRight,
+  Lock, Unlock, ChevronsUpDown, ChevronsDownUp, CornerDownRight, X,
 } from 'lucide-react'
 import { useIconMode, useBarLabel } from '../lib/iconMode.js'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
@@ -13,6 +13,7 @@ import {
   prevSibling,
   flattenVisible,
   filterCompletedTree,
+  filterTreeByQuery,
   isSelfOrDescendant,
   descendantIds,
   ganttHeadH,
@@ -184,6 +185,13 @@ function WbsGantt({ project, multi }) {
     const s = localStorage.getItem(SHOW_COMPLETED_KEY)
     return s === null ? true : s === '1'
   })
+  const [taskQueryInput, setTaskQueryInput] = useState('')
+  const [taskQuery, setTaskQuery] = useState('')
+  // 入力中は少し待ってから絞り込み（キーストロークごとの再計算を抑える）
+  useEffect(() => {
+    const t = setTimeout(() => setTaskQuery(taskQueryInput), 250)
+    return () => clearTimeout(t)
+  }, [taskQueryInput])
   const [axisLocked, setAxisLocked] = useState(() => localStorage.getItem(AXIS_LOCKED_KEY) === '1')
   const [hourRangeDays, setHourRangeDays] = useState(() => {
     const n = Number(localStorage.getItem(HOUR_RANGE_DAYS_KEY))
@@ -305,12 +313,30 @@ function WbsGantt({ project, multi }) {
     return map
   }, [state.checklistItems])
 
-  const displayRoots = useMemo(
+  const baseDisplayRoots = useMemo(
     () => (showCompleted ? roots : filterCompletedTree(roots)),
     [roots, showCompleted],
   )
 
-  const visible = useMemo(() => flattenVisible(displayRoots, collapsed), [displayRoots, collapsed])
+  const displayRoots = useMemo(() => {
+    const q = taskQuery.trim()
+    return q ? filterTreeByQuery(baseDisplayRoots, q) : baseDisplayRoots
+  }, [baseDisplayRoots, taskQuery])
+
+  // 検索中は折りたたみを無視し、ヒットしたタスクが必ず見えるようにする
+  const visible = useMemo(
+    () => flattenVisible(displayRoots, taskQuery.trim() ? new Set() : collapsed),
+    [displayRoots, collapsed, taskQuery],
+  )
+
+  // 日付軸の幅は検索で変わらないよう、絞り込み前の全タスクから算出
+  const rangeBasis = useMemo(
+    () => flattenVisible(baseDisplayRoots, new Set()),
+    [baseDisplayRoots],
+  )
+
+  // 該当なし時も縦・横の目盛り行数を維持（検索前の行数、最低12行）
+  const emptyPlaceholderCount = Math.max(rangeBasis.length, 12)
 
   const projectRowIds = useMemo(
     () => displayRoots.filter((n) => n.isProject).map((n) => n.task.id),
@@ -366,7 +392,7 @@ function WbsGantt({ project, multi }) {
     }
     let min = null
     let max = null
-    for (const node of visible) {
+    for (const node of rangeBasis) {
       if (!node.span) continue
       min = !min || node.span.start < min ? node.span.start : min
       max = !max || node.span.end > max ? node.span.end : max
@@ -378,7 +404,7 @@ function WbsGantt({ project, multi }) {
     min = min < today ? min : today
     max = max > today ? max : today
     return { start: addDays(min, -2), end: addDays(max, 4) }
-  }, [visible, today, isHourZoom, focusDate, hourRangeDays])
+  }, [rangeBasis, today, isHourZoom, focusDate, hourRangeDays])
 
   const totalDays = diffDays(range.start, range.end) + 1
 
@@ -1120,9 +1146,13 @@ function WbsGantt({ project, multi }) {
     setHoveredId(id)
   }
 
-  const pct = overall.total ? Math.round((overall.done / overall.total) * 100) : 0
   const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
   const hasContent = multi ? visibleProjects.length > 0 : roots.length > 0
+  const emptyRowsMessage = taskQuery.trim()
+    ? '該当するタスクがありません。'
+    : !showCompleted && overall.total > 0
+      ? '完了タスクのみです。「完了」ボタンで表示できます。'
+      : 'タスクはまだありません。プロジェクト行の「＋子」または「タスクを追加」ボタンから追加してください。'
 
   const [hoverColDate, setHoverColDate] = useState(null)
   function onMatrixMouseMove(e) {
@@ -1170,15 +1200,32 @@ function WbsGantt({ project, multi }) {
             </div>
           )}
         </div>
-        <div className="wbs-overall">
-          <div className="wbs-bar wbs-bar-lg">
-            <span className="wbs-bar-fill" style={{ width: `${pct}%` }} />
-          </div>
-          <span className="wbs-count">
-            {pct}% <span className="wbs-count-sub">({overall.done}/{overall.total})</span>
-          </span>
-        </div>
         <div className="wbs-toolbar">
+          <div className={`wbs-search${taskQueryInput ? ' has-value' : ''}`}>
+            <input
+              type="text"
+              className="wbs-search-input"
+              value={taskQueryInput}
+              onChange={(e) => setTaskQueryInput(e.target.value)}
+              placeholder="タスクを検索"
+              aria-label="タスクを検索"
+            />
+            <button
+              type="button"
+              className="wbs-search-clear"
+              onClick={() => {
+                setTaskQueryInput('')
+                setTaskQuery('')
+              }}
+              title="検索をクリア"
+              aria-label="検索をクリア"
+              tabIndex={taskQueryInput ? 0 : -1}
+              disabled={!taskQueryInput}
+              aria-hidden={!taskQueryInput}
+            >
+              <X size={14} strokeWidth={2} aria-hidden />
+            </button>
+          </div>
           <button
             className="btn btn-sm btn-primary"
             onClick={() => setAddDialogOpen(true)}
@@ -1320,12 +1367,6 @@ function WbsGantt({ project, multi }) {
           {multi
             ? 'プロジェクトがありません。設定から追加してください。'
             : 'タスクはまだありません。「タスクを追加」ボタンから追加してください。'}
-        </p>
-      ) : rows.length === 0 ? (
-        <p className="empty">
-          {!showCompleted && overall.total > 0
-            ? '完了タスクのみです。「完了」ボタンで表示できます。'
-            : 'タスクはまだありません。プロジェクト行の「＋子」または「タスクを追加」ボタンから追加してください。'}
         </p>
       ) : (
         <div
@@ -1752,6 +1793,20 @@ function WbsGantt({ project, multi }) {
                 </div>
               )
             })}
+
+            {rows.length === 0 &&
+              Array.from({ length: emptyPlaceholderCount }, (_, i) => (
+                <div
+                  key={`empty-row-${i}`}
+                  className="gantt-matrix-row gantt-empty-row"
+                  style={{ height: ROW_H }}
+                >
+                  <div className="gantt-namecell" style={{ width: leftW }}>
+                    {i === 0 ? <p className="gantt-empty-msg">{emptyRowsMessage}</p> : null}
+                  </div>
+                  <div className="gantt-track" style={{ width: canvasW }} aria-hidden />
+                </div>
+              ))}
 
             {/* 現在時刻ライン（時間ズーム）— 行の後に置きトラック越しに見える */}
             {showNowLine && (

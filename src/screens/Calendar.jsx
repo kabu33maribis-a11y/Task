@@ -18,6 +18,7 @@ import { getJapaneseHolidays } from '../lib/holidays.js'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 import TaskList from '../components/TaskList.jsx'
 import DayTimeline from '../components/DayTimeline.jsx'
+import { CALENDAR_VIEWS, setCalendarDefaultView, useCalendarDefaultView } from '../lib/calendarView.js'
 
 const DOW = ['月', '火', '水', '木', '金']
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
@@ -182,7 +183,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   const projMap = useProjectMap()
   const hiddenIds = useHiddenProjectIds()
   const today = todayStr()
-  const [viewMode, setViewMode] = useState('week')
+  const viewMode = useCalendarDefaultView()
   const [layoutMode, setLayoutMode] = useState('grid')
   const [month, setMonth] = useState(currentMonth())
   const [anchor, setAnchor] = useState(() => weekStart(today))
@@ -302,7 +303,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   function enterDayView(dateStr) {
     setSelected(dateStr)
     syncAroundDate(dateStr)
-    setViewMode('day')
+    setCalendarDefaultView('day')
   }
 
   function navPrev() {
@@ -400,7 +401,6 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     })
   }
 
-  const VIEW_LABELS = { day: '1日', week: '今週', twoweek: '2週間', month: '1か月' }
   const flatDates = useMemo(() => rows.flat().filter(Boolean), [rows])
 
   return (
@@ -415,16 +415,16 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
         </div>
         <button className="btn btn-sm" onClick={navNext}>›</button>
         <div className="cal-view-toggle">
-          {Object.entries(VIEW_LABELS).map(([v, label]) => (
+          {CALENDAR_VIEWS.map((v) => (
             <button
-              key={v}
-              className={`btn btn-sm${viewMode === v ? ' btn-primary' : ''}`}
+              key={v.id}
+              className={`btn btn-sm${viewMode === v.id ? ' btn-primary' : ''}`}
               onClick={() => {
-                if (v === 'day') enterDayView(selected || today)
-                else setViewMode(v)
+                if (v.id === 'day') enterDayView(selected || today)
+                else setCalendarDefaultView(v.id)
               }}
             >
-              {label}
+              {v.label}
             </button>
           ))}
           {viewMode !== 'day' && (
@@ -438,7 +438,11 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
       </div>
 
       {viewMode === 'day' ? (
-        <DayTimeline date={selected} tasks={selectedTasks} />
+        <DayTimeline
+          date={selected}
+          tasks={selectedTasks}
+          defaultProjectId={projectFilter !== 'all' ? projectFilter : null}
+        />
       ) : layoutMode === 'grid' ? (
         <div className={`cal-grid-wrapper cal-view-${viewMode}`}>
           {/* Day-of-week header */}

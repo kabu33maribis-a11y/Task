@@ -3,6 +3,7 @@ import { useStore, useVisibleProjects, useHiddenProjectIds } from '../store/Stor
 import AddTaskBar from '../components/AddTaskBar.jsx'
 import TaskList from '../components/TaskList.jsx'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
+import { isInboxTask, parentIdSet } from '../lib/wbs.js'
 
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
 
@@ -12,15 +13,14 @@ export default function Inbox({ embedded = false, projectFilter = 'all' }) {
   const hiddenIds = useHiddenProjectIds()
   const [dragOver, setDragOver] = useState(false)
 
-  const inboxTasks = useMemo(
-    () =>
-      state.tasks
-        .filter((t) => !t.scheduled_date && t.status === 'TODO')
-        .filter((t) => !(t.project_id && hiddenIds.has(t.project_id)))
-        .filter((t) => projectFilter === 'all' || t.project_id === projectFilter)
-        .sort(bySort),
-    [state.tasks, projectFilter, hiddenIds],
-  )
+  const inboxTasks = useMemo(() => {
+    const parentIds = parentIdSet(state.tasks)
+    return state.tasks
+      .filter((t) => isInboxTask(t, parentIds))
+      .filter((t) => !(t.project_id && hiddenIds.has(t.project_id)))
+      .filter((t) => projectFilter === 'all' || t.project_id === projectFilter)
+      .sort(bySort)
+  }, [state.tasks, projectFilter, hiddenIds])
 
   function handleDrop(e) {
     e.preventDefault()

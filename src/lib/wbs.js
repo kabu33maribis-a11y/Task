@@ -22,6 +22,23 @@ function taskStart(task) {
   return task.start_date ?? task.scheduled_date ?? null
 }
 
+/** IDs of tasks that have at least one child. */
+export function parentIdSet(tasks) {
+  const ids = new Set()
+  for (const t of tasks) {
+    if (t.parent_id) ids.add(t.parent_id)
+  }
+  return ids
+}
+
+/**
+ * Inbox candidates: undated TODO leaves.
+ * Parents inherit span from children in WBS, so they are not "undated" work items.
+ */
+export function isInboxTask(task, parentIds) {
+  return task.status === 'TODO' && !task.scheduled_date && !parentIds.has(task.id)
+}
+
 const byTitle = (a, b) => {
   const cmp = (a.title || '').localeCompare(b.title || '', 'ja')
   return cmp !== 0 ? cmp : bySort(a, b)
@@ -295,6 +312,55 @@ export function filterCompletedTree(roots) {
       }
       if (node.allDone) continue
       const children = prune(node.children)
+      const { rollup, allDone, span } = aggregateChildren(children)
+      out.push({
+        ...node,
+        children,
+        rollup,
+        allDone,
+        span,
+        isLeaf: children.length === 0,
+      })
+    }
+    return out
+  }
+  return prune(roots)
+}
+
+/** Keep nodes whose title/wbsNo (or project name) matches query, plus ancestors. */
+export function filterTreeByQuery(roots, query) {
+  const q = (query || '').trim().toLowerCase()
+  if (!q) return roots
+
+  function nodeMatches(node) {
+    if (node.isProject) {
+      return (node.project?.name || '').toLowerCase().includes(q)
+    }
+    return (
+      (node.task?.title || '').toLowerCase().includes(q)
+      || (node.wbsNo || '').toLowerCase().includes(q)
+    )
+  }
+
+  function prune(nodes) {
+    const out = []
+    for (const node of nodes) {
+      if (node.isProject) {
+        const selfMatch = nodeMatches(node)
+        // Project name hit → show whole subtree; otherwise only matching branches
+        const children = selfMatch ? node.children : prune(node.children)
+        if (children.length === 0) continue
+        const { rollup, allDone, span } = aggregateChildren(children)
+        out.push({ ...node, children, rollup, allDone, span })
+        continue
+      }
+      const selfMatch = nodeMatches(node)
+      if (node.isLeaf) {
+        if (selfMatch) out.push(node)
+        continue
+      }
+      const children = prune(node.children)
+      if (!selfMatch && children.length === 0) continue
       const { rollup, allDone, span } = aggregateChildren(children)
       out.push({
         ...node,

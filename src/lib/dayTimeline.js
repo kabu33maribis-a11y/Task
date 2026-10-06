@@ -104,7 +104,11 @@ export function assignOverlapColumns(timedItems) {
   if (!timedItems.length) return []
   const sorted = [...timedItems].sort((a, b) => {
     if (a.startMins !== b.startMins) return a.startMins - b.startMins
-    return a.endMins - b.endMins
+    if (a.endMins !== b.endMins) return a.endMins - b.endMins
+    // Stable tie-break so equal times don't swap columns across renders
+    const idA = a.task?.id ?? ''
+    const idB = b.task?.id ?? ''
+    return idA < idB ? -1 : idA > idB ? 1 : 0
   })
 
   // Active intervals: { endMins, col }
@@ -203,6 +207,25 @@ export function blockToTimes(startMins, endMins) {
     startTime: minutesToTime(startMins),
     endTime: minutesToTime(endMins),
   }
+}
+
+/**
+ * Axis drag between two points (15-min snap). Order-independent:
+ * drag 10:00 → 11:00 or 11:00 → 10:00 both become 10:00–11:00.
+ * Same slot → minimum duration.
+ */
+export function rangeFromDrag(anchorMins, currentMins) {
+  const a = snapMinutes(clampMinutes(anchorMins, 0, DAY_MINUTES))
+  const b = snapMinutes(clampMinutes(currentMins, 0, DAY_MINUTES))
+  let startMins = Math.min(a, b)
+  let endMins = Math.max(a, b)
+  if (endMins <= startMins) {
+    endMins = clampMinutes(startMins + MIN_DURATION_MINS, MIN_DURATION_MINS, DAY_MINUTES)
+    if (endMins <= startMins) {
+      startMins = Math.max(0, endMins - MIN_DURATION_MINS)
+    }
+  }
+  return { startMins, endMins }
 }
 
 /** Hour labels 0..23 for the axis. */

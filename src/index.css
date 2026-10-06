@@ -117,11 +117,12 @@
   --nav-h: 60px;
 
   /* ── Typography ────────────────────────────────── */
-  --font-display: -apple-system, 'SF Pro Display', 'Hiragino Sans W7',
-    'Hiragino Kaku Gothic ProN W6', 'Yu Gothic', system-ui, sans-serif;
+  --font-display: -apple-system, 'SF Pro Display', 'Hiragino Sans',
+    'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
-  --font-mono: 'SF Mono', 'SFMono-Regular', 'Consolas', 'Menlo', monospace;
+    'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
+  /* 時刻・数値用。等幅フォントは読みづらいのでゴシック＋桁揃え */
+  --font-mono: var(--font-sans);
 
   /* ── WBS Gantt bars (overridable via settings) ─── */
   --gantt-bar-bg: #90909044;
@@ -229,8 +230,8 @@
   --r: 3px;
   --r-lg: 5px;
 
-  --font-display: 'Yu Mincho', 'Hiragino Mincho ProN', 'MS PMincho', serif;
-  --font-sans: 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+  --font-display: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
+  --font-sans: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
 }
 
 [data-theme="wabi-dark"] {
@@ -288,8 +289,8 @@
   --r: 3px;
   --r-lg: 5px;
 
-  --font-display: 'Yu Mincho', 'Hiragino Mincho ProN', 'MS PMincho', serif;
-  --font-sans: 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+  --font-display: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
+  --font-sans: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
 }
 
 [data-theme="wabi"] .dash-brand::before,
@@ -2713,6 +2714,598 @@ select {
 .cal-day-axis.drop-active {
   background: var(--primary-subtle);
 }
+.cal-day-axis.creating {
+  cursor: crosshair;
+}
+.cal-day-block.preview.is-create {
+  background: color-mix(in srgb, var(--primary) 28%, var(--washi-raised));
+  border: 2px dashed var(--primary-deep);
+  box-shadow: none;
+  z-index: 4;
+}
+/* ---- Day task dialog (1日タイムラインの追加／編集) -------------------- */
+.dtd-overlay {
+  z-index: 80;
+  align-items: center;
+  padding: max(16px, 4vh) 16px;
+  background: color-mix(in srgb, var(--sumi) 42%, transparent);
+  animation: dtd-overlay-in 160ms ease-out;
+}
+.dtd-dialog {
+  --dtd-pad: 22px;
+  max-width: 440px;
+  width: 100%;
+  max-height: min(90vh, 760px);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: dtd-dialog-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dtd-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px var(--dtd-pad) 0;
+}
+.dtd-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.dtd-eyebrow {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--sumi-faint);
+}
+.dtd-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--sumi);
+  line-height: 1.3;
+}
+.dtd-icon-btn {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sumi-soft);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.dtd-icon-btn:hover {
+  background: color-mix(in srgb, var(--sumi) 6%, transparent);
+  color: var(--sumi);
+}
+.dtd-icon-btn-sm {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  opacity: 0.55;
+}
+.dtd-icon-btn-sm:hover {
+  opacity: 1;
+}
+.dtd-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px var(--dtd-pad) 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dtd-title-field {
+  display: block;
+}
+.dtd-title-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1.5px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  padding: 6px 0 10px;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--sumi);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.dtd-title-input::placeholder {
+  color: var(--sumi-faint);
+  font-weight: 500;
+}
+.dtd-title-input:focus {
+  border-bottom-color: var(--primary-deep);
+}
+.dtd-card {
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--washi-sink);
+  padding: 12px 14px;
+}
+.dtd-schedule-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--sumi-soft);
+}
+.dtd-schedule-date,
+.dtd-schedule-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dtd-schedule-time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--sumi);
+}
+.dtd-schedule-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dtd-allday {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--washi-raised);
+  color: var(--sumi-soft);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.dtd-allday.is-on {
+  background: var(--sumi);
+  border-color: var(--sumi);
+  color: var(--washi);
+}
+.dtd-time-pair {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dtd-time-pair.is-disabled {
+  opacity: 0.38;
+  pointer-events: none;
+}
+.dtd-time-pair input[type='time'] {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--washi-raised);
+  color: var(--sumi);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 8px;
+}
+.dtd-time-pair input[type='time']:focus {
+  outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  outline-offset: 1px;
+  border-color: var(--primary-deep);
+}
+.dtd-time-sep {
+  flex: 0 0 auto;
+  color: var(--sumi-faint);
+  font-size: 13px;
+}
+.dtd-section {
+  margin: 0;
+}
+.dtd-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.dtd-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--sumi-faint);
+}
+.dtd-label-hint {
+  font-size: 11px;
+  color: var(--sumi-faint);
+  font-variant-numeric: tabular-nums;
+}
+.dtd-select-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.dtd-select-swatch {
+  position: absolute;
+  left: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+}
+.dtd-select-wrap.has-swatch .dtd-select {
+  padding-left: 26px;
+}
+.dtd-select {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--washi-raised);
+  color: var(--sumi);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.dtd-select:focus {
+  outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  outline-offset: 1px;
+  border-color: var(--primary-deep);
+}
+.dtd-empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--sumi-faint);
+  line-height: 1.5;
+}
+.dtd-assignees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dtd-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--washi-raised);
+  color: var(--sumi-soft);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.dtd-person:hover {
+  border-color: var(--rule-strong);
+  color: var(--sumi);
+}
+.dtd-person.is-on {
+  border-color: var(--person-color, var(--sumi));
+  background: color-mix(in srgb, var(--person-color, var(--sumi)) 12%, var(--washi-raised));
+  color: var(--sumi);
+}
+.dtd-person-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.dtd-priority {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--washi-sink);
+  border: 1px solid var(--rule);
+}
+.dtd-priority-btn {
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--sumi-soft);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+}
+.dtd-priority-btn:hover {
+  color: var(--sumi);
+}
+.dtd-priority-btn.is-on {
+  background: var(--washi-raised);
+  color: var(--sumi);
+  box-shadow: var(--shadow-xs);
+}
+.dtd-priority-btn.is-high.is-on {
+  color: #b33a2b;
+}
+.dtd-priority-btn.is-medium.is-on {
+  color: #9a6b14;
+}
+.dtd-priority-btn.is-low.is-on {
+  color: #3d6e8c;
+}
+.dtd-details {
+  border-top: 1px solid var(--rule);
+  padding-top: 4px;
+}
+.dtd-details-toggle {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px;
+  border: none;
+  background: transparent;
+  color: var(--sumi);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dtd-details-toggle > span:first-child {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.dtd-details-meta {
+  font-size: 11.5px;
+  color: var(--sumi-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dtd-details-chevron {
+  color: var(--sumi-faint);
+  transition: transform 0.15s ease;
+}
+.dtd-details-toggle.is-open .dtd-details-chevron {
+  transform: rotate(180deg);
+}
+.dtd-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 0 6px;
+  animation: dtd-details-in 160ms ease-out;
+}
+.dtd-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.dtd-check-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dtd-check-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dtd-check-list li.is-done .dtd-check-input {
+  color: var(--sumi-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--rule-strong);
+}
+.dtd-check-box {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--rule-strong);
+  border-radius: 5px;
+  background: var(--washi-raised);
+  color: var(--primary-deep);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.dtd-check-box.is-done {
+  background: color-mix(in srgb, var(--primary) 20%, var(--washi-raised));
+  border-color: var(--primary-deep);
+}
+.dtd-check-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sumi);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 6px;
+}
+.dtd-check-input:hover,
+.dtd-check-input:focus {
+  border-color: var(--rule);
+  background: var(--washi-raised);
+  outline: none;
+}
+.dtd-check-adder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--washi-raised) 70%, transparent);
+  color: var(--sumi-faint);
+}
+.dtd-check-adder input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--sumi);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 0;
+  outline: none;
+}
+.dtd-memo {
+  width: 100%;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--washi-raised);
+  color: var(--sumi);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 10px 12px;
+  resize: vertical;
+  min-height: 72px;
+}
+.dtd-memo:focus {
+  outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  outline-offset: 1px;
+  border-color: var(--primary-deep);
+}
+.dtd-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px var(--dtd-pad) 16px;
+  border-top: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--washi-raised) 92%, var(--washi-sink));
+}
+.dtd-foot-left {
+  min-width: 0;
+}
+.dtd-foot-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.dtd-kbd-hint {
+  font-size: 11px;
+  color: var(--sumi-faint);
+  letter-spacing: 0.01em;
+}
+.dtd-submit {
+  min-width: 72px;
+}
+.dtd-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.dtd-danger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sumi-faint);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.dtd-danger-btn:hover {
+  color: #b33a2b;
+  background: color-mix(in srgb, #b33a2b 8%, transparent);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@keyframes dtd-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dtd-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes dtd-details-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dtd-overlay,
+  .dtd-dialog,
+  .dtd-details-body {
+    animation: none;
+  }
+}
+@media (max-width: 480px) {
+  .dtd-grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .dtd-dialog {
+    max-height: 94vh;
+  }
+}
+[data-theme='wabi'] .dtd-dialog,
+[data-theme='wabi-dark'] .dtd-dialog {
+  border-radius: 6px;
+}
+[data-theme='wabi'] .dtd-card,
+[data-theme='wabi-dark'] .dtd-card {
+  border-radius: 6px;
+}
+[data-theme='wabi'] .dtd-allday.is-on,
+[data-theme='wabi-dark'] .dtd-allday.is-on {
+  background: var(--shu, #c0402e);
+  border-color: var(--shu, #c0402e);
+  color: #fff7f2;
+}
 .cal-day-off-band {
   position: absolute;
   left: 0;
@@ -3565,11 +4158,11 @@ select {
   border-radius: 4px;
   padding: 2px 6px;
 }
-.wbs-overall {
+.log-overall {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-left: auto;
+  margin: 14px 0 4px;
 }
 
 /* progress bar — 完了率をプロジェクト色で表示 */
@@ -3781,6 +4374,61 @@ select {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+.wbs-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 160px;
+  max-width: 240px;
+  flex: 1 1 160px;
+}
+.wbs-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 30px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  padding: 0 30px 0 10px;
+  font-size: 13px;
+  background: var(--washi-raised);
+  color: var(--sumi);
+}
+.wbs-search-input::placeholder {
+  color: var(--sumi-faint);
+}
+.wbs-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+.wbs-search-clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sumi-faint);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+.wbs-search.has-value .wbs-search-clear {
+  opacity: 1;
+  pointer-events: auto;
+}
+.wbs-search-clear:hover {
+  color: var(--sumi);
+  background: var(--washi-sink);
 }
 /* 表示トグル（土日・曜日・完了）: 色だけに頼らず ✓ マークと塗りで ON/OFF を示す */
 .btn-toggle {
@@ -4034,6 +4682,25 @@ select {
 .gantt-matrix {
   position: relative;
   isolation: isolate; /* own stacking context so the today-line can sit behind rows */
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.gantt-empty-row {
+  pointer-events: none;
+}
+.gantt-empty-row .gantt-namecell {
+  align-items: center;
+  padding: 0 12px;
+}
+.gantt-empty-msg {
+  margin: 0;
+  font-size: 13px;
+  color: var(--sumi-faint);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* header band — sticky to the top of the scroll surface */
@@ -4042,6 +4709,7 @@ select {
   top: 0;
   z-index: 4;
   display: flex;
+  flex: 0 0 auto;
   border-bottom: 1px solid var(--rule-strong);
 }
 .gantt-corner {
@@ -4193,6 +4861,7 @@ select {
 }
 .gantt-axis-day.today .gantt-axis-day-dow {
   font-size: 8px;
+  color: #fff;
 }
 .gantt-axis-day.weekend {
   background: rgba(100, 116, 139, 0.16);
@@ -4707,6 +5376,9 @@ select {
   font-size: 11px;
   color: var(--sumi-soft);
   font-weight: 400;
+}
+.gantt-axis-hour-day.today .gantt-axis-hour-day-dow {
+  color: inherit;
 }
 .gantt-axis-hours {
   display: flex;

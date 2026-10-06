@@ -4,6 +4,7 @@ import { todayStr, formatFullJP, formatConsoleDateRange, taskCoversDate, taskCon
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 import AddTaskBar from '../components/AddTaskBar.jsx'
 import TaskList from '../components/TaskList.jsx'
+import { isInboxTask, parentIdSet } from '../lib/wbs.js'
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 }
 const byPriority = (a, b) => {
@@ -88,8 +89,9 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
     const overdue = scoped
       .filter((t) => t.status === 'TODO' && t.scheduled_date && taskConsoleEndDate(t) < today)
       .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
+    const parentIds = parentIdSet(state.tasks)
     const inbox = scoped
-      .filter((t) => !t.scheduled_date && t.status === 'TODO')
+      .filter((t) => isInboxTask(t, parentIds))
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
     return { todaysByProject: byProject, overdue, inbox }

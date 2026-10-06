@@ -188,6 +188,20 @@ export default function Log({ embedded = false }) {
         </div>
       </div>
 
+      {data.rate !== null && (
+        <div className="log-overall">
+          <div className="wbs-bar wbs-bar-lg">
+            <span className="wbs-bar-fill" style={{ width: `${data.rate}%` }} />
+          </div>
+          <span className="wbs-count">
+            {data.rate}%{' '}
+            <span className="wbs-count-sub">
+              ({data.completedCount}/{data.completedCount + data.incompleteCount})
+            </span>
+          </span>
+        </div>
+      )}
+
       <div style={{ margin: '16px 0', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={copyMonthly} disabled={data.completedCount === 0}>
           {copied ? 'コピーしました' : '今月やったことをコピー'}

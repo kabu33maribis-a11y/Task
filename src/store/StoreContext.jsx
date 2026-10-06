@@ -390,7 +390,45 @@ function reducer(state, action) {
 
     case 'ADD_TASK': {
       const task = makeTask(action.input, state.tasks)
-      return { ...state, tasks: [...state.tasks, task] }
+      let next = { ...state, tasks: [...state.tasks, task] }
+      const now = stamp()
+      const assigneeIds = [...new Set(action.input.assignee_ids ?? [])].filter(Boolean)
+      if (assigneeIds.length) {
+        next = {
+          ...next,
+          taskAssignees: [
+            ...(next.taskAssignees ?? []),
+            ...assigneeIds.map((memberId) => ({
+              id: uid('a'),
+              task_id: task.id,
+              member_id: memberId,
+              created_at: now,
+            })),
+          ],
+        }
+      }
+      const checklistTitles = (action.input.checklist_titles ?? [])
+        .map((t) => (typeof t === 'string' ? t.trim() : ''))
+        .filter(Boolean)
+      if (checklistTitles.length) {
+        let items = [...(next.checklistItems ?? [])]
+        for (const title of checklistTitles) {
+          const item = makeChecklistItem(task.id, title, items)
+          items = [...items, item]
+        }
+        next = { ...next, checklistItems: items }
+      }
+      const memo = typeof action.input.memo === 'string' ? action.input.memo.trim() : ''
+      if (memo) {
+        next = {
+          ...next,
+          activities: [
+            ...next.activities,
+            { id: uid('a'), task_id: task.id, body: memo, created_at: now },
+          ],
+        }
+      }
+      return next
     }
 
     case 'UPDATE_TASK': {
@@ -956,6 +994,21 @@ async function doSyncToDb(prevState, nextState, action) {
         case 'ADD_TASK': {
           const task = nextState.tasks.find((t) => !prevState.tasks.some((p) => p.id === t.id))
           if (task) await dbUpsertTask(db, task)
+          for (const a of nextState.taskAssignees ?? []) {
+            if (!(prevState.taskAssignees ?? []).some((p) => p.id === a.id)) {
+              await dbUpsertTaskAssignee(db, a)
+            }
+          }
+          for (const item of nextState.checklistItems ?? []) {
+            if (!(prevState.checklistItems ?? []).some((p) => p.id === item.id)) {
+              await dbUpsertChecklistItem(db, item)
+            }
+          }
+          for (const act of nextState.activities ?? []) {
+            if (!prevState.activities.some((p) => p.id === act.id)) {
+              await dbUpsertActivity(db, act)
+            }
+          }
           break
         }
         case 'UPDATE_TASK':

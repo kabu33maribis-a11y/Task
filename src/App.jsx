@@ -3,6 +3,7 @@ import { check } from '@tauri-apps/plugin-updater'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { todayStr } from './lib/date.js'
+import { isInboxTask, parentIdSet } from './lib/wbs.js'
 import { StoreProvider, useStore } from './store/StoreContext.jsx'
 import { BottomNav } from './components/Nav.jsx'
 import UndoToast from './components/UndoToast.jsx'
@@ -89,7 +90,8 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
     return s ? parseFloat(s) : 57.5
   })
   const dashRef = useRef(null)
-  const inboxCount = state.tasks.filter((t) => !t.scheduled_date && t.status === 'TODO').length
+  const parentIds = parentIdSet(state.tasks)
+  const inboxCount = state.tasks.filter((t) => isInboxTask(t, parentIds)).length
   const close = () => setOverlay(null)
 
   function startResize(e) {

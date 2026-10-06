@@ -4,6 +4,7 @@ import { todayStr } from '../lib/date.js'
 import {
   BIZ_START_HOUR,
   BIZ_END_HOUR,
+  DAY_MINUTES,
   dayHeight,
   minutesToY,
   yToMinutes,
@@ -17,9 +18,12 @@ import {
   placeFromY,
   blockToTimes,
   hourLabels,
+  rangeFromDrag,
   DEFAULT_DROP_DURATION_MINS,
+  MIN_DURATION_MINS,
   isSingleDayOn,
 } from '../lib/dayTimeline.js'
+import DayAddTaskDialog from './DayAddTaskDialog.jsx'
 
 function getTaskColor(t, projMap, catMap) {
   return (
@@ -44,10 +48,11 @@ function nowMinutes() {
 }
 
 /**
- * Day timeline: all-day lane + vertical 0–24h axis with DnD scheduling.
- * @param {{ date: string, tasks: object[] }} props
+ * Day timeline: all-day lane + vertical 0–24h axis with DnD scheduling
+ * and empty-axis drag-to-create (15-min snap).
+ * @param {{ date: string, tasks: object[], defaultProjectId?: string|null }} props
  */
-export default function DayTimeline({ date, tasks }) {
+export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
   const { actions } = useStore()
   const catMap = useCategoryMap()
   const projMap = useProjectMap()
@@ -56,6 +61,8 @@ export default function DayTimeline({ date, tasks }) {
   const allDayRef = useRef(null)
   const didInitScroll = useRef(false)
   const [drag, setDrag] = useState(null)
+  const dragRef = useRef(null)
+  const [draft, setDraft] = useState(null)
   const [nowMins, setNowMins] = useState(nowMinutes)
   const today = todayStr()
   const isToday = date === today
@@ -66,26 +73,52 @@ export default function DayTimeline({ date, tasks }) {
   const { allDay, timed } = useMemo(() => partitionDayTasks(tasks, date), [tasks, date])
 
   const layoutTimed = useMemo(() => {
-    const effective = timed.map((item) => {
-      if (drag && drag.id === item.task.id && drag.kind !== 'schedule') {
+    // Columns from committed times only. Live drag must not re-sort / swap columns
+    // (otherwise moving a block past another flips left/right mid-drag).
+    const base = assignOverlapColumns(timed)
+    const isLiveTimedDrag =
+      drag && drag.kind !== 'schedule' && drag.kind !== 'create' && drag.id
+
+    let result = base.map((item) => {
+      if (isLiveTimedDrag && item.task.id === drag.id) {
         return { ...item, startMins: drag.startMins, endMins: drag.endMins }
       }
       return item
     })
-    // Preview for scheduling from all-day
+
+    // Preview for scheduling from all-day: never reshuffle existing columns.
     if (drag?.kind === 'schedule' && drag.startMins != null) {
       const task = allDay.find((t) => t.id === drag.id) || timed.find((t) => t.task.id === drag.id)?.task
       if (task) {
-        effective.push({
-          task,
-          startMins: drag.startMins,
-          endMins: drag.endMins,
-          preview: true,
-        })
+        const overlapping = result.filter(
+          (o) => o.startMins < drag.endMins && o.endMins > drag.startMins,
+        )
+        const usedCols = new Set(overlapping.map((o) => o.col))
+        let col = 0
+        while (usedCols.has(col)) col++
+        const baseColCount = overlapping.length
+          ? Math.max(...overlapping.map((o) => o.colCount))
+          : 1
+        result = [
+          ...result,
+          {
+            task,
+            startMins: drag.startMins,
+            endMins: drag.endMins,
+            preview: true,
+            col,
+            // May exceed siblings' colCount so preview sits further right without moving them
+            colCount: Math.max(baseColCount, col + 1),
+          },
+        ]
       }
     }
-    return assignOverlapColumns(effective)
+    return result
   }, [timed, drag, allDay])
+  const createPreview = useMemo(() => {
+    if (drag?.kind !== 'create' || drag.startMins == null) return null
+    return { startMins: drag.startMins, endMins: drag.endMins }
+  }, [drag])
 
   // 9:00 を上端にして、9–18時が最初に見える
   useEffect(() => {
@@ -108,6 +141,7 @@ export default function DayTimeline({ date, tasks }) {
   // Pointer drag
   useEffect(() => {
     if (!drag) return
+    dragRef.current = drag
 
     function clientYToAxisMins(clientY) {
       const axis = axisRef.current
@@ -126,86 +160,141 @@ export default function DayTimeline({ date, tasks }) {
     function onMove(e) {
       setDrag((d) => {
         if (!d) return d
-        if (d.kind === 'schedule') {
-          if (overAllDay(e.clientY)) {
-            return { ...d, startMins: null, endMins: null, overAxis: false }
+        let next = d
+        if (d.kind === 'create') {
+          const mins = clientYToAxisMins(e.clientY)
+          const moved = d.moved || Math.abs(e.clientY - d.startClientY) > 4
+          if (!moved) {
+            const placed = placeFromY(
+              minutesToY(d.anchorMins),
+              undefined,
+              DEFAULT_DROP_DURATION_MINS,
+            )
+            next = {
+              ...d,
+              startMins: placed.startMins,
+              endMins: placed.endMins,
+              moved: false,
+            }
+          } else {
+            next = { ...d, ...rangeFromDrag(d.anchorMins, mins), moved: true }
           }
-          const axis = axisRef.current
-          const scroll = scrollRef.current
-          if (!axis || !scroll) return d
-          const scrollRect = scroll.getBoundingClientRect()
-          const inScroll =
-            e.clientX >= scrollRect.left &&
-            e.clientX <= scrollRect.right &&
-            e.clientY >= scrollRect.top &&
-            e.clientY <= scrollRect.bottom
-          if (!inScroll) {
-            return { ...d, startMins: null, endMins: null, overAxis: false }
+        } else if (d.kind === 'schedule') {
+          const moved = d.moved || Math.abs(e.clientY - d.startClientY) > 4
+          if (!d.canSchedule) {
+            next = { ...d, moved, startMins: null, endMins: null, overAxis: false }
+          } else if (overAllDay(e.clientY)) {
+            next = { ...d, moved, startMins: null, endMins: null, overAxis: false }
+          } else {
+            const axis = axisRef.current
+            const scroll = scrollRef.current
+            if (!axis || !scroll) return d
+            const scrollRect = scroll.getBoundingClientRect()
+            const inScroll =
+              e.clientX >= scrollRect.left &&
+              e.clientX <= scrollRect.right &&
+              e.clientY >= scrollRect.top &&
+              e.clientY <= scrollRect.bottom
+            if (!inScroll) {
+              next = { ...d, moved, startMins: null, endMins: null, overAxis: false }
+            } else {
+              const y = e.clientY - axis.getBoundingClientRect().top
+              const placed = placeFromY(
+                Math.max(0, Math.min(height, y)),
+                undefined,
+                DEFAULT_DROP_DURATION_MINS,
+              )
+              next = {
+                ...d,
+                moved,
+                startMins: placed.startMins,
+                endMins: placed.endMins,
+                overAxis: true,
+              }
+            }
           }
-          const y = e.clientY - axis.getBoundingClientRect().top
-          const placed = placeFromY(
-            Math.max(0, Math.min(height, y)),
-            undefined,
-            DEFAULT_DROP_DURATION_MINS,
-          )
-          return {
-            ...d,
-            startMins: placed.startMins,
-            endMins: placed.endMins,
-            overAxis: true,
-          }
-        }
-        if (d.kind === 'move') {
+        } else if (d.kind === 'move') {
           const axisTop = axisRef.current?.getBoundingClientRect().top ?? 0
           const startY = d.startClientY - axisTop
           const curY = e.clientY - axisTop
           const deltaMins = yToMinutes(curY) - yToMinutes(startY)
-          const next = moveBlock(d.origStartMins, d.origEndMins, deltaMins)
+          const movedBlock = moveBlock(d.origStartMins, d.origEndMins, deltaMins)
           const unschedule = overAllDay(e.clientY)
-          return { ...d, ...next, unschedule }
-        }
-        if (d.kind === 'start') {
+          const moved =
+            d.moved || Math.abs(e.clientY - d.startClientY) > 4 || unschedule
+          next = { ...d, ...movedBlock, unschedule, moved }
+        } else if (d.kind === 'start') {
           const mins = clientYToAxisMins(e.clientY)
-          return { ...d, ...resizeStart(d.origEndMins, mins), unschedule: false }
-        }
-        if (d.kind === 'end') {
+          next = { ...d, ...resizeStart(d.origEndMins, mins), unschedule: false }
+        } else if (d.kind === 'end') {
           const mins = clientYToAxisMins(e.clientY)
-          return { ...d, ...resizeEnd(d.origStartMins, mins), unschedule: false }
+          next = { ...d, ...resizeEnd(d.origStartMins, mins), unschedule: false }
         }
-        return d
+        dragRef.current = next
+        return next
       })
     }
 
     function onUp() {
-      setDrag((d) => {
-        if (!d) return null
-        const task = tasks.find((t) => t.id === d.id)
-        if (!task) return null
-
-        if (d.kind === 'schedule') {
-          if (d.overAxis && d.startMins != null && isSingleDayOn(task, date)) {
-            const { startTime, endTime } = blockToTimes(d.startMins, d.endMins)
-            actions.setTaskSchedule(d.id, date, date, startTime, endTime)
-          }
-          return null
-        }
-
-        if (d.unschedule) {
-          actions.updateTask(d.id, { start_time: null, end_time: null })
-          return null
-        }
-
-        const { startTime, endTime } = blockToTimes(d.startMins, d.endMins)
-        if (
-          d.startMins !== d.origStartMins ||
-          d.endMins !== d.origEndMins
-        ) {
-          actions.setTaskSchedule(d.id, date, date, startTime, endTime)
-        }
-        return null
-      })
+      const d = dragRef.current
+      dragRef.current = null
+      setDrag(null)
       document.documentElement.style.cursor = ''
       document.documentElement.style.userSelect = ''
+      if (!d) return
+
+      if (d.kind === 'create') {
+        let startMins = d.startMins
+        let endMins = d.endMins
+        if (!d.moved) {
+          const placed = placeFromY(
+            minutesToY(d.anchorMins),
+            undefined,
+            DEFAULT_DROP_DURATION_MINS,
+          )
+          startMins = placed.startMins
+          endMins = placed.endMins
+        } else if (endMins - startMins < MIN_DURATION_MINS) {
+          const r = rangeFromDrag(d.anchorMins, d.anchorMins + MIN_DURATION_MINS)
+          startMins = r.startMins
+          endMins = r.endMins
+        }
+        if (startMins != null && endMins != null && endMins > startMins) {
+          const { startTime, endTime } = blockToTimes(startMins, endMins)
+          setDraft({ startTime, endTime, startMins, endMins })
+        }
+        return
+      }
+
+      const task = tasks.find((t) => t.id === d.id)
+      if (!task) return
+
+      if (d.kind === 'schedule') {
+        if (d.canSchedule && d.overAxis && d.startMins != null && isSingleDayOn(task, date)) {
+          const { startTime, endTime } = blockToTimes(d.startMins, d.endMins)
+          actions.setTaskSchedule(d.id, date, date, startTime, endTime)
+          return
+        }
+        if (!d.moved) {
+          setDraft({ taskId: d.id })
+        }
+        return
+      }
+
+      if (d.kind === 'move' && !d.moved && !d.unschedule) {
+        setDraft({ taskId: d.id })
+        return
+      }
+
+      if (d.unschedule) {
+        actions.updateTask(d.id, { start_time: null, end_time: null })
+        return
+      }
+
+      const { startTime, endTime } = blockToTimes(d.startMins, d.endMins)
+      if (d.startMins !== d.origStartMins || d.endMins !== d.origEndMins) {
+        actions.setTaskSchedule(d.id, date, date, startTime, endTime)
+      }
     }
 
     document.addEventListener('mousemove', onMove)
@@ -214,14 +303,14 @@ export default function DayTimeline({ date, tasks }) {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
-  }, [!!drag, drag?.id, actions, date, tasks, height])
+  }, [!!drag, drag?.id, drag?.kind, actions, date, tasks, height])
 
   function startTimedDrag(e, item, kind) {
     e.preventDefault()
     e.stopPropagation()
     document.documentElement.style.cursor = kind === 'move' ? 'grabbing' : 'ns-resize'
     document.documentElement.style.userSelect = 'none'
-    setDrag({
+    const next = {
       id: item.task.id,
       kind,
       origStartMins: item.startMins,
@@ -230,23 +319,57 @@ export default function DayTimeline({ date, tasks }) {
       endMins: item.endMins,
       startClientY: e.clientY,
       unschedule: false,
-    })
+      moved: false,
+    }
+    dragRef.current = next
+    setDrag(next)
   }
 
   function startAllDaySchedule(e, task) {
-    if (!isSingleDayOn(task, date)) return
     e.preventDefault()
     e.stopPropagation()
-    document.documentElement.style.cursor = 'grabbing'
+    const canSchedule = isSingleDayOn(task, date)
+    document.documentElement.style.cursor = canSchedule ? 'grabbing' : 'pointer'
     document.documentElement.style.userSelect = 'none'
-    setDrag({
+    const next = {
       id: task.id,
       kind: 'schedule',
+      canSchedule,
       startMins: null,
       endMins: null,
       overAxis: false,
       startClientY: e.clientY,
-    })
+      moved: false,
+    }
+    dragRef.current = next
+    setDrag(next)
+  }
+
+  function startCreate(e) {
+    if (e.button !== 0) return
+    if (draft) return
+    if (e.target.closest('.cal-day-block')) return
+    e.preventDefault()
+    const axis = axisRef.current
+    if (!axis) return
+    const y = e.clientY - axis.getBoundingClientRect().top
+    const anchorMins = Math.min(
+      DAY_MINUTES - MIN_DURATION_MINS,
+      yToMinutes(Math.max(0, Math.min(height, y))),
+    )
+    const placed = placeFromY(minutesToY(anchorMins), undefined, DEFAULT_DROP_DURATION_MINS)
+    document.documentElement.style.cursor = 'crosshair'
+    document.documentElement.style.userSelect = 'none'
+    const next = {
+      kind: 'create',
+      anchorMins,
+      startMins: placed.startMins,
+      endMins: placed.endMins,
+      startClientY: e.clientY,
+      moved: false,
+    }
+    dragRef.current = next
+    setDrag(next)
   }
 
   const hours = hourLabels()
@@ -272,7 +395,11 @@ export default function DayTimeline({ date, tasks }) {
                 key={t.id}
                 className={`cal-day-allday-chip${t.status === 'DONE' ? ' done' : ''}${multi ? ' multi' : ''}${dragging ? ' dragging' : ''}`}
                 style={st}
-                title={multi ? `${t.title}（複数日・時間軸へは移動できません）` : `${t.title}（ドラッグして時間を設定）`}
+                title={
+                  multi
+                    ? `${t.title}（クリックで編集）`
+                    : `${t.title}（クリックで編集／ドラッグで時間を設定）`
+                }
                 onMouseDown={(e) => startAllDaySchedule(e, t)}
               >
                 {t.title}
@@ -299,8 +426,10 @@ export default function DayTimeline({ date, tasks }) {
 
           <div
             ref={axisRef}
-            className={`cal-day-axis${drag?.kind === 'schedule' && drag.overAxis ? ' drop-active' : ''}`}
+            className={`cal-day-axis${drag?.kind === 'schedule' && drag.overAxis ? ' drop-active' : ''}${drag?.kind === 'create' ? ' creating' : ''}`}
             style={{ height }}
+            onMouseDown={startCreate}
+            title="クリックまたはドラッグでタスクを追加"
           >
             <div className="cal-day-off-band" style={{ top: 0, height: bizTop }} />
             <div
@@ -331,6 +460,39 @@ export default function DayTimeline({ date, tasks }) {
               </div>
             )}
 
+            {createPreview && (() => {
+              const rawTop = minutesToY(createPreview.startMins)
+              const rawH = Math.max(minutesToY(createPreview.endMins) - rawTop, 16)
+              const times = blockToTimes(createPreview.startMins, createPreview.endMins)
+              const timeLabel = `${times.startTime}–${times.endTime}`
+              const h = Math.max(rawH - 6, 16)
+              const split = h >= 40
+              return (
+                <div
+                  className="cal-day-block preview is-create"
+                  style={{
+                    top: rawTop + 3,
+                    height: h,
+                    left: 2,
+                    right: 2,
+                    width: 'auto',
+                  }}
+                >
+                  {split && (
+                    <>
+                      <span className="cal-day-drag-time is-start">{times.startTime}</span>
+                      <span className="cal-day-drag-time is-end">{times.endTime}</span>
+                    </>
+                  )}
+                  {!split && (
+                    <span className="cal-day-drag-time is-both">{timeLabel}</span>
+                  )}
+                  <div className="cal-day-block-title">新規タスク</div>
+                  <div className="cal-day-block-time">{timeLabel}</div>
+                </div>
+              )
+            })()}
+
             {layoutTimed.map(({ task: t, startMins, endMins, col, colCount, preview }) => {
               const color = getTaskColor(t, projMap, catMap)
               const rawTop = minutesToY(startMins)
@@ -343,7 +505,7 @@ export default function DayTimeline({ date, tasks }) {
                 width: `calc(${(1 / colCount) * 100}% - 4px)`,
                 ...taskBlockStyle(color, t.status),
               }
-              const isDragging = drag?.id === t.id && drag.kind !== 'schedule'
+              const isDragging = drag?.id === t.id && drag.kind !== 'schedule' && drag.kind !== 'create'
               const cls = [
                 'cal-day-block',
                 t.status === 'DONE' ? 'done' : '',
@@ -360,7 +522,7 @@ export default function DayTimeline({ date, tasks }) {
                   key={preview ? `preview-${t.id}` : t.id}
                   className={cls}
                   style={st}
-                  title={`${t.title} ${timeLabel}`}
+                  title={`${t.title} ${timeLabel}（クリックで編集）`}
                   onMouseDown={(e) => {
                     if (preview) return
                     if (e.target.closest('.cal-day-block-handle')) return
@@ -396,6 +558,17 @@ export default function DayTimeline({ date, tasks }) {
           </div>
         </div>
       </div>
+
+      {draft && (
+        <DayAddTaskDialog
+          date={date}
+          startTime={draft.startTime}
+          endTime={draft.endTime}
+          taskId={draft.taskId ?? null}
+          defaultProjectId={defaultProjectId}
+          onClose={() => setDraft(null)}
+        />
+      )}
     </div>
   )
 }
