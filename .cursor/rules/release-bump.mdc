@@ -16,3 +16,18 @@ alwaysApply: true
 7. `gh run watch` で Release ワークフロー完了まで待たなくてよい。
 
 タグ push までがデプロイ。push だけ、タグなし、は完了ではない。
+
+## バージョン書き換え（文字化け防止・必須）
+
+Windows PowerShell の `Get-Content` / `Set-Content` / `-replace` で JSON・TOML を書き換えると、UTF-8 日本語が壊れる（過去に `tauri.conf.json` の `"title": "タスク管理"` が文字化けし、`Couldn't locate or parse tauri config.` でビルド不能になった）。
+
+**禁止:** PowerShell でこれらのファイルを丸ごと読み書きして version だけ差し替えること。
+
+**必須手順:**
+1. version の更新は **Node.js（`fs.readFileSync` / `writeFileSync`、encoding `'utf8'`）** か、エディタの StrReplace/Write ツールで行う。
+2. `tauri.conf.json` は書き込み後に必ず `JSON.parse` で検証する（失敗したらコミットしない）。
+3. 検証例:
+   ```bash
+   node -e "const j=require('./src-tauri/tauri.conf.json'); if(!j.version||!j.app?.windows?.[0]?.title) throw new Error('invalid'); console.log('ok', j.version, j.app.windows[0].title)"
+   ```
+4. タイトルなど日本語フィールドを壊していないこと（例: `"タスク管理"`）を確認してから commit / tag する。

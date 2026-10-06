@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "タスク管琁E,
+        "title": "タスク管理",
         "width": 800,
         "height": 600,
         "resizable": true,

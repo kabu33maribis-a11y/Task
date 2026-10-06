@@ -248,6 +248,8 @@ npm run ai:smoke "明日までにレポート提出"
 
 タグ push まで完了して初めてデプロイ完了。push だけ・タグなし、は未完了。
 
+**文字化け防止（必須）:** Windows PowerShell の `Get-Content` / `Set-Content` で `tauri.conf.json` 等を書き換えると UTF-8 日本語が壊れ、`Couldn't locate or parse tauri config.` になる。version 更新は Node.js（`utf8`）かエディタの StrReplace/Write のみ。書き込み後は `JSON.parse` で検証し、`"title": "タスク管理"` が残っていることを確認してから commit / tag する。
+
 （同じルールが `.cursor/rules/release-bump.mdc` にも Cursor 用として定義されている。両ツールで挙動を揃えるため、変更する場合は両方更新すること。）
 
 ## よくある編集ファイル
