@@ -36,8 +36,10 @@ function getTaskColor(t, projMap, catMap) {
 function taskBlockStyle(color, status) {
   if (!color) return undefined
   const done = status === 'DONE'
+  // 半透明色を不透明な地（CSS の background-color）の上に重ね、時間罫線が透けないようにする
+  const tint = color + (done ? '22' : '55')
   return {
-    backgroundColor: color + (done ? '22' : '55'),
+    backgroundImage: `linear-gradient(${tint}, ${tint})`,
     borderLeft: `3px solid ${color}${done ? '66' : ''}`,
   }
 }

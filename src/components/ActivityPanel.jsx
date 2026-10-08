@@ -17,13 +17,25 @@ function ActivityItem({ activity }) {
   const [draft, setDraft] = useState(activity.body)
   const taRef = useRef(null)
 
+  function fit() {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = el.scrollHeight + 'px'
+  }
+
   useEffect(() => {
     if (editing) {
       taRef.current?.focus()
       const len = taRef.current?.value.length ?? 0
       taRef.current?.setSelectionRange(len, len)
+      fit()
     }
   }, [editing])
+
+  useEffect(() => {
+    if (editing) fit()
+  }, [draft, editing])
 
   function commit() {
     const b = draft.trim()
@@ -39,6 +51,7 @@ function ActivityItem({ activity }) {
         <textarea
           ref={taRef}
           className="activity-edit-ta"
+          rows={1}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}

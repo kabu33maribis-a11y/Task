@@ -80,6 +80,29 @@ export default function Log({ embedded = false }) {
     const SEP = '━'.repeat(28)
     const lines = []
 
+    // タスクごとのチェックリスト・メモ（AI に読ませてまとめてもらう用途）
+    const pushDetails = (t) => {
+      const items = (state.checklistItems ?? [])
+        .filter((i) => i.task_id === t.id)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      const memos = (state.activities ?? [])
+        .filter((a) => a.task_id === t.id && a.body)
+        .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+      if (items.length > 0) {
+        lines.push('      チェックリスト:')
+        for (const i of items) lines.push(`        - ${i.title}`)
+      }
+      if (memos.length > 0) {
+        lines.push('      メモ:')
+        for (const m of memos) {
+          const when = m.created_at ? `${isoToDateStr(m.created_at)} ` : ''
+          const [first, ...rest] = String(m.body).split('\n')
+          lines.push(`        - ${when}${first}`)
+          for (const r of rest) lines.push(`          ${r}`)
+        }
+      }
+    }
+
     lines.push(`■ ${monthLabel(month)} 月次レポート`)
     lines.push(`出力日: ${formatFullJP(today)}`)
     lines.push('')
@@ -114,6 +137,7 @@ export default function Log({ embedded = false }) {
         for (const t of tasks) {
           const cat = t.category_id && catMap.get(t.category_id) ? ` [${catMap.get(t.category_id).name}]` : ''
           lines.push(`  ✓ ${t.title}${cat}`)
+          pushDetails(t)
         }
         lines.push('')
       }
@@ -128,6 +152,7 @@ export default function Log({ embedded = false }) {
         const dateNote = t.scheduled_date ? `  ${formatMonthDayJP(t.scheduled_date)}` : ''
         const carry = t.scheduled_date && t.scheduled_date < today ? '  ※翌月繰越' : ''
         lines.push(`  □ ${t.title}${cat}${dateNote}${carry}`)
+        pushDetails(t)
       }
       lines.push('')
     }
