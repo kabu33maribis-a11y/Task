@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { FolderKanban, Trash2, Users } from 'lucide-react'
 import { useStore } from '../store/StoreContext.jsx'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { projectMembersOf, sortedMembers } from '../lib/members.js'
-import { ColorPickerSwatch, SettingsAccordion } from './settingsShared.jsx'
+import { ColorPickerSwatch, SettingsShell } from './settingsShared.jsx'
 
 // マスタ: プロジェクト・メンバーは設定と切り離して独立管理する。
 export default function MasterModal({ onClose }) {
@@ -11,11 +11,7 @@ export default function MasterModal({ onClose }) {
   const [newProj, setNewProj] = useState('')
   const [newMember, setNewMember] = useState('')
   const [confirm, setConfirm] = useState(null)
-  const [openSection, setOpenSection] = useState('projects')
-
-  function toggleSection(id) {
-    setOpenSection((prev) => (prev === id ? null : id))
-  }
+  const [tab, setTab] = useState('projects')
 
   const sortedProjs = [...state.projects].sort((a, b) => a.sort_order - b.sort_order)
   const allMembers = sortedMembers(state.members)
@@ -34,23 +30,17 @@ export default function MasterModal({ onClose }) {
     }
   }
 
+  const tabs = [
+    { id: 'projects', label: 'プロジェクト', icon: FolderKanban, meta: sortedProjs.length },
+    { id: 'members', label: 'メンバー', icon: Users, meta: allMembers.length },
+  ]
+
   return (
     <>
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal settings-modal" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <button className="close-x" onClick={onClose} aria-label="閉じる">
-          ×
-        </button>
-        <h2>マスタ</h2>
-
-        <div className="settings-acc-list">
-          <SettingsAccordion
-            id="projects"
-            title="プロジェクト"
-            meta={sortedProjs.length}
-            openId={openSection}
-            onToggle={toggleSection}
-          >
+      <SettingsShell title="マスタ" tabs={tabs} activeId={tab} onChange={setTab} onClose={onClose}>
+          {tab === 'projects' && (
+          <>
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
               タスクをまとめる大枠。カレンダーではプロジェクトの色でラベルを見分けられます。非表示にするとカレンダー・WBSから隠れます。「メンバー」で担当者の候補になる所属メンバーを選べます。
             </p>
@@ -73,15 +63,11 @@ export default function MasterModal({ onClose }) {
                 追加
               </button>
             </div>
-          </SettingsAccordion>
+          </>
+          )}
 
-          <SettingsAccordion
-            id="members"
-            title="メンバー"
-            meta={allMembers.length}
-            openId={openSection}
-            onToggle={toggleSection}
-          >
+          {tab === 'members' && (
+          <>
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
               タスクの担当者として割り当てる人。プロジェクト設定で所属させると、そのプロジェクトのタスクで担当者候補に出ます（プロジェクト未設定のタスクでは全員が候補）。
             </p>
@@ -104,9 +90,9 @@ export default function MasterModal({ onClose }) {
                 追加
               </button>
             </div>
-          </SettingsAccordion>
-        </div>
-      </div>
+          </>
+          )}
+      </SettingsShell>
     </div>
     {confirm && (
       <ConfirmDialog

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { HardDrive, Palette, Shapes, Tag, Trash2 } from 'lucide-react'
 import { useStore, flushSync } from '../store/StoreContext.jsx'
 import { reconnectDb, resetDbConnection } from '../lib/db.js'
 import { getDbPath, pickDbFile, setDbPath } from '../lib/appConfig.js'
@@ -13,7 +13,7 @@ import { setIconMode, useIconMode, setBarLabel, useBarLabel } from '../lib/iconM
 import { CALENDAR_VIEWS, setCalendarDefaultView, useCalendarDefaultView } from '../lib/calendarView.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
-import { ColorPickerSwatch, SettingsAccordion } from './settingsShared.jsx'
+import { ColorPickerSwatch, SettingsShell } from './settingsShared.jsx'
 
 /** 旧設定（フォルダパス）は表示時に tasks.db を付与する */
 function formatDbPathDisplay(path) {
@@ -34,14 +34,10 @@ export default function SettingsModal({ onClose }) {
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
   const [theme, setTheme] = useState(getSavedTheme)
   const [ganttBarColor, setGanttBarColor] = useState(getSavedGanttBarColor)
-  const [openSection, setOpenSection] = useState('appearance')
+  const [tab, setTab] = useState('appearance')
   const iconMode = useIconMode()
   const barLabel = useBarLabel()
   const calendarView = useCalendarDefaultView()
-
-  function toggleSection(id) {
-    setOpenSection((prev) => (prev === id ? null : id))
-  }
 
   function applyTheme(t) {
     setTheme(setThemeOnDocument(t))
@@ -106,22 +102,31 @@ export default function SettingsModal({ onClose }) {
   const sortedCats = [...state.categories].sort((a, b) => a.sort_order - b.sort_order)
   const sortedTags = [...(state.tags ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
+  const tabs = [
+    { id: 'appearance', label: '表示', icon: Palette },
+    { id: 'tags', label: 'タグ', icon: Tag, meta: sortedTags.length },
+    { id: 'categories', label: 'カテゴリ', icon: Shapes, meta: sortedCats.length },
+    { id: 'data', label: 'データ', icon: HardDrive },
+  ]
+
   return (
     <>
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal settings-modal" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <button className="close-x" onClick={onClose} aria-label="閉じる">
-          ×
-        </button>
-        <h2>設定</h2>
-
-        <div className="settings-acc-list">
-          <SettingsAccordion
-            id="appearance"
-            title="表示"
-            openId={openSection}
-            onToggle={toggleSection}
-          >
+      <SettingsShell
+        title="設定"
+        tabs={tabs}
+        activeId={tab}
+        onChange={setTab}
+        onClose={onClose}
+        footer={
+          <div className="settings-version">
+            <span>タスク管理</span>
+            <span className="settings-version-num">v{version}</span>
+          </div>
+        }
+      >
+          {tab === 'appearance' && (
+          <>
             <div className="section-title" style={{ marginTop: 0 }}>表示モード</div>
             <div className="view-toggle" style={{ marginLeft: 0 }}>
               <button className={theme === THEMES.light ? 'active' : ''} onClick={() => applyTheme(THEMES.light)}>ライト</button>
@@ -177,15 +182,11 @@ export default function SettingsModal({ onClose }) {
                 </button>
               )}
             </div>
-          </SettingsAccordion>
+          </>
+          )}
 
-          <SettingsAccordion
-            id="tags"
-            title="タグ"
-            meta={sortedTags.length}
-            openId={openSection}
-            onToggle={toggleSection}
-          >
+          {tab === 'tags' && (
+          <>
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
               WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。子に別のタグを付けるとその配下だけ色が変わります。⋯メニューの「子にタグを付ける」で、親のタグを配下のタスクへ一括で付けられます。
             </p>
@@ -219,15 +220,11 @@ export default function SettingsModal({ onClose }) {
                 追加
               </button>
             </div>
-          </SettingsAccordion>
+          </>
+          )}
 
-          <SettingsAccordion
-            id="categories"
-            title="カテゴリ"
-            meta={sortedCats.length}
-            openId={openSection}
-            onToggle={toggleSection}
-          >
+          {tab === 'categories' && (
+          <>
             <div className="settings-list">
               {sortedCats.map((c) => (
                 <CategoryRow key={c.id} category={c} />
@@ -258,14 +255,11 @@ export default function SettingsModal({ onClose }) {
                 追加
               </button>
             </div>
-          </SettingsAccordion>
+          </>
+          )}
 
-          <SettingsAccordion
-            id="data"
-            title="データ"
-            openId={openSection}
-            onToggle={toggleSection}
-          >
+          {tab === 'data' && (
+          <>
             <div className="section-title" style={{ marginTop: 0 }}>データファイルの場所</div>
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
               既存の .db ファイルを選択します。OneDrive や Dropbox 上のファイルを指定すると複数PCで同期できます。
@@ -301,14 +295,9 @@ export default function SettingsModal({ onClose }) {
             >
               全データをリセット
             </button>
-          </SettingsAccordion>
-        </div>
-
-        <div className="settings-version">
-          <span>タスク管理</span>
-          <span className="settings-version-num">v{version}</span>
-        </div>
-      </div>
+          </>
+          )}
+      </SettingsShell>
     </div>
     {confirm && (
       <ConfirmDialog

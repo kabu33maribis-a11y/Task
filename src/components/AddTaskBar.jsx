@@ -8,10 +8,14 @@ function parseTitleLines(text) {
   return text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
 }
 
+const TEXTAREA_MAX_H = 120
+
 function autoResizeTextarea(el) {
   if (!el) return
   el.style.height = 'auto'
-  el.style.height = `${el.scrollHeight}px`
+  const next = Math.min(el.scrollHeight, TEXTAREA_MAX_H)
+  el.style.height = `${next}px`
+  el.style.overflowY = el.scrollHeight > TEXTAREA_MAX_H ? 'auto' : 'hidden'
 }
 
 // Quick-add bar. Goal: title + Enter to register in ~3 seconds.

@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 export const PRESET_COLORS = [
   '#C0402E', '#E07040', '#D4A820', '#7AAF3C',
@@ -60,23 +59,84 @@ export function ColorPickerSwatch({ color, onChange }) {
   )
 }
 
-export function SettingsAccordion({ id, title, meta, openId, onToggle, children }) {
-  const open = openId === id
+/**
+ * Settings-style modal body: vertical tabs on the left, one panel on the right.
+ * tabs: [{ id, label, icon?, meta? }]
+ */
+export function SettingsShell({ title, tabs, activeId, onChange, onClose, footer, children }) {
+  const baseId = useId()
+  const tabRefs = useRef({})
+  const active = tabs.find((t) => t.id === activeId) ?? tabs[0]
+
+  function onTabKeyDown(e) {
+    const i = tabs.findIndex((t) => t.id === active.id)
+    let next = null
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length]
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length]
+    else if (e.key === 'Home') next = tabs[0]
+    else if (e.key === 'End') next = tabs[tabs.length - 1]
+    if (!next) return
+    e.preventDefault()
+    onChange(next.id)
+    tabRefs.current[next.id]?.focus()
+  }
+
   return (
-    <div className={'settings-acc' + (open ? ' is-open' : '')}>
-      <button
-        type="button"
-        className="settings-acc-head"
-        aria-expanded={open}
-        onClick={() => onToggle(id)}
-      >
-        <span className="settings-acc-title">{title}</span>
-        {meta != null && meta !== '' && (
-          <span className="settings-acc-meta">{meta}</span>
-        )}
-        <ChevronDown size={16} strokeWidth={2} className="settings-acc-chevron" aria-hidden />
-      </button>
-      {open && <div className="settings-acc-body">{children}</div>}
+    <div
+      className="modal settings-modal settings-shell"
+      role="dialog"
+      aria-label={title}
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+    >
+      <header className="settings-shell-head">
+        <h2>{title}</h2>
+        <button className="close-x" onClick={onClose} aria-label="閉じる">
+          ×
+        </button>
+      </header>
+
+      <div className="settings-shell-body">
+        <nav className="settings-shell-nav">
+          <div role="tablist" aria-orientation="vertical" aria-label={title} className="settings-shell-tabs">
+            {tabs.map((t) => {
+              const Icon = t.icon
+              const selected = t.id === active.id
+              return (
+                <button
+                  key={t.id}
+                  ref={(el) => { tabRefs.current[t.id] = el }}
+                  type="button"
+                  role="tab"
+                  id={`${baseId}-tab-${t.id}`}
+                  aria-selected={selected}
+                  aria-controls={`${baseId}-panel`}
+                  tabIndex={selected ? 0 : -1}
+                  className={'settings-shell-tab' + (selected ? ' is-active' : '')}
+                  onClick={() => onChange(t.id)}
+                  onKeyDown={onTabKeyDown}
+                >
+                  {Icon && <Icon size={16} strokeWidth={1.75} aria-hidden />}
+                  <span className="settings-shell-tab-label">{t.label}</span>
+                  {t.meta != null && t.meta !== '' && (
+                    <span className="settings-shell-tab-meta">{t.meta}</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          {footer && <div className="settings-shell-footer">{footer}</div>}
+        </nav>
+
+        <section
+          className="settings-shell-panel"
+          role="tabpanel"
+          id={`${baseId}-panel`}
+          aria-labelledby={`${baseId}-tab-${active.id}`}
+        >
+          <h3 className="settings-shell-panel-title">{active.label}</h3>
+          {children}
+        </section>
+      </div>
     </div>
   )
 }

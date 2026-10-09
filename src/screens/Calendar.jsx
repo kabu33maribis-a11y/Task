@@ -404,7 +404,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   const flatDates = useMemo(() => rows.flat().filter(Boolean), [rows])
 
   return (
-    <div>
+    <div className={`cal-root${viewMode === 'day' ? ' cal-root--day' : ''}`}>
       <div className="cal-head">
         <button className="btn btn-sm" onClick={navPrev}>‹</button>
         <div className="m">

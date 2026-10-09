@@ -5,32 +5,15 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { todayStr } from './lib/date.js'
 import { isInboxTask, parentIdSet } from './lib/wbs.js'
 import { StoreProvider, useStore } from './store/StoreContext.jsx'
-import { BottomNav } from './components/Nav.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import SettingsModal from './components/SettingsModal.jsx'
 import MasterModal from './components/MasterModal.jsx'
-import ProjectFilter from './components/ProjectFilter.jsx'
+import AppSidebar, { SidebarMenuButton } from './components/sidebar/AppSidebar.jsx'
 import Today from './screens/Today.jsx'
 import Calendar from './screens/Calendar.jsx'
 import Log from './screens/Log.jsx'
 import Inbox from './screens/Inbox.jsx'
 import Wbs from './screens/Wbs.jsx'
-
-function ViewToggle({ view, onChange }) {
-  return (
-    <div className="view-toggle" role="tablist" aria-label="表示切り替え">
-      <button
-        className={view === 'console' ? 'active' : ''}
-        onClick={() => onChange('console')}
-      >
-        カレンダー
-      </button>
-      <button className={view === 'wbs' ? 'active' : ''} onClick={() => onChange('wbs')}>
-        WBS
-      </button>
-    </div>
-  )
-}
 
 function useMediaQuery(query) {
   const [match, setMatch] = useState(
@@ -94,6 +77,29 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
   const inboxCount = state.tasks.filter((t) => isInboxTask(t, parentIds)).length
   const close = () => setOverlay(null)
 
+  const activeId =
+    overlay === 'inbox' || overlay === 'log' || overlay === 'master' || overlay === 'settings'
+      ? overlay
+      : view === 'wbs'
+        ? 'wbs'
+        : 'console'
+
+  function onNavigate(id) {
+    if (id === 'console') {
+      setView('console')
+      setOverlay(null)
+      return
+    }
+    if (id === 'wbs') {
+      setView('wbs')
+      setOverlay(null)
+      return
+    }
+    if (id === 'inbox' || id === 'log' || id === 'master' || id === 'settings') {
+      setOverlay(id)
+    }
+  }
+
   function startResize(e) {
     e.preventDefault()
     const rect = dashRef.current.getBoundingClientRect()
@@ -119,56 +125,47 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
 
   return (
     <div className="shell shell-wide">
-      <header className="dash-header">
-        <ViewToggle view={view} onChange={setView} />
-        <ProjectFilter value={projectFilter} onChange={setProjectFilter} />
-        <div className="dash-actions">
-          <button className="header-btn" onClick={() => setOverlay('inbox')}>
-            Inbox
-            {inboxCount > 0 && <span className="badge">{inboxCount}</span>}
-          </button>
-          <button className="header-btn" onClick={() => setOverlay('log')}>
-            Log
-          </button>
-          <button className="header-btn" onClick={() => setOverlay('master')}>
-            マスタ
-          </button>
-          <button className="header-btn" onClick={() => setOverlay('settings')}>
-            設定
-          </button>
-        </div>
-      </header>
+      <AppSidebar
+        mode="desktop"
+        activeId={activeId}
+        badges={{ inbox: inboxCount }}
+        onNavigate={onNavigate}
+        projectFilter={projectFilter}
+        onProjectChange={setProjectFilter}
+      />
 
-      {view === 'wbs' ? (
-        <div className="dashboard dashboard-full">
-          <section className="pane pane-wbs">
-            <Wbs projectFilter={projectFilter} />
-          </section>
-        </div>
-      ) : (
-        <div className="dashboard" ref={dashRef} style={{ gap: 0 }}>
-          <section className="pane pane-today" style={{ flex: `0 0 calc(${split}% - 9px)` }}>
-            <div className="pane-scroll">
-              <Today
-                calendarDate={calDate}
-                onResetCalDate={() => {
-                  setCalDate(todayStr())
-                  setCalResetKey((k) => k + 1)
-                }}
-                projectFilter={projectFilter}
-                onOpenLog={() => setOverlay('log')}
-              />
-            </div>
-          </section>
-          <div className="resize-handle" onMouseDown={startResize} />
-          <section className="pane pane-cal" style={{ flex: '1 1 0', minWidth: '300px' }}>
-            <div className="pane-label">Calendar</div>
-            <div className="pane-scroll">
-              <Calendar selected={calDate} onSelect={setCalDate} resetKey={calResetKey} projectFilter={projectFilter} />
-            </div>
-          </section>
-        </div>
-      )}
+      <div className="shell-main">
+        {view === 'wbs' ? (
+          <div className="dashboard dashboard-full">
+            <section className="pane pane-wbs">
+              <Wbs projectFilter={projectFilter} />
+            </section>
+          </div>
+        ) : (
+          <div className="dashboard" ref={dashRef} style={{ gap: 0 }}>
+            <section className="pane pane-today" style={{ flex: `0 0 calc(${split}% - 4px)` }}>
+              <div className="pane-scroll">
+                <Today
+                  calendarDate={calDate}
+                  onResetCalDate={() => {
+                    setCalDate(todayStr())
+                    setCalResetKey((k) => k + 1)
+                  }}
+                  projectFilter={projectFilter}
+                  onOpenLog={() => setOverlay('log')}
+                />
+              </div>
+            </section>
+            <div className="resize-handle" onMouseDown={startResize} />
+            <section className="pane pane-cal" style={{ flex: '1 1 0', minWidth: '300px' }}>
+              <div className="pane-label">Calendar</div>
+              <div className="pane-scroll">
+                <Calendar selected={calDate} onSelect={setCalDate} resetKey={calResetKey} projectFilter={projectFilter} />
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
 
       {overlay === 'inbox' && (
         <SlideOver title="Inbox" onClose={close}>
@@ -215,32 +212,70 @@ function SlideOver({ title, size = 440, onClose, children }) {
 // ---- tablet / phone: tabbed --------------------------------------------
 
 function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
+  const { state } = useStore()
   const [tab, setTab] = useState('today')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [masterOpen, setMasterOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [calDate, setCalDate] = useState(todayStr)
   const [calResetKey, setCalResetKey] = useState(0)
+  const parentIds = parentIdSet(state.tasks)
+  const inboxCount = state.tasks.filter((t) => isInboxTask(t, parentIds)).length
+
+  const activeId = settingsOpen
+    ? 'settings'
+    : masterOpen
+      ? 'master'
+      : view === 'wbs'
+        ? 'wbs'
+        : tab
+
+  function onNavigate(id) {
+    if (id === 'today' || id === 'calendar' || id === 'log' || id === 'inbox') {
+      setView('console')
+      setTab(id)
+      setSettingsOpen(false)
+      setMasterOpen(false)
+      return
+    }
+    if (id === 'wbs') {
+      setView('wbs')
+      setSettingsOpen(false)
+      setMasterOpen(false)
+      return
+    }
+    if (id === 'master') {
+      setMasterOpen(true)
+      setSettingsOpen(false)
+      return
+    }
+    if (id === 'settings') {
+      setSettingsOpen(true)
+      setMasterOpen(false)
+    }
+  }
 
   return (
     <div className="shell">
       <header className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-inner-actions">
-            <ViewToggle view={view} onChange={setView} />
-            <button className="header-btn" onClick={() => setMasterOpen(true)}>
-              マスタ
-            </button>
-            <button className="header-btn" onClick={() => setSettingsOpen(true)}>
-              設定
-            </button>
-          </div>
-        </div>
-        <div className="topbar-filter">
-          <ProjectFilter value={projectFilter} onChange={setProjectFilter} />
+          <SidebarMenuButton open={menuOpen} onOpenChange={setMenuOpen} />
+          <span className="topbar-brand">タスク管理</span>
         </div>
       </header>
 
-      <main className="app-body">
+      <AppSidebar
+        mode="mobile"
+        activeId={activeId}
+        badges={{ inbox: inboxCount }}
+        onNavigate={onNavigate}
+        projectFilter={projectFilter}
+        onProjectChange={setProjectFilter}
+        mobileOpen={menuOpen}
+        onMobileOpenChange={setMenuOpen}
+      />
+
+      <main className="app-body app-body--drawer">
         {view === 'wbs' ? (
           <Wbs projectFilter={projectFilter} />
         ) : (
@@ -282,13 +317,6 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
         )}
       </main>
 
-      <BottomNav
-        current={view === 'console' ? tab : null}
-        onChange={(t) => {
-          setView('console')
-          setTab(t)
-        }}
-      />
       <UndoToast />
       {masterOpen && <MasterModal onClose={() => setMasterOpen(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
