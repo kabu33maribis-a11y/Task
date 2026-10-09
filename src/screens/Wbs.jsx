@@ -214,6 +214,7 @@ function WbsGantt({ project, multi }) {
   const matrixRef = useRef(null)
   const linkDragRef = useRef(null)
   const dragSeedRef = useRef(null)
+  const selectionAnchorRef = useRef(null)
   const [hourNoHScroll, setHourNoHScroll] = useState(false)
   const isHourZoom = zoom === 'hour'
   const [scale, setScale] = useState(1)
@@ -1093,6 +1094,7 @@ function WbsGantt({ project, multi }) {
         }
         setSelectedId(null)
         setSelectedIds(new Set())
+        selectionAnchorRef.current = null
         return
       }
       if (!selectedId || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return
@@ -1140,6 +1142,23 @@ function WbsGantt({ project, multi }) {
   function clearTaskSelect() {
     setSelectedId(null)
     setSelectedIds(new Set())
+    selectionAnchorRef.current = null
+  }
+
+  /** 表示中の非プロジェクト行のタスクID（上から順）。Shift範囲選択の基準。 */
+  function selectableTaskIds() {
+    return rows
+      .filter((row) => row.kind === 'node' && row.node && !row.node.isProject)
+      .map((row) => row.node.task.id)
+  }
+
+  function rangeSelectIds(fromId, toId) {
+    const ids = selectableTaskIds()
+    const a = ids.indexOf(fromId)
+    const b = ids.indexOf(toId)
+    if (a < 0 || b < 0) return new Set([toId])
+    const [lo, hi] = a < b ? [a, b] : [b, a]
+    return new Set(ids.slice(lo, hi + 1))
   }
 
   function onDepHover(id) {
@@ -1229,7 +1248,11 @@ function WbsGantt({ project, multi }) {
           <button
             className="btn btn-sm btn-primary"
             onClick={() => setAddDialogOpen(true)}
-            title="タスクを追加"
+            title={
+              selectedId
+                ? '選択中タスクの子として追加（改行で複数可）'
+                : 'タスクを追加（改行で複数可）'
+            }
             aria-label="タスクを追加"
           >
             <BtnLabel icon={Plus}>＋ タスクを追加</BtnLabel>
@@ -1358,6 +1381,7 @@ function WbsGantt({ project, multi }) {
         <WbsAddTaskDialog
           projects={visibleProjects}
           defaultProjectId={multi ? null : project.id}
+          defaultParentId={selectedId}
           onClose={() => setAddDialogOpen(false)}
         />
       )}
@@ -1679,7 +1703,11 @@ function WbsGantt({ project, multi }) {
                           onToggleCollapse={toggleCollapse}
                           onExpand={expand}
                           onFocusDate={scrollToDate}
-                          onSelect={() => setSelectedId(node.task.id)}
+                          onSelect={() => {
+                            setSelectedId(node.task.id)
+                            setSelectedIds(new Set())
+                            selectionAnchorRef.current = node.task.id
+                          }}
                           today={today}
                           onOpenDatePopover={openDatePopover}
                           onOpenLinkPopover={openLinkPopover}
@@ -1763,11 +1791,31 @@ function WbsGantt({ project, multi }) {
                           onStartLink={startLinkDrag}
                           onSelect={node.isProject ? undefined : (e) => {
                             const id = node.task.id
-                            if (e.ctrlKey || e.metaKey) {
+                            const withCtrl = e.ctrlKey || e.metaKey
+                            if (e.shiftKey) {
+                              const anchor = selectionAnchorRef.current ?? selectedId
+                              if (!anchor) {
+                                setSelectedId(id)
+                                setSelectedIds(new Set([id]))
+                                selectionAnchorRef.current = id
+                                dragSeedRef.current = new Set([id])
+                                return
+                              }
+                              const range = rangeSelectIds(anchor, id)
+                              const next = withCtrl
+                                ? new Set([...selectedIds, ...range])
+                                : range
+                              setSelectedId(id)
+                              setSelectedIds(next)
+                              dragSeedRef.current = next
+                              return
+                            }
+                            if (withCtrl) {
                               // 通常クリックで選んだバーも複数選択の起点に含める
                               const next = new Set(selectedIds)
                               if (next.size === 0 && selectedId && selectedId !== id) next.add(selectedId)
                               setSelectedId(id)
+                              selectionAnchorRef.current = id
                               if (next.has(id)) {
                                 next.delete(id)
                                 setSelectedIds(next)
@@ -1779,6 +1827,7 @@ function WbsGantt({ project, multi }) {
                             } else {
                               setSelectedId(id)
                               setSelectedIds(new Set())
+                              selectionAnchorRef.current = id
                             }
                           }}
                           tagColor={node.isProject ? null : rowTag?.color}
@@ -2854,6 +2903,16 @@ function DatePopover({ task, x, y, onClose }) {
   )
 }
 
+function parseTitleLines(text) {
+  return text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+}
+
+function autoResizeAddChild(el) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.max(el.scrollHeight, 28)}px`
+}
+
 function AddChildRow({ parentId, projectId, depth, onClose }) {
   const { state, actions } = useStore()
   const [title, setTitle] = useState('')
@@ -2863,35 +2922,52 @@ function AddChildRow({ parentId, projectId, depth, onClose }) {
   }, [])
 
   function submit() {
-    const t = title.trim()
-    if (!t) return
+    const titles = parseTitleLines(title)
+    if (titles.length === 0) return
     if (parentId) {
       const parent = state.tasks.find((x) => x.id === parentId)
-      if (parent) actions.addSubtask(parent, t)
+      if (parent) {
+        for (const line of titles) actions.addSubtask(parent, line)
+      }
     } else {
-      actions.addTask({
-        title: t,
-        project_id: projectId ?? null,
-        parent_id: null,
-        scheduled_date: null,
-      })
+      for (const line of titles) {
+        actions.addTask({
+          title: line,
+          project_id: projectId ?? null,
+          parent_id: null,
+          scheduled_date: null,
+        })
+      }
     }
     setTitle('')
-    ref.current?.focus()
+    if (ref.current) {
+      ref.current.style.height = 'auto'
+      ref.current.focus()
+    }
   }
 
   return (
     <div className="gantt-name-inner wbs-add-child" style={{ paddingLeft: depth * 12 }}>
       <span className="wbs-no wbs-no-ghost">＋</span>
-      <input
+      <textarea
         ref={ref}
-        className="wbs-edit"
+        className="wbs-edit wbs-edit-multiline"
+        rows={1}
         value={title}
-        placeholder="子タスク名（Enter追加 / Esc閉じる）"
-        onChange={(e) => setTitle(e.target.value)}
+        placeholder="子タスク名（改行で複数 · Enter追加 / Esc閉じる）"
+        onChange={(e) => {
+          setTitle(e.target.value)
+          autoResizeAddChild(e.target)
+        }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') submit()
-          if (e.key === 'Escape') onClose()
+          if (e.key === 'Escape') {
+            onClose()
+            return
+          }
+          if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+          if (e.shiftKey) return
+          e.preventDefault()
+          submit()
         }}
         onBlur={() => !title.trim() && onClose()}
       />

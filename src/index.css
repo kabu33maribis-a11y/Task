@@ -2628,8 +2628,26 @@ select {
   white-space: nowrap;
 }
 .cal-day-allday-chip.multi {
-  cursor: default;
-  opacity: 0.92;
+  cursor: grab;
+}
+.cal-day-drag-ghost {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  max-width: 220px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--washi-raised, #fff);
+  border: 1px solid var(--primary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--sumi);
+}
+.cal-day-drag-ghost-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--primary-deep, var(--primary));
 }
 .cal-day-allday-chip.done {
   color: var(--sumi-faint);
@@ -2822,6 +2840,20 @@ select {
   outline: none;
   transition: border-color 0.15s;
 }
+textarea.dtd-title-input,
+.dtd-title-textarea {
+  resize: none;
+  overflow: hidden;
+  min-height: 2.4em;
+  field-sizing: content;
+}
+.dtd-title-count {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sumi-soft);
+}
 .dtd-title-input::placeholder {
   color: var(--sumi-faint);
   font-weight: 500;
@@ -2855,11 +2887,19 @@ select {
   font-variant-numeric: tabular-nums;
   color: var(--sumi);
 }
+.dtd-range-trigger {
+  width: 100%;
+  margin-bottom: 10px;
+}
 .dtd-schedule-controls {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.dtd-allday:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .dtd-allday {
   flex: 0 0 auto;
@@ -4305,6 +4345,14 @@ select {
   background: var(--washi-raised);
   outline: none;
 }
+textarea.wbs-edit,
+.wbs-edit-multiline {
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+  min-height: 28px;
+  field-sizing: content;
+}
 .wbs-rollup {
   flex: 0 0 auto;
   display: inline-flex;
@@ -4889,6 +4937,10 @@ select {
 }
 .gantt-axis-day.col-hover.today {
   box-shadow: 0 0 0 2px var(--primary-deep) inset;
+}
+/* 今日の曜日は白固定。列ホバーの黄背景では日付数字と同じ墨色にする */
+.gantt-axis-day.col-hover .gantt-axis-day-dow {
+  color: var(--text);
 }
 
 /* rows: flex [ sticky name cell | timeline track ] */

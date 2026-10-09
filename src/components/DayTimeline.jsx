@@ -64,11 +64,20 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
   const didInitScroll = useRef(false)
   const [drag, setDrag] = useState(null)
   const dragRef = useRef(null)
+  const sessionRef = useRef(null)
+  const tasksRef = useRef(tasks)
+  const actionsRef = useRef(actions)
+  const dateRef = useRef(date)
+  const heightRef = useRef(0)
+  tasksRef.current = tasks
+  actionsRef.current = actions
+  dateRef.current = date
   const [draft, setDraft] = useState(null)
   const [nowMins, setNowMins] = useState(nowMinutes)
   const today = todayStr()
   const isToday = date === today
   const height = dayHeight()
+  heightRef.current = height
   const bizTop = minutesToY(BIZ_START_HOUR * 60)
   const bizHeight = minutesToY(BIZ_END_HOUR * 60) - bizTop
 
@@ -140,216 +149,222 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
     return () => clearInterval(id)
   }, [isToday])
 
-  // Pointer drag
-  useEffect(() => {
-    if (!drag) return
-    dragRef.current = drag
+  function clientYToAxisMins(clientY) {
+    const axis = axisRef.current
+    if (!axis) return 0
+    const rect = axis.getBoundingClientRect()
+    return yToMinutes(clientY - rect.top)
+  }
 
-    function clientYToAxisMins(clientY) {
-      const axis = axisRef.current
-      if (!axis) return 0
-      const rect = axis.getBoundingClientRect()
-      return yToMinutes(clientY - rect.top)
+  function overAllDay(clientX, clientY) {
+    const el = allDayRef.current
+    if (!el) return false
+    const rect = el.getBoundingClientRect()
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
+  }
+
+  function placeOnAxis(clientX, clientY) {
+    const axis = axisRef.current
+    const scroll = scrollRef.current
+    if (!axis || !scroll) return null
+    const scrollRect = scroll.getBoundingClientRect()
+    const inScroll =
+      clientX >= scrollRect.left &&
+      clientX <= scrollRect.right &&
+      clientY >= scrollRect.top &&
+      clientY <= scrollRect.bottom
+    if (!inScroll) return null
+    const y = clientY - axis.getBoundingClientRect().top
+    const h = heightRef.current
+    return placeFromY(Math.max(0, Math.min(h, y)), undefined, DEFAULT_DROP_DURATION_MINS)
+  }
+
+  function trackDrag(d, e) {
+    const clientX = e.clientX
+    const clientY = e.clientY
+    if (d.kind === 'create') {
+      const mins = clientYToAxisMins(clientY)
+      const moved = d.moved || Math.abs(clientY - d.startClientY) > 4
+      if (!moved) {
+        const placed = placeFromY(minutesToY(d.anchorMins), undefined, DEFAULT_DROP_DURATION_MINS)
+        return { ...d, startMins: placed.startMins, endMins: placed.endMins, moved: false, clientX, clientY }
+      }
+      return { ...d, ...rangeFromDrag(d.anchorMins, mins), moved: true, clientX, clientY }
+    }
+    if (d.kind === 'schedule') {
+      const moved = d.moved || Math.abs(clientY - d.startClientY) > 4 || Math.abs(clientX - d.startClientX) > 4
+      if (overAllDay(clientX, clientY)) {
+        return { ...d, moved, startMins: null, endMins: null, overAxis: false, clientX, clientY }
+      }
+      const placed = placeOnAxis(clientX, clientY)
+      if (!placed) {
+        return { ...d, moved, startMins: null, endMins: null, overAxis: false, clientX, clientY }
+      }
+      return {
+        ...d,
+        moved,
+        startMins: placed.startMins,
+        endMins: placed.endMins,
+        overAxis: true,
+        clientX,
+        clientY,
+      }
+    }
+    if (d.kind === 'move') {
+      const axisTop = axisRef.current?.getBoundingClientRect().top ?? 0
+      const startY = d.startClientY - axisTop
+      const curY = clientY - axisTop
+      const deltaMins = yToMinutes(curY) - yToMinutes(startY)
+      const movedBlock = moveBlock(d.origStartMins, d.origEndMins, deltaMins)
+      const unschedule = overAllDay(clientX, clientY)
+      const moved = d.moved || Math.abs(clientY - d.startClientY) > 4 || unschedule
+      return { ...d, ...movedBlock, unschedule, moved, clientX, clientY }
+    }
+    if (d.kind === 'start') {
+      return { ...d, ...resizeStart(d.origEndMins, clientYToAxisMins(clientY)), unschedule: false, clientX, clientY }
+    }
+    if (d.kind === 'end') {
+      return { ...d, ...resizeEnd(d.origStartMins, clientYToAxisMins(clientY)), unschedule: false, clientX, clientY }
+    }
+    return d
+  }
+
+  function endDragSession() {
+    const session = sessionRef.current
+    if (!session) return
+    document.removeEventListener('mousemove', session.move)
+    document.removeEventListener('mouseup', session.up)
+    sessionRef.current = null
+  }
+
+  function finishDrag(e) {
+    endDragSession()
+    const raw = dragRef.current
+    dragRef.current = null
+    setDrag(null)
+    document.documentElement.style.cursor = ''
+    document.documentElement.style.userSelect = ''
+    if (!raw) return
+    const d = trackDrag(raw, e)
+
+    if (d.kind === 'create') {
+      let startMins = d.startMins
+      let endMins = d.endMins
+      if (!d.moved) {
+        const placed = placeFromY(minutesToY(d.anchorMins), undefined, DEFAULT_DROP_DURATION_MINS)
+        startMins = placed.startMins
+        endMins = placed.endMins
+      } else if (endMins - startMins < MIN_DURATION_MINS) {
+        const r = rangeFromDrag(d.anchorMins, d.anchorMins + MIN_DURATION_MINS)
+        startMins = r.startMins
+        endMins = r.endMins
+      }
+      if (startMins != null && endMins != null && endMins > startMins) {
+        const { startTime, endTime } = blockToTimes(startMins, endMins)
+        setDraft({ startTime, endTime, startMins, endMins })
+      }
+      return
     }
 
-    function overAllDay(clientY) {
-      const el = allDayRef.current
-      if (!el) return false
-      const rect = el.getBoundingClientRect()
-      return clientY >= rect.top && clientY <= rect.bottom
-    }
+    const task = tasksRef.current.find((t) => t.id === d.id)
+    if (!task) return
+    const actionsNow = actionsRef.current
 
-    function onMove(e) {
-      setDrag((d) => {
-        if (!d) return d
-        let next = d
-        if (d.kind === 'create') {
-          const mins = clientYToAxisMins(e.clientY)
-          const moved = d.moved || Math.abs(e.clientY - d.startClientY) > 4
-          if (!moved) {
-            const placed = placeFromY(
-              minutesToY(d.anchorMins),
-              undefined,
-              DEFAULT_DROP_DURATION_MINS,
-            )
-            next = {
-              ...d,
-              startMins: placed.startMins,
-              endMins: placed.endMins,
-              moved: false,
-            }
-          } else {
-            next = { ...d, ...rangeFromDrag(d.anchorMins, mins), moved: true }
-          }
-        } else if (d.kind === 'schedule') {
-          const moved = d.moved || Math.abs(e.clientY - d.startClientY) > 4
-          if (!d.canSchedule) {
-            next = { ...d, moved, startMins: null, endMins: null, overAxis: false }
-          } else if (overAllDay(e.clientY)) {
-            next = { ...d, moved, startMins: null, endMins: null, overAxis: false }
-          } else {
-            const axis = axisRef.current
-            const scroll = scrollRef.current
-            if (!axis || !scroll) return d
-            const scrollRect = scroll.getBoundingClientRect()
-            const inScroll =
-              e.clientX >= scrollRect.left &&
-              e.clientX <= scrollRect.right &&
-              e.clientY >= scrollRect.top &&
-              e.clientY <= scrollRect.bottom
-            if (!inScroll) {
-              next = { ...d, moved, startMins: null, endMins: null, overAxis: false }
-            } else {
-              const y = e.clientY - axis.getBoundingClientRect().top
-              const placed = placeFromY(
-                Math.max(0, Math.min(height, y)),
-                undefined,
-                DEFAULT_DROP_DURATION_MINS,
-              )
-              next = {
-                ...d,
-                moved,
-                startMins: placed.startMins,
-                endMins: placed.endMins,
-                overAxis: true,
-              }
-            }
-          }
-        } else if (d.kind === 'move') {
-          const axisTop = axisRef.current?.getBoundingClientRect().top ?? 0
-          const startY = d.startClientY - axisTop
-          const curY = e.clientY - axisTop
-          const deltaMins = yToMinutes(curY) - yToMinutes(startY)
-          const movedBlock = moveBlock(d.origStartMins, d.origEndMins, deltaMins)
-          const unschedule = overAllDay(e.clientY)
-          const moved =
-            d.moved || Math.abs(e.clientY - d.startClientY) > 4 || unschedule
-          next = { ...d, ...movedBlock, unschedule, moved }
-        } else if (d.kind === 'start') {
-          const mins = clientYToAxisMins(e.clientY)
-          next = { ...d, ...resizeStart(d.origEndMins, mins), unschedule: false }
-        } else if (d.kind === 'end') {
-          const mins = clientYToAxisMins(e.clientY)
-          next = { ...d, ...resizeEnd(d.origStartMins, mins), unschedule: false }
-        }
-        dragRef.current = next
-        return next
-      })
-    }
-
-    function onUp() {
-      const d = dragRef.current
-      dragRef.current = null
-      setDrag(null)
-      document.documentElement.style.cursor = ''
-      document.documentElement.style.userSelect = ''
-      if (!d) return
-
-      if (d.kind === 'create') {
-        let startMins = d.startMins
-        let endMins = d.endMins
-        if (!d.moved) {
-          const placed = placeFromY(
-            minutesToY(d.anchorMins),
-            undefined,
-            DEFAULT_DROP_DURATION_MINS,
-          )
-          startMins = placed.startMins
-          endMins = placed.endMins
-        } else if (endMins - startMins < MIN_DURATION_MINS) {
-          const r = rangeFromDrag(d.anchorMins, d.anchorMins + MIN_DURATION_MINS)
-          startMins = r.startMins
-          endMins = r.endMins
-        }
-        if (startMins != null && endMins != null && endMins > startMins) {
-          const { startTime, endTime } = blockToTimes(startMins, endMins)
-          setDraft({ startTime, endTime, startMins, endMins })
-        }
+    if (d.kind === 'schedule') {
+      if (d.overAxis && d.startMins != null) {
+        const { startTime, endTime } = blockToTimes(d.startMins, d.endMins)
+        actionsNow.updateTask(d.id, { start_time: startTime, end_time: endTime })
         return
       }
-
-      const task = tasks.find((t) => t.id === d.id)
-      if (!task) return
-
-      if (d.kind === 'schedule') {
-        if (d.canSchedule && d.overAxis && d.startMins != null && isSingleDayOn(task, date)) {
-          const { startTime, endTime } = blockToTimes(d.startMins, d.endMins)
-          actions.setTaskSchedule(d.id, date, date, startTime, endTime)
-          return
-        }
-        if (!d.moved) {
-          setDraft({ taskId: d.id })
-        }
-        return
-      }
-
-      if (d.kind === 'move' && !d.moved && !d.unschedule) {
-        setDraft({ taskId: d.id })
-        return
-      }
-
-      if (d.unschedule) {
-        actions.updateTask(d.id, { start_time: null, end_time: null })
-        return
-      }
-
-      const { startTime, endTime } = blockToTimes(d.startMins, d.endMins)
-      if (d.startMins !== d.origStartMins || d.endMins !== d.origEndMins) {
-        actions.setTaskSchedule(d.id, date, date, startTime, endTime)
-      }
+      if (!d.moved) setDraft({ taskId: d.id })
+      return
     }
 
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-    return () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
+    if (d.kind === 'move' && !d.moved && !d.unschedule) {
+      setDraft({ taskId: d.id })
+      return
     }
-  }, [!!drag, drag?.id, drag?.kind, actions, date, tasks, height])
+
+    if (d.unschedule) {
+      actionsNow.updateTask(d.id, { start_time: null, end_time: null })
+      return
+    }
+
+    const { startTime, endTime } = blockToTimes(d.startMins, d.endMins)
+    if (d.startMins !== d.origStartMins || d.endMins !== d.origEndMins) {
+      actionsNow.updateTask(d.id, { start_time: startTime, end_time: endTime })
+    }
+  }
+
+  function beginDrag(next, cursor) {
+    endDragSession()
+    dragRef.current = next
+    setDrag(next)
+    document.documentElement.style.cursor = cursor
+    document.documentElement.style.userSelect = 'none'
+    function move(e) {
+      const current = dragRef.current
+      if (!current) return
+      const tracked = trackDrag(current, e)
+      dragRef.current = tracked
+      setDrag(tracked)
+    }
+    function up(e) {
+      finishDrag(e)
+    }
+    sessionRef.current = { move, up }
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+  }
+
+  useEffect(() => () => {
+    endDragSession()
+    document.documentElement.style.cursor = ''
+    document.documentElement.style.userSelect = ''
+  }, [])
 
   function startTimedDrag(e, item, kind) {
+    if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
-    document.documentElement.style.cursor = kind === 'move' ? 'grabbing' : 'ns-resize'
-    document.documentElement.style.userSelect = 'none'
-    const next = {
+    beginDrag({
       id: item.task.id,
       kind,
       origStartMins: item.startMins,
       origEndMins: item.endMins,
       startMins: item.startMins,
       endMins: item.endMins,
+      startClientX: e.clientX,
       startClientY: e.clientY,
+      clientX: e.clientX,
+      clientY: e.clientY,
       unschedule: false,
       moved: false,
-    }
-    dragRef.current = next
-    setDrag(next)
+    }, kind === 'move' ? 'grabbing' : 'ns-resize')
   }
 
   function startAllDaySchedule(e, task) {
+    if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
-    const canSchedule = isSingleDayOn(task, date)
-    document.documentElement.style.cursor = canSchedule ? 'grabbing' : 'pointer'
-    document.documentElement.style.userSelect = 'none'
-    const next = {
+    beginDrag({
       id: task.id,
       kind: 'schedule',
-      canSchedule,
       startMins: null,
       endMins: null,
       overAxis: false,
+      startClientX: e.clientX,
       startClientY: e.clientY,
+      clientX: e.clientX,
+      clientY: e.clientY,
       moved: false,
-    }
-    dragRef.current = next
-    setDrag(next)
+    }, 'grabbing')
   }
 
   function startCreate(e) {
     if (e.button !== 0) return
     if (draft) return
+    if (dragRef.current) return
     if (e.target.closest('.cal-day-block')) return
     e.preventDefault()
     const axis = axisRef.current
@@ -360,18 +375,17 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
       yToMinutes(Math.max(0, Math.min(height, y))),
     )
     const placed = placeFromY(minutesToY(anchorMins), undefined, DEFAULT_DROP_DURATION_MINS)
-    document.documentElement.style.cursor = 'crosshair'
-    document.documentElement.style.userSelect = 'none'
-    const next = {
+    beginDrag({
       kind: 'create',
       anchorMins,
       startMins: placed.startMins,
       endMins: placed.endMins,
+      startClientX: e.clientX,
       startClientY: e.clientY,
+      clientX: e.clientX,
+      clientY: e.clientY,
       moved: false,
-    }
-    dragRef.current = next
-    setDrag(next)
+    }, 'crosshair')
   }
 
   const hours = hourLabels()
@@ -397,11 +411,7 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
                 key={t.id}
                 className={`cal-day-allday-chip${t.status === 'DONE' ? ' done' : ''}${multi ? ' multi' : ''}${dragging ? ' dragging' : ''}`}
                 style={st}
-                title={
-                  multi
-                    ? `${t.title}（クリックで編集）`
-                    : `${t.title}（クリックで編集／ドラッグで時間を設定）`
-                }
+                title={`${t.title}（クリックで編集／時間帯へドラッグで時間を設定）`}
                 onMouseDown={(e) => startAllDaySchedule(e, t)}
               >
                 {t.title}
@@ -560,6 +570,22 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
           </div>
         </div>
       </div>
+
+      {drag?.kind === 'schedule' && drag.moved && (
+        <div
+          className="cal-day-drag-ghost"
+          style={{ left: drag.clientX + 14, top: drag.clientY + 14 }}
+        >
+          <div>{allDay.find((t) => t.id === drag.id)?.title}</div>
+          {drag.overAxis && drag.startMins != null && (
+            <div className="cal-day-drag-ghost-time">
+              {blockToTimes(drag.startMins, drag.endMins).startTime}
+              –
+              {blockToTimes(drag.startMins, drag.endMins).endTime}
+            </div>
+          )}
+        </div>
+      )}
 
       {draft && (
         <DayAddTaskDialog

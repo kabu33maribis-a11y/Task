@@ -73,14 +73,15 @@ export function isSingleDayOn(task, date) {
 
 /**
  * Split day-covering tasks into all-day lane vs timed blocks.
- * Multi-day and untimed single-day → allDay; single-day with both times → timed.
+ * Explicit start and end times → timed (including multi-day, same hours each covered day).
+ * Untimed tasks stay in the all-day lane.
  */
 export function partitionDayTasks(tasks, date) {
   const allDay = []
   const timed = []
   for (const t of tasks) {
     if (!taskCoversDate(t, date)) continue
-    if (isSingleDayOn(t, date) && hasExplicitTimes(t)) {
+    if (hasExplicitTimes(t)) {
       let startMins = timeToMinutes(t.start_time)
       let endMins = timeToMinutes(t.end_time)
       if (endMins <= startMins) endMins = clampMinutes(startMins + MIN_DURATION_MINS)
