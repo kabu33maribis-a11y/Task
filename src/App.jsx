@@ -156,6 +156,7 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
                   setCalResetKey((k) => k + 1)
                 }}
                 projectFilter={projectFilter}
+                onOpenLog={() => setOverlay('log')}
               />
             </div>
           </section>
@@ -253,6 +254,10 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
                     setCalResetKey((k) => k + 1)
                   }}
                   projectFilter={projectFilter}
+                  onOpenLog={() => {
+                    setView('console')
+                    setTab('log')
+                  }}
                 />
                 <div className="stacked-cal-divider">Calendar</div>
                 <Calendar
@@ -278,7 +283,7 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
       </main>
 
       <BottomNav
-        current={view === 'wbs' ? null : tab}
+        current={view === 'console' ? tab : null}
         onChange={(t) => {
           setView('console')
           setTab(t)

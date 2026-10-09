@@ -69,7 +69,7 @@ function FieldLabel({ children, hint }) {
 /**
  * WBS のタスク追加。一日タイムラインの追加ダイアログと同じ項目構成。
  * 日程だけはガント用に開始日〜終了日の期間を取る。
- * タイトルは改行で複数件、親タスク選択で子として一括登録できる。
+ * 親は WBS 上の選択（defaultParentId）から引き継ぐ。タイトルは改行で複数件可。
  */
 export default function WbsAddTaskDialog({
   projects,
@@ -90,6 +90,7 @@ export default function WbsAddTaskDialog({
   const [projectId, setProjectId] = useState(
     () => defaultParent?.project_id ?? defaultProjectId ?? '',
   )
+  // 親はダイアログ内で選び直さず、WBS 選択をそのまま使う（解除のみ可）
   const [parentId, setParentId] = useState(() => (defaultParent ? defaultParent.id : ''))
   const [categoryId, setCategoryId] = useState('')
   const [tagId, setTagId] = useState('')
@@ -115,23 +116,9 @@ export default function WbsAddTaskDialog({
     () => buildTaskIndex(state.tasks, state.projects),
     [state.tasks, state.projects],
   )
-  const parentOptions = useMemo(() => {
-    const pid = projectId || null
-    return state.tasks
-      .filter((t) => (t.project_id ?? null) === pid)
-      .map((t) => {
-        const meta = taskIndex.get(t.id)
-        return {
-          id: t.id,
-          title: t.title || '(無題)',
-          depth: meta?.depth ?? 0,
-          wbsNo: meta?.wbsNo ?? '',
-        }
-      })
-      .sort((a, b) => (a.wbsNo || '').localeCompare(b.wbsNo || '', 'ja', { numeric: true }))
-  }, [state.tasks, projectId, taskIndex])
   const selectedProject = projects.find((p) => p.id === projectId)
   const selectedParent = parentId ? state.tasks.find((t) => t.id === parentId) : null
+  const parentMeta = selectedParent ? taskIndex.get(selectedParent.id) : null
   const selectedTag = tags.find((t) => t.id === tagId)
   const titleLines = useMemo(() => parseTitleLines(title), [title])
 
@@ -187,10 +174,10 @@ export default function WbsAddTaskDialog({
   }, [candidates])
 
   useEffect(() => {
-    if (parentId && !parentOptions.some((o) => o.id === parentId)) {
+    if (parentId && !state.tasks.some((t) => t.id === parentId)) {
       setParentId('')
     }
-  }, [parentId, parentOptions])
+  }, [parentId, state.tasks])
 
   const canSubmit = titleLines.length > 0
   const sameDay = !!start && (end || start) === start
@@ -282,11 +269,8 @@ export default function WbsAddTaskDialog({
     }
   }
 
-  function onParentChange(nextParentId) {
-    setParentId(nextParentId)
-    if (!nextParentId) return
-    const parent = state.tasks.find((t) => t.id === nextParentId)
-    if (parent) setProjectId(parent.project_id ?? '')
+  function clearParent() {
+    setParentId('')
   }
 
   function submit() {
@@ -348,7 +332,9 @@ export default function WbsAddTaskDialog({
         <header className="dtd-head">
           <div className="dtd-head-text">
             <p className="dtd-eyebrow">新規</p>
-            <h2 id="wbs-add-title">タスクを追加</h2>
+            <h2 id="wbs-add-title">
+              {selectedParent ? '子タスクを追加' : 'タスクを追加'}
+            </h2>
           </div>
           <button type="button" className="dtd-icon-btn" onClick={onClose} aria-label="閉じる">
             <X size={18} strokeWidth={2} />
@@ -356,6 +342,31 @@ export default function WbsAddTaskDialog({
         </header>
 
         <div className="dtd-body">
+          {selectedParent ? (
+            <div className="dtd-parent-banner" role="status">
+              <div className="dtd-parent-banner-text">
+                <span className="dtd-parent-banner-label">親</span>
+                <span className="dtd-parent-banner-title">
+                  {parentMeta?.wbsNo ? `${parentMeta.wbsNo} ` : ''}
+                  {selectedParent.title || '(無題)'}
+                </span>
+                <span className="dtd-parent-banner-hint">の子として登録</span>
+              </div>
+              <button
+                type="button"
+                className="dtd-parent-banner-clear"
+                onClick={clearParent}
+                title="親を外してルートに追加"
+              >
+                解除
+              </button>
+            </div>
+          ) : (
+            <p className="dtd-parent-hint">
+              WBS で親タスクを選んでから追加すると、その子として登録できます
+            </p>
+          )}
+
           <label className="dtd-title-field">
             <span className="sr-only">タイトル</span>
             <textarea
@@ -363,7 +374,7 @@ export default function WbsAddTaskDialog({
               className="dtd-title-input dtd-title-textarea"
               rows={2}
               value={title}
-              placeholder="タスク名（改行で複数件 · Enterで追加）"
+              placeholder={selectedParent ? '子タスク名（改行で複数）' : 'タスク名（改行で複数）'}
               onChange={(e) => {
                 setTitle(e.target.value)
                 autoResizeTextarea(e.target)
@@ -376,27 +387,13 @@ export default function WbsAddTaskDialog({
               }}
             />
             {titleLines.length > 1 && (
-              <span className="dtd-title-count">{titleLines.length}件のタスクとして追加</span>
+              <span className="dtd-title-count">
+                {selectedParent
+                  ? `${titleLines.length}件の子タスクとして追加`
+                  : `${titleLines.length}件のタスクとして追加`}
+              </span>
             )}
           </label>
-
-          <section className="dtd-section">
-            <FieldLabel hint={selectedParent ? '子タスクとして登録' : null}>親タスク</FieldLabel>
-            <div className="dtd-select-wrap">
-              <select
-                className="dtd-select"
-                value={parentId}
-                onChange={(e) => onParentChange(e.target.value)}
-              >
-                <option value="">なし（ルート）</option>
-                {parentOptions.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {`${'\u00A0'.repeat(o.depth * 2)}${o.wbsNo ? `${o.wbsNo} ` : ''}${o.title}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </section>
 
           <section className="dtd-card dtd-schedule" aria-label="期間">
             <div className="dtd-schedule-summary">

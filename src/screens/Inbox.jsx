@@ -54,7 +54,7 @@ export default function Inbox({ embedded = false, projectFilter = 'all' }) {
           <TaskList tasks={inboxTasks} showDateActions />
         </div>
       ) : (
-        <p className="empty">Inboxは空です</p>
+          <p className="empty">Inboxは空です。思いつきを置いて、あとから日付を付けられます</p>
       )}
 
       <div className="inbox-drop-spacer" aria-hidden>

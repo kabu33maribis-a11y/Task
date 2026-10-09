@@ -1250,12 +1250,14 @@ function WbsGantt({ project, multi }) {
             onClick={() => setAddDialogOpen(true)}
             title={
               selectedId
-                ? '選択中タスクの子として追加（改行で複数可）'
-                : 'タスクを追加（改行で複数可）'
+                ? `「${scopedTasks.find((t) => t.id === selectedId)?.title || '選択中'}」の子として追加（改行で複数可）`
+                : 'タスクを追加。親にするタスクを先に選ぶとその子として追加できます'
             }
-            aria-label="タスクを追加"
+            aria-label={selectedId ? '子タスクを追加' : 'タスクを追加'}
           >
-            <BtnLabel icon={Plus}>＋ タスクを追加</BtnLabel>
+            <BtnLabel icon={Plus}>
+              {selectedId ? '＋ 子タスクを追加' : '＋ タスクを追加'}
+            </BtnLabel>
           </button>
           <button
             className="btn btn-sm btn-export"
@@ -1705,7 +1707,7 @@ function WbsGantt({ project, multi }) {
                           onFocusDate={scrollToDate}
                           onSelect={() => {
                             setSelectedId(node.task.id)
-                            setSelectedIds(new Set())
+                            setSelectedIds(new Set([node.task.id]))
                             selectionAnchorRef.current = node.task.id
                           }}
                           today={today}
@@ -1786,7 +1788,7 @@ function WbsGantt({ project, multi }) {
                           today={today}
                           colOf={colOf}
                           dragging={!!drag?.ids?.includes(node.task.id)}
-                          isSelected={selectedIds.has(node.task.id)}
+                          isSelected={selectedIds.has(node.task.id) || selectedId === node.task.id}
                           onStartDrag={startDrag}
                           onStartLink={startLinkDrag}
                           onSelect={node.isProject ? undefined : (e) => {
@@ -1826,7 +1828,7 @@ function WbsGantt({ project, multi }) {
                               dragSeedRef.current = next // 同じ mousedown のドラッグが最新の選択を使う
                             } else {
                               setSelectedId(id)
-                              setSelectedIds(new Set())
+                              setSelectedIds(new Set([id]))
                               selectionAnchorRef.current = id
                             }
                           }}

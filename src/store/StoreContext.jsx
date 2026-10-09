@@ -742,6 +742,43 @@ function reducer(state, action) {
       }
     }
 
+    case 'BULK_MOVE_TO_DATE': {
+      const ids = new Set(action.ids ?? [])
+      if (ids.size === 0) return state
+      let order = nextSortOrder(state.tasks, (x) => x.scheduled_date === action.date && !ids.has(x.id))
+      return {
+        ...state,
+        tasks: state.tasks.map((t) => {
+          if (!ids.has(t.id)) return t
+          const next = {
+            ...t,
+            ...syncedDateFields(action.date, null),
+            sort_order: order++,
+            updated_at: stamp(),
+          }
+          return next
+        }),
+      }
+    }
+
+    case 'BULK_COMPLETE': {
+      const ids = new Set(action.ids ?? [])
+      if (ids.size === 0) return state
+      const now = stamp()
+      return {
+        ...state,
+        tasks: state.tasks.map((t) => {
+          if (!ids.has(t.id) || t.status === 'DONE') return t
+          return {
+            ...t,
+            status: 'DONE',
+            completed_at: now,
+            updated_at: now,
+          }
+        }),
+      }
+    }
+
     case 'REORDER': {
       const orderMap = new Map(action.orderedIds.map((id, i) => [id, i]))
       return {
@@ -1016,6 +1053,21 @@ async function doSyncToDb(prevState, nextState, action) {
         case 'MOVE_TO_DATE': {
           const task = nextState.tasks.find((t) => t.id === action.id)
           if (task) await dbUpsertTask(db, task)
+          break
+        }
+        case 'BULK_MOVE_TO_DATE':
+        case 'BULK_COMPLETE': {
+          const changed = nextState.tasks.filter((t) => {
+            const prev = prevState.tasks.find((p) => p.id === t.id)
+            return prev && (prev.scheduled_date !== t.scheduled_date ||
+              prev.console_end_date !== t.console_end_date ||
+              prev.start_date !== t.start_date ||
+              prev.end_date !== t.end_date ||
+              prev.status !== t.status ||
+              prev.completed_at !== t.completed_at ||
+              prev.sort_order !== t.sort_order)
+          })
+          for (const t of changed) await dbUpsertTask(db, t)
           break
         }
         case 'SET_PARENT': {
@@ -1444,6 +1496,17 @@ export function StoreProvider({ children }) {
         input: { title, project_id: parent.project_id ?? null, parent_id: parent.id, scheduled_date: null },
       }),
     moveToDate: (id, date) => dispatchWithSync({ type: 'MOVE_TO_DATE', id, date }),
+    bulkMoveToDate: (ids, date) => {
+      if (!ids?.length) return
+      dispatchWithSync({ type: 'BULK_MOVE_TO_DATE', ids, date })
+      const label = !date ? 'Inboxへ移しました' : date === todayStr() ? '今日へ移動しました' : '移動しました'
+      showToast(`${ids.length}件を${label}`)
+    },
+    bulkComplete: (ids) => {
+      if (!ids?.length) return
+      dispatchWithSync({ type: 'BULK_COMPLETE', ids })
+      showToast(`${ids.length}件を完了しました`)
+    },
     setConsoleDateRange: (id, start, end) => {
       const patch = normalizeConsoleDateRange(start, end)
       dispatchWithSync({ type: 'UPDATE_TASK', id, patch })

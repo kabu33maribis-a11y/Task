@@ -2152,11 +2152,41 @@ select {
   padding: 12px 14px;
   margin-bottom: 20px;
 }
+.callout-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
 .callout h4 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--sumi-soft);
+}
+.callout-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.callout-select-bar {
+  display: flex;
+  gap: 12px;
+  margin: 0 0 6px;
+}
+.callout-select-bar .linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--sumi-soft);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.callout-select-bar .linkish:hover {
+  color: var(--sumi);
 }
 .callout-row {
   display: flex;
@@ -2167,12 +2197,114 @@ select {
   overflow-x: auto;
   scrollbar-width: thin;
 }
+.callout-row.selected {
+  background: var(--shu-wash);
+  margin: 0 -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+  border-radius: 4px;
+}
+.callout-check {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.callout-check input {
+  accent-color: var(--shu);
+  width: 15px;
+  height: 15px;
+}
 .callout-row .t {
   font-size: 14px;
   white-space: nowrap;
   min-width: 0;
+  flex: 1;
 }
 .callout-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 空状態ガイド */
+.empty-guide {
+  border: 1px dashed var(--rule-strong);
+  background: var(--washi-sink);
+  border-radius: var(--r);
+  padding: 16px 18px;
+  margin: 4px 0 16px;
+}
+.empty-guide-lead {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--sumi);
+}
+.empty-guide-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--sumi-soft);
+  line-height: 1.55;
+}
+.empty-guide-list {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 13px;
+  color: var(--sumi-soft);
+  line-height: 1.65;
+}
+
+/* 完了の余韻 */
+.afterglow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--shu-light);
+  background: var(--shu-wash);
+}
+.afterglow-pulse {
+  animation: afterglow-in 0.55s ease-out;
+}
+@keyframes afterglow-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.afterglow-seal {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--shu);
+  border: 2px solid var(--shu-deep);
+  box-shadow: inset 0 0 0 3px var(--shu-wash);
+  opacity: 0.92;
+}
+.afterglow-body {
+  flex: 1;
+  min-width: 0;
+}
+.afterglow-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--shu-deep);
+}
+.afterglow-sub {
+  font-size: 12px;
+  color: var(--sumi-soft);
+  margin-top: 2px;
+}
+.afterglow-actions {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
@@ -2750,7 +2882,7 @@ select {
   animation: dtd-overlay-in 160ms ease-out;
 }
 .dtd-dialog {
-  --dtd-pad: 22px;
+  --dtd-pad: 16px;
   max-width: 440px;
   width: 100%;
   max-height: min(90vh, 760px);
@@ -2764,7 +2896,7 @@ select {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 18px var(--dtd-pad) 0;
+  padding: 14px var(--dtd-pad) 0;
 }
 .dtd-head-text {
   flex: 1;
@@ -2817,10 +2949,10 @@ select {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 14px var(--dtd-pad) 8px;
+  padding: 12px var(--dtd-pad) 6px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 .dtd-title-field {
   display: block;
@@ -2852,6 +2984,65 @@ textarea.dtd-title-input,
   margin-top: 6px;
   font-size: 12px;
   font-weight: 600;
+  color: var(--sumi-soft);
+}
+.dtd-parent-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary-deep) 28%, var(--rule));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary-deep) 8%, var(--washi-raised));
+}
+.dtd-parent-banner-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.dtd-parent-banner-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--primary-deep);
+}
+.dtd-parent-banner-title {
+  font-weight: 700;
+  color: var(--sumi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.dtd-parent-banner-hint {
+  color: var(--sumi-soft);
+  font-weight: 500;
+}
+.dtd-parent-banner-clear {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--sumi-soft);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dtd-parent-banner-clear:hover {
+  color: var(--sumi);
+  background: color-mix(in srgb, var(--sumi) 6%, transparent);
+}
+.dtd-parent-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
   color: var(--sumi-soft);
 }
 .dtd-title-input::placeholder {
@@ -3238,7 +3429,7 @@ textarea.dtd-title-input,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px var(--dtd-pad) 16px;
+  padding: 10px var(--dtd-pad) 12px;
   border-top: 1px solid var(--rule);
   background: color-mix(in srgb, var(--washi-raised) 92%, var(--washi-sink));
 }
@@ -3394,12 +3585,14 @@ textarea.dtd-title-input,
   z-index: 2;
   box-sizing: border-box;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 2px;
   border-radius: 4px;
   background: var(--washi-sink);
   border-left: 3px solid var(--sumi-faint);
-  padding: 0 8px 0 8px;
+  padding: 3px 8px 4px;
   overflow: hidden;
   cursor: grab;
   user-select: none;
@@ -3430,8 +3623,17 @@ textarea.dtd-title-input,
 }
 .cal-day-block.done {
   color: var(--sumi-faint);
+}
+.cal-day-block.done .cal-day-block-title {
   text-decoration: line-through;
   text-decoration-color: var(--border-strong);
+}
+.cal-day-block-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 0 auto;
 }
 .cal-day-block-title {
   flex: 1 1 auto;
@@ -3442,16 +3644,78 @@ textarea.dtd-title-input,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
 }
 .cal-day-block-time {
   flex: 0 0 auto;
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 11px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
-  color: var(--text);
+  line-height: 1.25;
+  color: var(--text-soft);
   text-decoration: none;
+  white-space: nowrap;
+}
+.cal-day-block-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 1px;
+  padding-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--sumi-soft);
+}
+.cal-day-block-memo {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+}
+.cal-day-block-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+.cal-day-block-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.cal-day-block-list li.is-done {
+  color: var(--sumi-faint);
+}
+.cal-day-block-list li.is-done .cal-day-block-list-text {
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
+.cal-day-block-mark {
+  flex: 0 0 auto;
+  width: 0.9em;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+.cal-day-block-list-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-day-block-children {
+  color: var(--sumi-soft);
 }
 .cal-day-block.dragging .cal-day-block-time,
 .cal-day-block.preview .cal-day-block-time {
@@ -3737,6 +4001,10 @@ textarea.dtd-title-input,
   padding: 24px;
   border: 1px solid var(--rule-strong);
   box-shadow: var(--shadow-pop);
+}
+/* .modal の padding が後勝ちしないよう打ち消す（内側は --dtd-pad のみ） */
+.modal.dtd-dialog {
+  padding: 0;
 }
 .modal.settings-modal {
   max-width: 520px;
@@ -4165,21 +4433,26 @@ textarea.dtd-title-input,
 .wbs-head {
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding-bottom: 16px;
+  gap: 14px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--rule);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 .wbs-title-group {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(360px, 32%);
+  flex-wrap: nowrap;
 }
 .wbs-title-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex: 0 0 auto;
 }
 .wbs-title {
   display: flex;
@@ -4188,6 +4461,12 @@ textarea.dtd-title-input,
   margin: 0;
   padding: 0;
   border: none;
+  min-width: 0;
+  overflow: hidden;
+}
+.wbs-head .wbs-title.screen-date {
+  font-size: 20px;
+  white-space: nowrap;
 }
 .wbs-badge {
   font-family: var(--font-mono);
@@ -4421,16 +4700,20 @@ textarea.wbs-edit,
 .wbs-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  margin-left: auto;
+  min-width: 0;
+  flex-wrap: nowrap;
 }
 .wbs-search {
   position: relative;
   display: flex;
   align-items: center;
-  min-width: 160px;
-  max-width: 240px;
-  flex: 1 1 160px;
+  min-width: 120px;
+  max-width: 200px;
+  flex: 0 1 160px;
 }
 .wbs-search-input {
   width: 100%;
@@ -4705,6 +4988,39 @@ textarea.wbs-edit,
 .wbs-count-sub {
   color: var(--sumi-faint);
   font-size: 11px;
+}
+
+/* ノートPC幅: 余白とタイトルを詰めて1行を維持（表示形式は設定に従う） */
+@media (max-width: 1500px) {
+  .wbs-head {
+    gap: 8px;
+    padding-bottom: 10px;
+  }
+  .wbs-head .wbs-title.screen-date {
+    font-size: 18px;
+  }
+  .wbs-title-group {
+    max-width: min(280px, 28%);
+  }
+  .wbs-toolbar {
+    gap: 4px;
+  }
+  .wbs-search {
+    min-width: 96px;
+    max-width: 140px;
+    flex-basis: 120px;
+  }
+  .wbs-search-input {
+    height: 28px;
+    font-size: 12px;
+    padding: 0 28px 0 8px;
+  }
+  .wbs-head .btn-sm {
+    padding: 4px 7px;
+  }
+  .wbs-zoom button {
+    padding: 3px 8px;
+  }
 }
 
 /* the single scroll surface (x & y) */

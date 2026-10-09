@@ -49,13 +49,61 @@ function nowMinutes() {
   return d.getHours() * 60 + d.getMinutes()
 }
 
+/** ブロック高さに応じてタイトル下に出せる余白コンテンツを組み立てる */
+function DayBlockBody({ height, checklist = [], activities = [], childTasks = [] }) {
+  // 見出し行（〜18px）＋余白を見て、本文を出せる高さか判定
+  if (height < 52) return null
+  const memoText = activities
+    .slice()
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+    .map((a) => a.body)
+    .filter(Boolean)
+    .join('\n')
+  const hasMemo = memoText.length > 0
+  const hasCheck = checklist.length > 0
+  const hasChildren = childTasks.length > 0
+  if (!hasMemo && !hasCheck && !hasChildren) return null
+
+  return (
+    <div className="cal-day-block-body">
+      {hasMemo && (
+        <div className="cal-day-block-memo">{memoText}</div>
+      )}
+      {hasCheck && (
+        <ul className="cal-day-block-list cal-day-block-checklist">
+          {checklist.map((item) => (
+            <li key={item.id} className={item.done ? 'is-done' : ''}>
+              <span className="cal-day-block-mark" aria-hidden="true">
+                {item.done ? '✓' : '○'}
+              </span>
+              <span className="cal-day-block-list-text">{item.title}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hasChildren && (
+        <ul className="cal-day-block-list cal-day-block-children">
+          {childTasks.map((c) => (
+            <li key={c.id} className={c.status === 'DONE' ? 'is-done' : ''}>
+              <span className="cal-day-block-mark" aria-hidden="true">
+                {c.status === 'DONE' ? '✓' : '・'}
+              </span>
+              <span className="cal-day-block-list-text">{c.title}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /**
  * Day timeline: all-day lane + vertical 0–24h axis with DnD scheduling
  * and empty-axis drag-to-create (15-min snap).
  * @param {{ date: string, tasks: object[], defaultProjectId?: string|null }} props
  */
 export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
-  const { actions } = useStore()
+  const { state, actions } = useStore()
   const catMap = useCategoryMap()
   const projMap = useProjectMap()
   const scrollRef = useRef(null)
@@ -82,6 +130,35 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
   const bizHeight = minutesToY(BIZ_END_HOUR * 60) - bizTop
 
   const { allDay, timed } = useMemo(() => partitionDayTasks(tasks, date), [tasks, date])
+
+  const extrasByTask = useMemo(() => {
+    const checkBy = new Map()
+    for (const item of state.checklistItems ?? []) {
+      const list = checkBy.get(item.task_id) ?? []
+      list.push(item)
+      checkBy.set(item.task_id, list)
+    }
+    for (const list of checkBy.values()) {
+      list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    }
+    const actBy = new Map()
+    for (const a of state.activities ?? []) {
+      const list = actBy.get(a.task_id) ?? []
+      list.push(a)
+      actBy.set(a.task_id, list)
+    }
+    const childBy = new Map()
+    for (const t of state.tasks ?? []) {
+      if (!t.parent_id) continue
+      const list = childBy.get(t.parent_id) ?? []
+      list.push(t)
+      childBy.set(t.parent_id, list)
+    }
+    for (const list of childBy.values()) {
+      list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    }
+    return { checkBy, actBy, childBy }
+  }, [state.checklistItems, state.activities, state.tasks])
 
   const layoutTimed = useMemo(() => {
     // Columns from committed times only. Live drag must not re-sort / swap columns
@@ -499,8 +576,10 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
                   {!split && (
                     <span className="cal-day-drag-time is-both">{timeLabel}</span>
                   )}
-                  <div className="cal-day-block-title">新規タスク</div>
-                  <div className="cal-day-block-time">{timeLabel}</div>
+                  <div className="cal-day-block-head">
+                    <div className="cal-day-block-title">新規タスク</div>
+                    {h >= 28 && <div className="cal-day-block-time">{timeLabel}</div>}
+                  </div>
                 </div>
               )
             })()}
@@ -510,25 +589,33 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
               const rawTop = minutesToY(startMins)
               const rawH = Math.max(minutesToY(endMins) - rawTop, 16)
               const inset = 3
+              const blockH = Math.max(rawH - inset * 2, 16)
               const st = {
                 top: rawTop + inset,
-                height: Math.max(rawH - inset * 2, 16),
+                height: blockH,
                 left: `calc(${(col / colCount) * 100}% + 2px)`,
                 width: `calc(${(1 / colCount) * 100}% - 4px)`,
                 ...taskBlockStyle(color, t.status),
               }
               const isDragging = drag?.id === t.id && drag.kind !== 'schedule' && drag.kind !== 'create'
+              const checklist = extrasByTask.checkBy.get(t.id) ?? []
+              const activities = extrasByTask.actBy.get(t.id) ?? []
+              const childTasks = extrasByTask.childBy.get(t.id) ?? []
+              const hasExtras =
+                activities.some((a) => a.body) || checklist.length > 0 || childTasks.length > 0
               const cls = [
                 'cal-day-block',
                 t.status === 'DONE' ? 'done' : '',
                 isDragging ? 'dragging' : '',
                 preview ? 'preview' : '',
                 drag?.unschedule && drag.id === t.id ? 'unscheduling' : '',
+                hasExtras && blockH >= 52 ? 'has-body' : '',
               ].filter(Boolean).join(' ')
               const times = blockToTimes(startMins, endMins)
               const timeLabel = `${times.startTime}–${times.endTime}`
               const showDragTimes = isDragging || preview
-              const splitDragTimes = showDragTimes && st.height >= 40
+              const splitDragTimes = showDragTimes && blockH >= 40
+              const showTime = blockH >= 28
               return (
                 <div
                   key={preview ? `preview-${t.id}` : t.id}
@@ -562,8 +649,18 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
                   {showDragTimes && !splitDragTimes && (
                     <span className="cal-day-drag-time is-both">{timeLabel}</span>
                   )}
-                  <div className="cal-day-block-title">{t.title}</div>
-                  <div className="cal-day-block-time">{timeLabel}</div>
+                  <div className="cal-day-block-head">
+                    <div className="cal-day-block-title">{t.title}</div>
+                    {showTime && <div className="cal-day-block-time">{timeLabel}</div>}
+                  </div>
+                  {!preview && (
+                    <DayBlockBody
+                      height={blockH}
+                      checklist={checklist}
+                      activities={activities}
+                      childTasks={childTasks}
+                    />
+                  )}
                 </div>
               )
             })}
