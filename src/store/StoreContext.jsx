@@ -216,6 +216,164 @@ function makeDependency(predecessorId, successorId) {
   }
 }
 
+/** 削除したタスクの親も消えるとき、残るタスクを生きている祖先へ付け替える。 */
+function survivingParentId(task, tasksById, idSet) {
+  let p = task.parent_id ?? null
+  const seen = new Set()
+  while (p && idSet.has(p) && !seen.has(p)) {
+    seen.add(p)
+    const parent = tasksById.get(p)
+    p = parent ? (parent.parent_id ?? null) : null
+  }
+  return p
+}
+
+/**
+ * コピーしたタスク群を、選択位置の直後（未選択なら各プロジェクトの末尾）へ挿入する。
+ * コピー同士の親子関係は保ち、外の親は貼り付け先の親に付け替える。
+ */
+function pasteTaskBundle(state, action, now) {
+  const items = action.items ?? []
+  if (!items.length || !action.idMap) return state
+  const idMap = action.idMap
+  const copiedIds = new Set(items.map((i) => i.task.id))
+  const anchor = action.anchor ?? null
+
+  const drafts = items.map((item) => {
+    const src = item.task
+    const parentInSet = !!(src.parent_id && copiedIds.has(src.parent_id))
+    const projectId = anchor ? (anchor.project_id ?? null) : (src.project_id ?? null)
+    const parentId = parentInSet ? idMap[src.parent_id] : (anchor ? (anchor.parent_id ?? null) : null)
+    const draft = unifyTaskDates({
+      id: idMap[src.id],
+      title: src.title ?? '',
+      status: 'TODO',
+      scheduled_date: src.scheduled_date ?? null,
+      start_date: src.start_date ?? null,
+      end_date: src.end_date ?? null,
+      console_end_date: src.console_end_date ?? null,
+      start_time: src.start_time ?? null,
+      end_time: src.end_time ?? null,
+      completed_at: null,
+      category_id: src.category_id ?? null,
+      project_id: projectId,
+      parent_id: parentId,
+      tag_id: src.tag_id ?? null,
+      priority: src.priority ?? null,
+      sort_order: src.sort_order ?? 0,
+      recurrence: src.recurrence ?? null,
+      created_at: now,
+      updated_at: now,
+    })
+    draft._parentInSet = parentInSet
+    return draft
+  })
+
+  const byNewId = new Map(drafts.map((d) => [d.id, d]))
+  for (const draft of drafts) {
+    if (!draft._parentInSet) continue
+    const parent = byNewId.get(draft.parent_id)
+    if (parent) draft.project_id = parent.project_id
+  }
+
+  const groups = new Map()
+  for (const draft of drafts) {
+    if (draft._parentInSet) continue
+    const key = `${draft.parent_id ?? ''}\0${draft.project_id ?? ''}`
+    const list = groups.get(key) ?? []
+    list.push(draft.id)
+    groups.set(key, list)
+  }
+
+  let tasks = state.tasks.slice()
+  for (const [key, newIds] of groups) {
+    const [parentKey, projectKey] = key.split('\0')
+    const parentId = parentKey || null
+    const projectId = projectKey || null
+    const siblingIds = tasks
+      .filter((t) => (t.parent_id ?? null) === parentId && (t.project_id ?? null) === projectId)
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.id).localeCompare(String(b.id)))
+      .map((t) => t.id)
+    let insertAt = siblingIds.length
+    if (
+      anchor &&
+      (anchor.parent_id ?? null) === parentId &&
+      (anchor.project_id ?? null) === projectId
+    ) {
+      const at = siblingIds.indexOf(anchor.id)
+      insertAt = at < 0 ? siblingIds.length : at + 1
+    }
+    const merged = siblingIds.slice()
+    merged.splice(insertAt, 0, ...newIds)
+    const order = new Map(merged.map((id, i) => [id, i]))
+    tasks = tasks.map((t) => {
+      const so = order.get(t.id)
+      if (so == null || (t.sort_order ?? 0) === so) return t
+      return { ...t, sort_order: so, updated_at: now }
+    })
+    for (const draft of drafts) {
+      if (order.has(draft.id)) draft.sort_order = order.get(draft.id)
+    }
+  }
+
+  const nested = new Map()
+  for (const draft of drafts) {
+    if (!draft._parentInSet) continue
+    const list = nested.get(draft.parent_id) ?? []
+    list.push(draft)
+    nested.set(draft.parent_id, list)
+  }
+  for (const list of nested.values()) {
+    list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    list.forEach((draft, i) => {
+      draft.sort_order = i
+    })
+  }
+
+  const placed = drafts.map(({ _parentInSet, ...task }) => task)
+  const memberIds = new Set((state.members ?? []).map((m) => m.id))
+  const newChecklist = []
+  const newAssignees = []
+  for (const item of items) {
+    const newTaskId = idMap[item.task.id]
+    for (const c of item.checklistItems ?? []) {
+      newChecklist.push({
+        id: uid('cl'),
+        task_id: newTaskId,
+        title: c.title ?? '',
+        done: false,
+        sort_order: c.sort_order ?? 0,
+        created_at: now,
+        updated_at: now,
+      })
+    }
+    for (const a of item.assignees ?? []) {
+      if (!memberIds.has(a.member_id)) continue
+      newAssignees.push({
+        id: uid('a'),
+        task_id: newTaskId,
+        member_id: a.member_id,
+        created_at: now,
+      })
+    }
+  }
+  const newDeps = []
+  for (const d of action.dependencies ?? []) {
+    const predecessorId = idMap[d.predecessor_id]
+    const successorId = idMap[d.successor_id]
+    if (!predecessorId || !successorId) continue
+    newDeps.push(makeDependency(predecessorId, successorId))
+  }
+
+  return {
+    ...state,
+    tasks: [...tasks, ...placed],
+    checklistItems: [...(state.checklistItems ?? []), ...newChecklist],
+    taskAssignees: [...(state.taskAssignees ?? []), ...newAssignees],
+    dependencies: [...(state.dependencies ?? []), ...newDeps],
+  }
+}
+
 function normalizeTag(tag) {
   return {
     id: tag.id,
@@ -472,6 +630,28 @@ function reducer(state, action) {
       }
     }
 
+    case 'DELETE_TASKS': {
+      const idSet = new Set(action.ids ?? [])
+      if (idSet.size === 0) return state
+      const tasksById = new Map(state.tasks.map((t) => [t.id, t]))
+      const now = stamp()
+      return {
+        ...state,
+        tasks: state.tasks
+          .filter((t) => !idSet.has(t.id))
+          .map((t) => {
+            if (!t.parent_id || !idSet.has(t.parent_id)) return t
+            return { ...t, parent_id: survivingParentId(t, tasksById, idSet), updated_at: now }
+          }),
+        activities: state.activities.filter((a) => !idSet.has(a.task_id)),
+        checklistItems: (state.checklistItems ?? []).filter((i) => !idSet.has(i.task_id)),
+        dependencies: (state.dependencies ?? []).filter(
+          (d) => !idSet.has(d.predecessor_id) && !idSet.has(d.successor_id),
+        ),
+        taskAssignees: (state.taskAssignees ?? []).filter((a) => !idSet.has(a.task_id)),
+      }
+    }
+
     case 'SET_PARENT': {
       const moving = state.tasks.find((t) => t.id === action.id)
       if (!moving) return state
@@ -708,6 +888,43 @@ function reducer(state, action) {
         ...state,
         tasks: [...state.tasks, task],
         checklistItems: [...state.checklistItems, ...newChecklist],
+      }
+    }
+
+    case 'PASTE_TASKS':
+      return pasteTaskBundle(state, action, stamp())
+
+    case 'RESTORE_TASKS': {
+      const existing = new Set(state.tasks.map((t) => t.id))
+      const restored = (action.tasks ?? []).filter((t) => !existing.has(t.id)).map(unifyTaskDates)
+      const restoredItems = (action.checklistItems ?? []).filter(
+        (i) => !(state.checklistItems ?? []).some((x) => x.id === i.id),
+      )
+      const existingDepKeys = new Set(
+        (state.dependencies ?? []).map((d) => `${d.predecessor_id}->${d.successor_id}`),
+      )
+      const restoredDeps = (action.dependencies ?? []).filter(
+        (d) => !existingDepKeys.has(`${d.predecessor_id}->${d.successor_id}`),
+      )
+      const memberIds = new Set((state.members ?? []).map((m) => m.id))
+      const restoredAssignees = (action.assignees ?? []).filter(
+        (a) =>
+          memberIds.has(a.member_id) &&
+          !(state.taskAssignees ?? []).some((x) => x.task_id === a.task_id && x.member_id === a.member_id),
+      )
+      const parentPatches = new Map((action.reparented ?? []).map((r) => [r.id, r.parent_id ?? null]))
+      const now = stamp()
+      return {
+        ...state,
+        tasks: [
+          ...state.tasks.map((t) =>
+            parentPatches.has(t.id) ? { ...t, parent_id: parentPatches.get(t.id), updated_at: now } : t,
+          ),
+          ...restored,
+        ],
+        checklistItems: [...(state.checklistItems ?? []), ...restoredItems],
+        dependencies: [...(state.dependencies ?? []), ...restoredDeps],
+        taskAssignees: [...(state.taskAssignees ?? []), ...restoredAssignees],
       }
     }
 
@@ -1140,6 +1357,24 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const t of reparented) await dbUpsertTask(db, t)
           break
         }
+        case 'DELETE_TASKS': {
+          for (const id of action.ids ?? []) {
+            await db.execute('DELETE FROM tasks WHERE id = ?', [id])
+            await db.execute('DELETE FROM activities WHERE task_id = ?', [id])
+            await db.execute('DELETE FROM checklist_items WHERE task_id = ?', [id])
+            await db.execute(
+              'DELETE FROM task_dependencies WHERE predecessor_id = ? OR successor_id = ?',
+              [id, id],
+            )
+            await db.execute('DELETE FROM task_assignees WHERE task_id = ?', [id])
+          }
+          const reparented = nextState.tasks.filter((t) => {
+            const prev = prevState.tasks.find((p) => p.id === t.id)
+            return prev && prev.parent_id !== t.parent_id
+          })
+          for (const t of reparented) await dbUpsertTask(db, t)
+          break
+        }
         case 'RESTORE_TASK': {
           const task = nextState.tasks.find((t) => t.id === action.task.id)
           if (task) await dbUpsertTask(db, task)
@@ -1147,6 +1382,20 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const dep of action.dependencies ?? []) await dbUpsertDependency(db, dep)
           for (const a of (nextState.taskAssignees ?? []).filter((x) => x.task_id === action.task.id)) {
             await dbUpsertTaskAssignee(db, a)
+          }
+          break
+        }
+        case 'RESTORE_TASKS': {
+          for (const task of action.tasks ?? []) {
+            const t = nextState.tasks.find((x) => x.id === task.id)
+            if (t) await dbUpsertTask(db, t)
+          }
+          for (const item of action.checklistItems ?? []) await dbUpsertChecklistItem(db, item)
+          for (const dep of action.dependencies ?? []) await dbUpsertDependency(db, dep)
+          for (const a of action.assignees ?? []) await dbUpsertTaskAssignee(db, a)
+          for (const r of action.reparented ?? []) {
+            const t = nextState.tasks.find((x) => x.id === r.id)
+            if (t) await dbUpsertTask(db, t)
           }
           break
         }
@@ -1201,6 +1450,30 @@ async function doSyncToDb(prevState, nextState, action) {
             (i) => !prevState.checklistItems.some((p) => p.id === i.id),
           )
           for (const item of newItems) await dbUpsertChecklistItem(db, item)
+          break
+        }
+        case 'PASTE_TASKS': {
+          const prevIds = new Set(prevState.tasks.map((t) => t.id))
+          for (const t of nextState.tasks) {
+            if (!prevIds.has(t.id)) {
+              await dbUpsertTask(db, t)
+              continue
+            }
+            const prev = prevState.tasks.find((p) => p.id === t.id)
+            if (prev && prev.sort_order !== t.sort_order) await dbUpsertTask(db, t)
+          }
+          const prevChecks = new Set((prevState.checklistItems ?? []).map((i) => i.id))
+          for (const item of nextState.checklistItems ?? []) {
+            if (!prevChecks.has(item.id)) await dbUpsertChecklistItem(db, item)
+          }
+          const prevAssignees = new Set((prevState.taskAssignees ?? []).map((a) => a.id))
+          for (const a of nextState.taskAssignees ?? []) {
+            if (!prevAssignees.has(a.id)) await dbUpsertTaskAssignee(db, a)
+          }
+          const prevDeps = new Set((prevState.dependencies ?? []).map((d) => d.id))
+          for (const d of nextState.dependencies ?? []) {
+            if (!prevDeps.has(d.id)) await dbUpsertDependency(db, d)
+          }
           break
         }
         case 'ADD_DEPENDENCY': {
@@ -1472,7 +1745,24 @@ export function StoreProvider({ children }) {
     setToast(null)
   }
 
-  const actions = useMemo(() => ({
+  const actions = useMemo(() => {
+    function pasteBundle(clip, anchor) {
+      const idMap = {}
+      for (const item of clip.bundle.items) idMap[item.task.id] = uid('t')
+      dispatchWithSync({
+        type: 'PASTE_TASKS',
+        items: clip.bundle.items,
+        dependencies: clip.bundle.dependencies ?? [],
+        anchor: anchor
+          ? { id: anchor.id, parent_id: anchor.parent_id ?? null, project_id: anchor.project_id ?? null }
+          : null,
+        idMap,
+      })
+      const n = clip.bundle.items.length
+      showToast(n === 1 ? 'タスクを貼り付けました' : `${n}件のタスクを貼り付けました`)
+      return Object.values(idMap)
+    }
+    return {
     addTask: (input) => dispatchWithSync({ type: 'ADD_TASK', input }),
     addTaskWithChildren: (parentInput, childTitles) =>
       dispatchWithSync({ type: 'ADD_TASK_WITH_CHILDREN', parentInput, childTitles }),
@@ -1577,9 +1867,47 @@ export function StoreProvider({ children }) {
       const checklistItems = (prevStateRef.current.checklistItems ?? []).filter((i) => i.task_id === task.id)
       setClipboardTask({ task, checklistItems })
     },
+    copyTasks: (tasks) => {
+      const s = prevStateRef.current
+      const list = []
+      const seen = new Set()
+      for (const task of tasks ?? []) {
+        if (!task || seen.has(task.id)) continue
+        seen.add(task.id)
+        list.push(task)
+      }
+      if (!list.length) return 0
+      const ids = new Set(list.map((t) => t.id))
+      const items = list.map((task) => ({
+        task: { ...task },
+        checklistItems: (s.checklistItems ?? []).filter((i) => i.task_id === task.id).map((i) => ({ ...i })),
+        assignees: (s.taskAssignees ?? []).filter((a) => a.task_id === task.id).map((a) => ({ ...a })),
+      }))
+      const dependencies = (s.dependencies ?? [])
+        .filter((d) => ids.has(d.predecessor_id) && ids.has(d.successor_id))
+        .map((d) => ({ predecessor_id: d.predecessor_id, successor_id: d.successor_id }))
+      setClipboardTask({
+        task: items[0].task,
+        checklistItems: items[0].checklistItems,
+        bundle: { items, dependencies },
+      })
+      showToast(items.length === 1 ? 'タスクをコピーしました' : `${items.length}件のタスクをコピーしました`)
+      return items.length
+    },
     pasteTask: (target = null) => {
-      if (!clipboardRef.current) return
-      dispatchWithSync({ type: 'PASTE_TASK', source: clipboardRef.current, target })
+      const clip = clipboardRef.current
+      if (!clip) return []
+      if (clip.bundle?.items?.length) return pasteBundle(clip, target)
+      dispatchWithSync({ type: 'PASTE_TASK', source: clip, target })
+      return []
+    },
+    pasteCopiedTasks: (anchor = null) => {
+      const clip = clipboardRef.current
+      if (!clip) return []
+      if (clip.bundle?.items?.length) return pasteBundle(clip, anchor)
+      dispatchWithSync({ type: 'PASTE_TASK', source: clip, target: anchor })
+      showToast('タスクを貼り付けました')
+      return []
     },
     deleteTask: (task) => {
       const checklistItems = (prevStateRef.current.checklistItems ?? []).filter((i) => i.task_id === task.id)
@@ -1592,8 +1920,38 @@ export function StoreProvider({ children }) {
         dispatchWithSync({ type: 'RESTORE_TASK', task, checklistItems, dependencies, assignees }),
       )
     },
+    deleteTasks: (tasks) => {
+      const s = prevStateRef.current
+      const idSet = new Set((tasks ?? []).map((t) => t?.id).filter(Boolean))
+      const removed = s.tasks.filter((t) => idSet.has(t.id))
+      if (!removed.length) return 0
+      const ids = removed.map((t) => t.id)
+      const removedSet = new Set(ids)
+      const checklistItems = (s.checklistItems ?? []).filter((i) => removedSet.has(i.task_id))
+      const assignees = (s.taskAssignees ?? []).filter((a) => removedSet.has(a.task_id))
+      const dependencies = (s.dependencies ?? []).filter(
+        (d) => removedSet.has(d.predecessor_id) || removedSet.has(d.successor_id),
+      )
+      const reparented = s.tasks
+        .filter((t) => !removedSet.has(t.id) && t.parent_id && removedSet.has(t.parent_id))
+        .map((t) => ({ id: t.id, parent_id: t.parent_id }))
+      dispatchWithSync({ type: 'DELETE_TASKS', ids })
+      const n = removed.length
+      showToast(n === 1 ? 'タスクを削除しました' : `${n}件のタスクを削除しました`, () =>
+        dispatchWithSync({
+          type: 'RESTORE_TASKS',
+          tasks: removed,
+          checklistItems,
+          dependencies,
+          assignees,
+          reparented,
+        }),
+      )
+      return n
+    },
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [])
+  }, [])
 
   if (!ready) return null
 

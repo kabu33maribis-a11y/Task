@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   Trash2, Plus, FileSpreadsheet, Maximize2, Calendar, CalendarDays, CheckCircle2,
   Lock, Unlock, ChevronsUpDown, ChevronsDownUp, CornerDownRight, X,
+  Pencil, Copy, ClipboardPaste,
 } from 'lucide-react'
 import { useIconMode, useBarLabel } from '../lib/iconMode.js'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
@@ -60,6 +61,7 @@ const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
 const SHOW_WEEKDAYS_KEY = 'taskmanager.wbs.showWeekdays'
 const SHOW_COMPLETED_KEY = 'taskmanager.wbs.showCompleted'
 const AXIS_LOCKED_KEY = 'taskmanager.wbs.axisLocked'
+const EDIT_MODE_KEY = 'taskmanager.wbs.editMode'
 const HOUR_RANGE_DAYS_KEY = 'taskmanager.wbs.hourRangeDays'
 const HOUR_RANGE_DAYS_DEFAULT = 3
 const HOUR_RANGE_DAYS_MIN = 1
@@ -169,7 +171,7 @@ export default function Wbs({ projectFilter = 'all' }) {
 }
 
 function WbsGantt({ project, multi }) {
-  const { state, actions } = useStore()
+  const { state, actions, clipboardTask } = useStore()
   const catMap = useCategoryMap()
   const visibleProjects = useVisibleProjects()
   const hiddenIds = useHiddenProjectIds()
@@ -230,6 +232,7 @@ function WbsGantt({ project, multi }) {
     return () => clearTimeout(t)
   }, [taskQueryInput])
   const [axisLocked, setAxisLocked] = useState(() => localStorage.getItem(AXIS_LOCKED_KEY) === '1')
+  const [editMode, setEditMode] = useState(() => localStorage.getItem(EDIT_MODE_KEY) === '1')
   const [hourRangeDays, setHourRangeDays] = useState(() => {
     const n = Number(localStorage.getItem(HOUR_RANGE_DAYS_KEY))
     return n >= HOUR_RANGE_DAYS_MIN && n <= HOUR_RANGE_DAYS_MAX ? n : HOUR_RANGE_DAYS_DEFAULT
@@ -730,6 +733,17 @@ function WbsGantt({ project, multi }) {
       localStorage.setItem(AXIS_LOCKED_KEY, next ? '1' : '0')
       return next
     })
+  }
+
+  function toggleEditMode() {
+    const next = !editMode
+    localStorage.setItem(EDIT_MODE_KEY, next ? '1' : '0')
+    setEditMode(next)
+    if (!next) {
+      setSelectedIds(new Set())
+      return
+    }
+    if (selectedIds.size === 0 && selectedId) setSelectedIds(new Set([selectedId]))
   }
 
   function changeHourRangeDays(n) {
@@ -1297,12 +1311,158 @@ function WbsGantt({ project, multi }) {
     return new Set(ids.slice(lo, hi + 1))
   }
 
+  function applySingleSelect(id) {
+    const next = new Set([id])
+    setSelectedId(id)
+    setSelectedIds(next)
+    selectionAnchorRef.current = id
+    dragSeedRef.current = next
+  }
+
+  /** 編集モード中の選択。ガントバーからは fromBar、チェックボックスからは toggle。 */
+  function selectTask(id, e) {
+    const withCtrl = !!(e && (e.ctrlKey || e.metaKey))
+    const withShift = !!(e && e.shiftKey)
+    const toggle = !!(e && e.toggle)
+    if (e?.keepIfSelected && (selectedIds.has(id) || selectedId === id)) {
+      setSelectedId(id)
+      selectionAnchorRef.current = id
+      return
+    }
+    if (!editMode || (!withCtrl && !withShift && !toggle)) {
+      if (editMode && e?.fromBar && selectedIds.has(id) && selectedIds.size > 1) {
+        setSelectedId(id)
+        selectionAnchorRef.current = id
+        dragSeedRef.current = new Set(selectedIds)
+        return
+      }
+      applySingleSelect(id)
+      return
+    }
+    if (withShift) {
+      const anchor = selectionAnchorRef.current ?? selectedId
+      if (!anchor) {
+        applySingleSelect(id)
+        return
+      }
+      const range = rangeSelectIds(anchor, id)
+      const next = withCtrl ? new Set([...selectedIds, ...range]) : range
+      setSelectedId(id)
+      setSelectedIds(next)
+      dragSeedRef.current = next
+      return
+    }
+    const next = new Set(selectedIds)
+    if (next.size === 0 && selectedId && selectedId !== id) next.add(selectedId)
+    if (next.has(id)) {
+      next.delete(id)
+      setSelectedIds(next)
+      dragSeedRef.current = next
+      if (selectedId === id) {
+        const rest = [...next]
+        setSelectedId(rest.length ? rest[rest.length - 1] : null)
+      }
+      return false
+    }
+    next.add(id)
+    setSelectedId(id)
+    selectionAnchorRef.current = id
+    setSelectedIds(next)
+    dragSeedRef.current = next
+  }
+
+  function currentSelectionIds() {
+    const ids = selectableTaskIds()
+    const set = new Set(selectedIds)
+    if (selectedId) set.add(selectedId)
+    const ordered = ids.filter((id) => set.has(id))
+    for (const id of set) {
+      if (!ordered.includes(id)) ordered.push(id)
+    }
+    return ordered
+  }
+
+  function selectedTasksInOrder() {
+    return currentSelectionIds()
+      .map((id) => scopedTasks.find((t) => t.id === id))
+      .filter(Boolean)
+  }
+
+  function copySelection() {
+    const tasks = selectedTasksInOrder()
+    if (!tasks.length) return
+    actions.copyTasks(tasks)
+  }
+
+  function pasteSelection() {
+    const ordered = selectedTasksInOrder()
+    const anchor = ordered.length
+      ? ordered[ordered.length - 1]
+      : (selectedId ? scopedTasks.find((t) => t.id === selectedId) : null)
+    const newIds = actions.pasteCopiedTasks(anchor ?? null)
+    if (newIds?.length) {
+      setSelectedIds(new Set(newIds))
+      setSelectedId(newIds[newIds.length - 1])
+      selectionAnchorRef.current = newIds[0]
+    }
+  }
+
+  function deleteSelection() {
+    const tasks = selectedTasksInOrder()
+    if (!tasks.length) return
+    actions.deleteTasks(tasks)
+    setSelectedIds(new Set())
+    setSelectedId(null)
+    selectionAnchorRef.current = null
+  }
+
+  useEffect(() => {
+    if (!editMode) return undefined
+    function onKey(e) {
+      if (datePopover || linkPopover || tagPopover || assigneePopover || editingId || addDialogOpen) return
+      if (e.target?.closest?.('input, textarea, [contenteditable="true"]')) return
+      const mod = e.ctrlKey || e.metaKey
+      const key = e.key.toLowerCase()
+      if (mod && key === 'c') {
+        if (currentSelectionIds().length === 0) return
+        e.preventDefault()
+        copySelection()
+        return
+      }
+      if (mod && key === 'v') {
+        if (!clipboardTask) return
+        e.preventDefault()
+        pasteSelection()
+        return
+      }
+      if (mod && key === 'a') {
+        e.preventDefault()
+        const ids = selectableTaskIds()
+        setSelectedIds(new Set(ids))
+        if (ids.length) {
+          setSelectedId(ids[ids.length - 1])
+          selectionAnchorRef.current = ids[0]
+        }
+        return
+      }
+      if (e.key === 'Delete') {
+        if (currentSelectionIds().length === 0) return
+        e.preventDefault()
+        deleteSelection()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
+
   function onDepHover(id) {
     setHoveredId(id)
   }
 
   const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
   const hasContent = multi ? visibleProjects.length > 0 : roots.length > 0
+  const selectionCount = editMode ? currentSelectionIds().length : 0
+  const clipCount = clipboardTask?.bundle?.items?.length ?? (clipboardTask ? 1 : 0)
   const emptyRowsMessage = taskQuery.trim()
     ? '該当するタスクがありません。'
     : !showCompleted && overall.total > 0
@@ -1441,6 +1601,15 @@ function WbsGantt({ project, multi }) {
             <BtnLabel icon={CheckCircle2}>完了</BtnLabel>
           </button>
           <button
+            className={`btn btn-sm btn-toggle${editMode ? ' is-on' : ''}`}
+            aria-pressed={editMode}
+            onClick={toggleEditMode}
+            title={editMode ? '編集モードを終了する' : '編集モード（複数選択してコピー・貼り付け・削除）'}
+            aria-label="編集モード"
+          >
+            <BtnLabel icon={Pencil}>編集</BtnLabel>
+          </button>
+          <button
             className={`btn btn-sm btn-toggle${axisLocked ? ' is-on' : ''}`}
             aria-pressed={axisLocked}
             onClick={toggleAxisLock}
@@ -1514,6 +1683,50 @@ function WbsGantt({ project, multi }) {
           </div>
         </div>
       </div>
+
+      {editMode && (
+        <div className="wbs-editbar" role="toolbar" aria-label="編集操作">
+          <span className="wbs-edit-count">{selectionCount}件選択</span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={selectionCount === 0}
+            onClick={copySelection}
+            title="選択したタスクをコピー（Ctrl+C）。親子を両方選ぶと階層を保ちます"
+          >
+            <BtnLabel icon={Copy}>コピー</BtnLabel>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={!clipboardTask}
+            onClick={pasteSelection}
+            title={
+              clipCount > 0
+                ? (selectionCount > 0
+                  ? `コピーした${clipCount}件を、選択の直後に貼り付け（Ctrl+V）`
+                  : `コピーした${clipCount}件を末尾に貼り付け（Ctrl+V）`)
+                : '先にタスクをコピーしてください'
+            }
+          >
+            <BtnLabel icon={ClipboardPaste}>
+              {clipCount > 1 ? `貼り付け（${clipCount}）` : '貼り付け'}
+            </BtnLabel>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-danger"
+            disabled={selectionCount === 0}
+            onClick={deleteSelection}
+            title="選択したタスクを削除（Delete）。直後に取り消せます"
+          >
+            <BtnLabel icon={Trash2}>削除</BtnLabel>
+          </button>
+          <span className="wbs-editbar-hint">
+            チェックかCtrl+クリックで追加、Shift+クリックで範囲、Ctrl+Aですべて
+          </span>
+        </div>
+      )}
 
       {addDialogOpen && (
         <WbsAddTaskDialog
@@ -1762,7 +1975,10 @@ function WbsGantt({ project, multi }) {
               const rowTag = tagForWbsRow(row, state.tasks, state.tags)
               const rowTaskId =
                 node && !node.isProject ? node.task.id : row.parentId || null
-              const isDepSelected = !!(rowTaskId && selectedId === rowTaskId)
+              const isEditSelected = !!(
+                editMode && rowTaskId && (selectedIds.has(rowTaskId) || selectedId === rowTaskId)
+              )
+              const isDepSelected = !!(rowTaskId && (selectedId === rowTaskId || isEditSelected))
               const isDepHover = !!(rowTaskId && hoveredId === rowTaskId)
               const isTreeDragging = !!(node && !node.isProject && treeDragId === node.task.id)
               const isTreeOver = !!(
@@ -1788,6 +2004,8 @@ function WbsGantt({ project, multi }) {
                     rowTag?.color ? ' has-tag' : ''
                   }${
                     isDepSelected ? ' dep-selected' : ''
+                  }${
+                    isEditSelected ? ' edit-selected' : ''
                   }${
                     isDepHover ? ' dep-hover' : ''
                   }${
@@ -1836,8 +2054,6 @@ function WbsGantt({ project, multi }) {
                           collapsed={collapsed}
                           onToggleCollapse={toggleCollapse}
                           onAddChild={() => openAddChild(node)}
-                          onInsertBelow={() => openInsertBelow(node.task.id)}
-                          insertDepth={slotBelowById.get(node.task.id)?.depth ?? 0}
                         />
                       ) : (
                         <LeftRow
@@ -1850,11 +2066,18 @@ function WbsGantt({ project, multi }) {
                           onToggleCollapse={toggleCollapse}
                           onExpand={expand}
                           onFocusDate={scrollToDate}
-                          onSelect={() => {
-                            setSelectedId(node.task.id)
-                            setSelectedIds(new Set([node.task.id]))
-                            selectionAnchorRef.current = node.task.id
-                          }}
+                          editMode={editMode}
+                          selected={selectedIds.has(node.task.id) || selectedId === node.task.id}
+                          selectionSize={selectionCount}
+                          onSelect={(e) => selectTask(node.task.id, e)}
+                          onToggleSelect={(e) => selectTask(node.task.id, {
+                            ctrlKey: e.ctrlKey,
+                            metaKey: e.metaKey,
+                            shiftKey: e.shiftKey,
+                            toggle: !e.shiftKey,
+                          })}
+                          onCopySelection={copySelection}
+                          onDeleteSelection={deleteSelection}
                           today={today}
                           onOpenDatePopover={openDatePopover}
                           onOpenLinkPopover={openLinkPopover}
@@ -1866,7 +2089,6 @@ function WbsGantt({ project, multi }) {
                           }}
                           onAddChild={() => openAddChild(node)}
                           onInsertBelow={() => openInsertBelow(node.task.id)}
-                          insertDepth={slotBelowById.get(node.task.id)?.depth ?? node.depth}
                           onTreeDragStart={(id) => {
                             setTreeDragId(id)
                             setTreeOverId(null)
@@ -1888,6 +2110,12 @@ function WbsGantt({ project, multi }) {
                           setAddingChildOf(null)
                           setInsertSlot(null)
                         }}
+                      />
+                    )}
+                    {row.kind === 'node' && (
+                      <InsertHit
+                        depth={slotBelowById.get(node.task.id)?.depth ?? node.depth}
+                        onInsert={() => openInsertBelow(node.task.id)}
                       />
                     )}
                   </div>
@@ -1935,47 +2163,12 @@ function WbsGantt({ project, multi }) {
                           isSelected={selectedIds.has(node.task.id) || selectedId === node.task.id}
                           onStartDrag={startDrag}
                           onStartLink={startLinkDrag}
-                          onSelect={node.isProject ? undefined : (e) => {
-                            const id = node.task.id
-                            const withCtrl = e.ctrlKey || e.metaKey
-                            if (e.shiftKey) {
-                              const anchor = selectionAnchorRef.current ?? selectedId
-                              if (!anchor) {
-                                setSelectedId(id)
-                                setSelectedIds(new Set([id]))
-                                selectionAnchorRef.current = id
-                                dragSeedRef.current = new Set([id])
-                                return
-                              }
-                              const range = rangeSelectIds(anchor, id)
-                              const next = withCtrl
-                                ? new Set([...selectedIds, ...range])
-                                : range
-                              setSelectedId(id)
-                              setSelectedIds(next)
-                              dragSeedRef.current = next
-                              return
-                            }
-                            if (withCtrl) {
-                              // 通常クリックで選んだバーも複数選択の起点に含める
-                              const next = new Set(selectedIds)
-                              if (next.size === 0 && selectedId && selectedId !== id) next.add(selectedId)
-                              setSelectedId(id)
-                              selectionAnchorRef.current = id
-                              if (next.has(id)) {
-                                next.delete(id)
-                                setSelectedIds(next)
-                                return false // 選択解除のみ。ドラッグは開始しない
-                              }
-                              next.add(id)
-                              setSelectedIds(next)
-                              dragSeedRef.current = next // 同じ mousedown のドラッグが最新の選択を使う
-                            } else {
-                              setSelectedId(id)
-                              setSelectedIds(new Set([id]))
-                              selectionAnchorRef.current = id
-                            }
-                          }}
+                          onSelect={node.isProject ? undefined : (e) => selectTask(node.task.id, {
+                            ctrlKey: e.ctrlKey,
+                            metaKey: e.metaKey,
+                            shiftKey: e.shiftKey,
+                            fromBar: true,
+                          })}
                           tagColor={node.isProject ? null : rowTag?.color}
                           linking={!!linkDrag}
                           linkFromId={linkDrag?.fromId}
@@ -2493,7 +2686,7 @@ function InsertHit({ depth, onInsert }) {
   )
 }
 
-function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild, onInsertBelow, insertDepth }) {
+function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }) {
   const { project, rollup } = node
   const isCollapsed = collapsed.has(node.task.id)
   const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
@@ -2530,7 +2723,6 @@ function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild, 
       <div className="wbs-actions">
         <button className="wbs-act" onClick={onAddChild} title="ルートタスクを追加" aria-label="ルートタスクを追加"><BtnLabel icon={CornerDownRight} size={13}>＋子</BtnLabel></button>
       </div>
-      <InsertHit depth={insertDepth} onInsert={onInsertBelow} />
     </div>
   )
 }
@@ -2546,6 +2738,12 @@ function LeftRow({
   onExpand,
   onFocusDate,
   onSelect,
+  editMode = false,
+  selected = false,
+  selectionSize = 0,
+  onToggleSelect,
+  onCopySelection,
+  onDeleteSelection,
   today,
   onOpenDatePopover,
   onOpenLinkPopover,
@@ -2554,7 +2752,6 @@ function LeftRow({
   onOpenDetail,
   onAddChild,
   onInsertBelow,
-  insertDepth,
   onTreeDragStart,
   onTreeDragEnd,
 }) {
@@ -2694,9 +2891,9 @@ function LeftRow({
   }
   function openContextMenu(e) {
     if (editing) return
-    if (e.target.closest('input, textarea')) return
+    if (e.target.closest('input, textarea, .wbs-select-check')) return
     e.preventDefault()
-    onSelect?.()
+    onSelect?.({ keepIfSelected: true })
     const menuW = 176
     setMorePos({
       top: e.clientY,
@@ -2708,15 +2905,22 @@ function LeftRow({
     setMoreOpen(false)
     onOpenDetail?.()
   }
+  const copyingMany = editMode && selected && selectionSize > 1
+  const clipCount = clipboardTask?.bundle?.items?.length ?? (clipboardTask ? 1 : 0)
   function copyTaskFromMore() {
     setMoreOpen(false)
-    actions.copyTask(task)
+    if (copyingMany) onCopySelection?.()
+    else actions.copyTask(task)
   }
   function pasteTaskFromMore() {
     setMoreOpen(false)
     actions.pasteTask(task)
   }
-  function focusTaskDate() {
+  function focusTaskDate(e) {
+    if (editMode) {
+      onSelect?.(e)
+      return
+    }
     onSelect?.()
     const d =
       node.span?.start ??
@@ -2743,6 +2947,21 @@ function LeftRow({
       >
         ⠿
       </span>
+      {editMode && (
+        <button
+          type="button"
+          className={`wbs-select-check${selected ? ' is-on' : ''}`}
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={selected ? '選択を解除' : '選択'}
+          title="選択（Shiftで範囲）"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleSelect?.(e)
+          }}
+        />
+      )}
       <span className="gantt-indent" style={{ width: depth * 12 }} />
       <button
         className={`wbs-caret${canCollapse ? '' : ' empty'}`}
@@ -2860,11 +3079,11 @@ function LeftRow({
                   この下に追加
                 </button>
                 <button type="button" role="menuitem" onClick={copyTaskFromMore}>
-                  コピー
+                  {copyingMany ? `コピー（${selectionSize}件）` : 'コピー'}
                 </button>
                 {clipboardTask && (
                   <button type="button" role="menuitem" onClick={pasteTaskFromMore}>
-                    貼り付け
+                    {clipCount > 1 ? `貼り付け（${clipCount}件）` : '貼り付け'}
                   </button>
                 )}
                 <button
@@ -2931,14 +3150,13 @@ function LeftRow({
         </span>
         <button
           className="wbs-act wbs-act-del"
-          onClick={() => actions.deleteTask(task)}
-          title="削除"
-          aria-label="タスクを削除"
+          onClick={() => (copyingMany ? onDeleteSelection?.() : actions.deleteTask(task))}
+          title={copyingMany ? `${selectionSize}件を削除` : '削除'}
+          aria-label={copyingMany ? `${selectionSize}件を削除` : 'タスクを削除'}
         >
           <Trash2 size={13} strokeWidth={2} aria-hidden />
         </button>
       </div>
-      <InsertHit depth={insertDepth ?? depth} onInsert={onInsertBelow} />
     </div>
   )
 }

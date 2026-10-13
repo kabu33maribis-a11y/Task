@@ -8,8 +8,9 @@ import { assigneesOf, candidateMembersFor } from '../lib/members.js'
 import ActivityPanel from './ActivityPanel.jsx'
 import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
 import TaskPicker from './TaskPicker.jsx'
+import { TASK_DND_TYPE, setActiveDragTaskId, clearActiveDragTaskId } from '../lib/taskDnd.js'
 
-export const TASK_DND_TYPE = 'application/x-task-id'
+export { TASK_DND_TYPE }
 
 export default function TaskItem({
   task,
@@ -132,6 +133,7 @@ export default function TaskItem({
   const isHighPriority = task.priority === 'high'
 
   function handleDragStart(e) {
+    setActiveDragTaskId(task.id)
     e.dataTransfer.setData(TASK_DND_TYPE, task.id)
     e.dataTransfer.setData('text/plain', task.id)
     e.dataTransfer.effectAllowed = 'move'
@@ -159,7 +161,10 @@ export default function TaskItem({
           dnd.onDrop?.(task.id)
         }
       }}
-      onDragEnd={() => dnd?.onDragEnd?.()}
+      onDragEnd={() => {
+        clearActiveDragTaskId()
+        dnd?.onDragEnd?.()
+      }}
       onContextMenu={(e) => {
         if (editing) return
         if (e.target.closest('input, textarea')) return

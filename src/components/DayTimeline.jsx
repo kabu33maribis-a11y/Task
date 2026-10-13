@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.jsx'
-import { todayStr } from '../lib/date.js'
+import { todayStr, timeToMinutes, normalizeTimeStr } from '../lib/date.js'
 import {
   BIZ_START_HOUR,
   BIZ_END_HOUR,
@@ -22,8 +22,10 @@ import {
   DEFAULT_DROP_DURATION_MINS,
   MIN_DURATION_MINS,
   isSingleDayOn,
+  hasExplicitTimes,
 } from '../lib/dayTimeline.js'
 import DayAddTaskDialog from './DayAddTaskDialog.jsx'
+import { TASK_DND_TYPE, peekDragTaskId } from '../lib/taskDnd.js'
 
 function getTaskColor(t, projMap, catMap) {
   return (
@@ -97,9 +99,28 @@ function DayBlockBody({ height, checklist = [], activities = [], childTasks = []
   )
 }
 
+function isIncomingTaskDrag(e) {
+  if (peekDragTaskId()) return true
+  const types = e.dataTransfer?.types
+  if (!types) return false
+  for (let i = 0; i < types.length; i++) {
+    if (types[i] === TASK_DND_TYPE) return true
+  }
+  return false
+}
+
+function dragDurationMins(task) {
+  if (!hasExplicitTimes(task)) return DEFAULT_DROP_DURATION_MINS
+  const dur = timeToMinutes(task.end_time) - timeToMinutes(task.start_time)
+  if (dur < MIN_DURATION_MINS || dur > DAY_MINUTES) return DEFAULT_DROP_DURATION_MINS
+  return dur
+}
+
 /**
  * Day timeline: all-day lane + vertical 0–24h axis with DnD scheduling
  * and empty-axis drag-to-create (15-min snap).
+ * External task rows (今日のタスクなど) can also be dropped here:
+ * the time axis sets a start/end, the all-day lane clears times.
  * @param {{ date: string, tasks: object[], defaultProjectId?: string|null }} props
  */
 export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
@@ -111,13 +132,16 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
   const allDayRef = useRef(null)
   const didInitScroll = useRef(false)
   const [drag, setDrag] = useState(null)
+  const [extDrop, setExtDrop] = useState(null)
   const dragRef = useRef(null)
   const sessionRef = useRef(null)
   const tasksRef = useRef(tasks)
+  const allTasksRef = useRef(state.tasks)
   const actionsRef = useRef(actions)
   const dateRef = useRef(date)
   const heightRef = useRef(0)
   tasksRef.current = tasks
+  allTasksRef.current = state.tasks
   actionsRef.current = actions
   dateRef.current = date
   const [draft, setDraft] = useState(null)
@@ -240,7 +264,7 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
     return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
   }
 
-  function placeOnAxis(clientX, clientY) {
+  function placeOnAxis(clientX, clientY, durationMins = DEFAULT_DROP_DURATION_MINS) {
     const axis = axisRef.current
     const scroll = scrollRef.current
     if (!axis || !scroll) return null
@@ -253,8 +277,118 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
     if (!inScroll) return null
     const y = clientY - axis.getBoundingClientRect().top
     const h = heightRef.current
-    return placeFromY(Math.max(0, Math.min(h, y)), undefined, DEFAULT_DROP_DURATION_MINS)
+    return placeFromY(Math.max(0, Math.min(h, y)), undefined, durationMins)
   }
+
+  function incomingTask() {
+    const id = peekDragTaskId()
+    if (!id) return null
+    return allTasksRef.current.find((t) => t.id === id) ?? null
+  }
+
+  function readDroppedTaskId(e) {
+    return e.dataTransfer.getData(TASK_DND_TYPE) || e.dataTransfer.getData('text/plain') || peekDragTaskId()
+  }
+
+  /** 表示中の日へ移し、時刻は times が null なら終日。 */
+  function commitExternalDrop(taskId, times) {
+    const task = allTasksRef.current.find((t) => t.id === taskId)
+    if (!task) return
+    const day = dateRef.current
+    const actionsNow = actionsRef.current
+    if (!isSingleDayOn(task, day)) actionsNow.moveToDate(taskId, day)
+    const nextStart = times ? times.startTime : null
+    const nextEnd = times ? times.endTime : null
+    if (normalizeTimeStr(task.start_time) !== nextStart || normalizeTimeStr(task.end_time) !== nextEnd) {
+      actionsNow.updateTask(taskId, { start_time: nextStart, end_time: nextEnd })
+    }
+  }
+
+  function nudgeTimeScroll(clientY) {
+    const scroll = scrollRef.current
+    if (!scroll) return
+    const rect = scroll.getBoundingClientRect()
+    const edge = 36
+    if (clientY < rect.top + edge) scroll.scrollTop -= 18
+    else if (clientY > rect.bottom - edge) scroll.scrollTop += 18
+  }
+
+  function onAllDayDragEnter(e) {
+    if (!isIncomingTaskDrag(e)) return
+    e.preventDefault()
+  }
+
+  function onAllDayDragOver(e) {
+    if (!isIncomingTaskDrag(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setExtDrop((prev) => (prev?.zone === 'allday' ? prev : { zone: 'allday' }))
+  }
+
+  function onAllDayDragLeave(e) {
+    const next = e.relatedTarget
+    if (next instanceof Node && e.currentTarget.contains(next)) return
+    setExtDrop((prev) => (prev?.zone === 'allday' ? null : prev))
+  }
+
+  function onAllDayDrop(e) {
+    if (!isIncomingTaskDrag(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    const id = readDroppedTaskId(e)
+    setExtDrop(null)
+    if (id) commitExternalDrop(id, null)
+  }
+
+  function onTimeDragEnter(e) {
+    if (!isIncomingTaskDrag(e)) return
+    e.preventDefault()
+  }
+
+  function onTimeDragOver(e) {
+    if (!isIncomingTaskDrag(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    nudgeTimeScroll(e.clientY)
+    const task = incomingTask()
+    const placed = placeOnAxis(e.clientX, e.clientY, dragDurationMins(task))
+    if (!placed) return
+    const title = task?.title || 'タスク'
+    setExtDrop((prev) => {
+      if (
+        prev?.zone === 'axis' &&
+        prev.startMins === placed.startMins &&
+        prev.endMins === placed.endMins &&
+        prev.title === title
+      ) return prev
+      return { zone: 'axis', startMins: placed.startMins, endMins: placed.endMins, title }
+    })
+  }
+
+  function onTimeDragLeave(e) {
+    const next = e.relatedTarget
+    if (next instanceof Node && e.currentTarget.contains(next)) return
+    setExtDrop((prev) => (prev?.zone === 'axis' ? null : prev))
+  }
+
+  function onTimeDrop(e) {
+    if (!isIncomingTaskDrag(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    const id = readDroppedTaskId(e)
+    setExtDrop(null)
+    if (!id) return
+    const task = allTasksRef.current.find((t) => t.id === id)
+    const placed = placeOnAxis(e.clientX, e.clientY, dragDurationMins(task))
+    if (!placed) return
+    commitExternalDrop(id, placed)
+  }
+
+  useEffect(() => {
+    function clearExt() { setExtDrop(null) }
+    document.addEventListener('dragend', clearExt)
+    return () => document.removeEventListener('dragend', clearExt)
+  }, [])
 
   function trackDrag(d, e) {
     const clientX = e.clientX
@@ -471,7 +605,11 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
     <div className="cal-day-timeline">
       <div
         ref={allDayRef}
-        className={`cal-day-allday${drag?.unschedule ? ' drop-target' : ''}`}
+        className={`cal-day-allday${drag?.unschedule || extDrop?.zone === 'allday' ? ' drop-target' : ''}`}
+        onDragEnter={onAllDayDragEnter}
+        onDragOver={onAllDayDragOver}
+        onDragLeave={onAllDayDragLeave}
+        onDrop={onAllDayDrop}
       >
         <div className="cal-day-allday-label">終日</div>
         <div className="cal-day-allday-items">
@@ -499,7 +637,14 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
         </div>
       </div>
 
-      <div ref={scrollRef} className="cal-day-scroll">
+      <div
+        ref={scrollRef}
+        className="cal-day-scroll"
+        onDragEnter={onTimeDragEnter}
+        onDragOver={onTimeDragOver}
+        onDragLeave={onTimeDragLeave}
+        onDrop={onTimeDrop}
+      >
         <div className="cal-day-axis-wrap" style={{ height }}>
           <div className="cal-day-hours" aria-hidden="true">
             {hours.map((h) => (
@@ -515,7 +660,7 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
 
           <div
             ref={axisRef}
-            className={`cal-day-axis${drag?.kind === 'schedule' && drag.overAxis ? ' drop-active' : ''}${drag?.kind === 'create' ? ' creating' : ''}`}
+            className={`cal-day-axis${(drag?.kind === 'schedule' && drag.overAxis) || extDrop?.zone === 'axis' ? ' drop-active' : ''}${drag?.kind === 'create' ? ' creating' : ''}`}
             style={{ height }}
             onMouseDown={startCreate}
             title="クリックまたはドラッグでタスクを追加"
@@ -548,6 +693,31 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
                 <span className="cal-day-now-dot" />
               </div>
             )}
+
+            {extDrop?.zone === 'axis' && (() => {
+              const rawTop = minutesToY(extDrop.startMins)
+              const rawH = Math.max(minutesToY(extDrop.endMins) - rawTop, 16)
+              const times = blockToTimes(extDrop.startMins, extDrop.endMins)
+              const timeLabel = `${times.startTime}–${times.endTime}`
+              const h = Math.max(rawH - 6, 16)
+              return (
+                <div
+                  className="cal-day-block preview"
+                  style={{
+                    top: rawTop + 3,
+                    height: h,
+                    left: 2,
+                    right: 2,
+                    width: 'auto',
+                  }}
+                >
+                  <div className="cal-day-block-head">
+                    <div className="cal-day-block-title">{extDrop.title}</div>
+                    {h >= 28 && <div className="cal-day-block-time">{timeLabel}</div>}
+                  </div>
+                </div>
+              )
+            })()}
 
             {createPreview && (() => {
               const rawTop = minutesToY(createPreview.startMins)

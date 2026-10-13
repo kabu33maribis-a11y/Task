@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Layers, Menu, X } from 'lucide-react'
 import { useVisibleProjects } from '../../store/StoreContext.jsx'
 import { SIDEBAR_SECTION_ORDER, sectionsForMode } from './navConfig.js'
 import { projectAvatar } from './projectAvatar.js'
 import SidebarNavItem from './SidebarNavItem.jsx'
-
-const CLOSE_DELAY_MS = 150
 
 /**
  * @param {{
@@ -31,7 +29,6 @@ export default function AppSidebar({
 }) {
   const navId = useId()
   const [expanded, setExpanded] = useState(false)
-  const closeTimerRef = useRef(null)
   const isDesktop = mode === 'desktop'
   const sections = sectionsForMode(mode)
   const projects = useVisibleProjects()
@@ -42,28 +39,6 @@ export default function AppSidebar({
       onProjectChange('all')
     }
   }, [projectFilter, projects, onProjectChange])
-
-  const clearCloseTimer = useCallback(() => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = null
-    }
-  }, [])
-
-  const openRail = useCallback(() => {
-    clearCloseTimer()
-    setExpanded(true)
-  }, [clearCloseTimer])
-
-  const scheduleCloseRail = useCallback(() => {
-    clearCloseTimer()
-    closeTimerRef.current = setTimeout(() => {
-      setExpanded(false)
-      closeTimerRef.current = null
-    }, CLOSE_DELAY_MS)
-  }, [clearCloseTimer])
-
-  useEffect(() => () => clearCloseTimer(), [clearCloseTimer])
 
   useEffect(() => {
     if (!isDesktop) setExpanded(false)
@@ -93,6 +68,15 @@ export default function AppSidebar({
     if (!isDesktop) onMobileOpenChange?.(false)
   }
 
+  function handleRailDoubleClick(e) {
+    if (!isDesktop) return
+    const target = e.target
+    if (!(target instanceof Element)) return
+    // Glyphs and labels navigate. Blank rail (padding, gaps, empty area) toggles.
+    if (target.closest('.app-sidebar-link, .app-sidebar-icon-hit')) return
+    setExpanded((open) => !open)
+  }
+
   const railOpen = isDesktop ? expanded : mobileOpen
   const showProjects = projects.length > 0 && typeof onProjectChange === 'function'
 
@@ -105,18 +89,7 @@ export default function AppSidebar({
         railOpen ? 'is-expanded' : 'is-collapsed',
       ].join(' ')}
       aria-label="メインナビゲーション"
-      onMouseEnter={isDesktop ? openRail : undefined}
-      onMouseLeave={isDesktop ? scheduleCloseRail : undefined}
-      onFocusCapture={isDesktop ? openRail : undefined}
-      onBlurCapture={
-        isDesktop
-          ? (e) => {
-              const next = e.relatedTarget
-              if (next instanceof Node && e.currentTarget.contains(next)) return
-              scheduleCloseRail()
-            }
-          : undefined
-      }
+      onDoubleClick={handleRailDoubleClick}
     >
       <div className="app-sidebar-inner">
         {!isDesktop && (

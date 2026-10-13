@@ -70,19 +70,21 @@ export default function SidebarNavItem({
         onBlur={() => setTipFocus(false)}
       >
         <span className="app-sidebar-link-icon" aria-hidden>
-          {item.avatar ? (
-            <span
-              className="app-sidebar-avatar"
-              style={{
-                background: item.avatar.color,
-                color: item.avatar.fg || '#fff',
-              }}
-            >
-              {item.avatar.initial}
-            </span>
-          ) : (
-            Icon && <Icon size={20} strokeWidth={1.75} />
-          )}
+          <span className="app-sidebar-icon-hit">
+            {item.avatar ? (
+              <span
+                className="app-sidebar-avatar"
+                style={{
+                  background: item.avatar.color,
+                  color: item.avatar.fg || '#fff',
+                }}
+              >
+                {item.avatar.initial}
+              </span>
+            ) : (
+              Icon && <Icon size={20} strokeWidth={1.75} />
+            )}
+          </span>
           {hasBadge && !expanded && (
             <span className="app-sidebar-badge-dot" />
           )}
