@@ -11,6 +11,8 @@ import {
   buildProjectTrees,
   buildTaskIndex,
   prevSibling,
+  promotedSiblingOrder,
+  slotBelowRow,
   flattenVisible,
   filterCompletedTree,
   filterTreeByQuery,
@@ -73,6 +75,40 @@ function BtnLabel({ icon: Icon, children, size = 14 }) {
 function scrollLeftForContentX(el, contentX, leftW, fraction = 0) {
   const trackW = Math.max(0, el.clientWidth - leftW)
   return Math.max(0, contentX - leftW - trackW * fraction)
+}
+
+/**
+ * ツリー並び替え中、ポインタ直下のタスク行。
+ * 日付ヘッダーは sticky で行に重なる。ヘッダー上はスクロール専用にして、
+ * 隠れている行へはドロップしない。
+ */
+function treeRowAtPoint(el, clientX, clientY, headH, rows) {
+  if (!el || clientX == null || clientY == null) return null
+  const rect = el.getBoundingClientRect()
+  if (clientX < rect.left || clientX > rect.right) return null
+  if (clientY < rect.top + headH || clientY > rect.bottom) return null
+  const y = el.scrollTop + (clientY - rect.top) - headH
+  if (y < 0) return null
+  const row = rows[Math.floor(y / ROW_H)]
+  if (!row || row.kind !== 'node' || row.node?.isProject) return null
+  return row.node.task.id
+}
+
+/** 表示範囲の上端・下端にポインタがあるときの縦スクロール量（px/frame）。0 ならスクロールしない。 */
+function treeDragScrollDelta(clientY, rect, headH) {
+  // 上方向は日付ヘッダー（表示中の行より上）に入ったときだけ動かす。
+  // 先頭の可視行まで巻き込むと、そこへドロップする前に行が逃げてしまう。
+  const topBoundary = rect.top + headH
+  if (clientY < topBoundary) {
+    const t = Math.min(1, (topBoundary - clientY) / Math.max(48, headH))
+    return -Math.round(2 + 12 * t * t)
+  }
+  const bottomBoundary = rect.bottom - 32
+  if (clientY > bottomBoundary) {
+    const t = Math.min(1, (clientY - bottomBoundary) / 64)
+    return Math.round(2 + 12 * t * t)
+  }
+  return 0
 }
 
 const ZOOMS = {
@@ -166,6 +202,7 @@ function WbsGantt({ project, multi }) {
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [editingId, setEditingId] = useState(null)
   const [addingChildOf, setAddingChildOf] = useState(null) // task id or proj:* id
+  const [insertSlot, setInsertSlot] = useState(null) // { afterId, parentId, projectId, beforeId, depth }
   const [datePopover, setDatePopover] = useState(null) // { taskId, x, y }
   const [linkPopover, setLinkPopover] = useState(null) // { taskId, x, y }
   const [tagPopover, setTagPopover] = useState(null) // { taskId, x, y }
@@ -360,12 +397,51 @@ function WbsGantt({ project, multi }) {
 
   const collapseTargetIds = multi ? projectRowIds : collapsibleRowIds
 
-  // 左右で共有する描画行リスト（子追加の入力欄も1行として挟む → 左右が常に整列）
+  const slotBelowById = useMemo(() => {
+    const map = new Map()
+    for (let i = 0; i < visible.length; i++) {
+      const slot = slotBelowRow(visible[i], visible[i + 1] ?? null)
+      if (slot) map.set(visible[i].task.id, slot)
+    }
+    return map
+  }, [visible])
+
+  useEffect(() => {
+    if (!insertSlot) return
+    if (!visible.some((n) => n.task.id === insertSlot.afterId)) setInsertSlot(null)
+  }, [visible, insertSlot])
+
+  function openInsertBelow(afterId) {
+    const slot = slotBelowById.get(afterId)
+    if (!slot) return
+    setAddingChildOf(null)
+    setInsertSlot({ afterId, ...slot })
+    const node = visible.find((n) => n.task.id === afterId)
+    if (node?.isProject) expand(node.task.id)
+  }
+
+  function openAddChild(node) {
+    setInsertSlot(null)
+    setAddingChildOf(node.task.id)
+    expand(node.task.id)
+  }
+
+  // 左右で共有する描画行リスト（追加の入力欄も1行として挟む → 左右が常に整列）
   const rows = useMemo(() => {
     const out = []
     for (const node of visible) {
       out.push({ kind: 'node', node })
-      if (addingChildOf === node.task.id) {
+      if (insertSlot?.afterId === node.task.id) {
+        out.push({
+          kind: 'add',
+          between: true,
+          afterId: insertSlot.afterId,
+          parentId: insertSlot.parentId,
+          projectId: insertSlot.projectId,
+          beforeId: insertSlot.beforeId,
+          depth: insertSlot.depth,
+        })
+      } else if (addingChildOf === node.task.id) {
         if (node.isProject) {
           out.push({ kind: 'add', projectId: node.project.id, depth: node.depth + 1 })
         } else {
@@ -374,7 +450,67 @@ function WbsGantt({ project, multi }) {
       }
     }
     return out
-  }, [visible, addingChildOf])
+  }, [visible, addingChildOf, insertSlot])
+
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+  const headHRef = useRef(headH)
+  headHRef.current = headH
+
+  // ネイティブ DnD は overflow 容器を端まで縦スクロールしない。
+  // 日付ヘッダーが上端を覆うため、表示中の行より上へドラッグしても一覧が動かない。
+  // 一方、横方向はブラウザが左端のドラッグを日付軸のスクロールと誤解してガントがずれる。
+  // 並び替え中は scrollLeft を固定し、動かすのは縦だけにする。
+  useEffect(() => {
+    if (!treeDragId) return undefined
+    const el = scrollRef.current
+    if (!el) return undefined
+    const pointer = { x: null, y: null }
+    const lockedLeft = el.scrollLeft
+    let raf = 0
+    let alive = true
+
+    function pinScrollLeft() {
+      if (el.scrollLeft !== lockedLeft) el.scrollLeft = lockedLeft
+    }
+
+    function onPointer(e) {
+      if (!e.clientX && !e.clientY) return
+      pointer.x = e.clientX
+      pointer.y = e.clientY
+    }
+
+    function tick() {
+      if (!alive) return
+      pinScrollLeft()
+      const { x, y } = pointer
+      if (y != null) {
+        const rect = el.getBoundingClientRect()
+        const dy = treeDragScrollDelta(y, rect, headHRef.current)
+        if (dy !== 0) {
+          const max = Math.max(0, el.scrollHeight - el.clientHeight)
+          const next = Math.max(0, Math.min(max, el.scrollTop + dy))
+          if (next !== el.scrollTop) el.scrollTop = next
+        }
+        const id = treeRowAtPoint(el, x, y, headHRef.current, rowsRef.current)
+        if (alive) setTreeOverId((prev) => (prev === id ? prev : id))
+      }
+      pinScrollLeft()
+      if (alive) raf = requestAnimationFrame(tick)
+    }
+
+    el.addEventListener('scroll', pinScrollLeft)
+    document.addEventListener('dragover', onPointer)
+    document.addEventListener('drag', onPointer)
+    raf = requestAnimationFrame(tick)
+    return () => {
+      alive = false
+      cancelAnimationFrame(raf)
+      el.removeEventListener('scroll', pinScrollLeft)
+      document.removeEventListener('dragover', onPointer)
+      document.removeEventListener('drag', onPointer)
+    }
+  }, [treeDragId])
 
   const overall = useMemo(
     () => roots.reduce(
@@ -1109,8 +1245,8 @@ function WbsGantt({ project, multi }) {
           expand(prev.id)
         }
       } else if (task.parent_id != null) {
-        const parent = scopedTasks.find((t) => t.id === task.parent_id)
-        actions.setTaskParent(task.id, parent ? parent.parent_id ?? null : null)
+        const move = promotedSiblingOrder(scopedTasks, task)
+        if (move) actions.moveInTree(task.id, move)
       }
     }
     document.addEventListener('keydown', onKey)
@@ -1396,8 +1532,30 @@ function WbsGantt({ project, multi }) {
         </p>
       ) : (
         <div
-          className={`gantt${isHourZoom ? ' hour-zoom' : ''}${hourNoHScroll ? ' hour-no-hscroll' : ''}`}
+          className={`gantt${isHourZoom ? ' hour-zoom' : ''}${hourNoHScroll ? ' hour-no-hscroll' : ''}${treeDragId ? ' tree-reordering' : ''}`}
           ref={scrollRef}
+          onDragOver={
+            treeDragId
+              ? (e) => {
+                  const id = treeRowAtPoint(e.currentTarget, e.clientX, e.clientY, headH, rows)
+                  if (id && canTreeDrop(treeDragId, id)) {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                  }
+                }
+              : undefined
+          }
+          onDrop={
+            treeDragId
+              ? (e) => {
+                  e.preventDefault()
+                  const id = treeRowAtPoint(e.currentTarget, e.clientX, e.clientY, headH, rows)
+                  if (id) commitTreeMove(id)
+                  setTreeDragId(null)
+                  setTreeOverId(null)
+                }
+              : undefined
+          }
         >
           <div
             ref={matrixRef}
@@ -1590,15 +1748,13 @@ function WbsGantt({ project, multi }) {
             })()}
 
             {/* 行 */}
-            {rows.map((row, i) => {
+            {rows.map((row) => {
               const node = row.kind === 'node' ? row.node : null
               const span = node ? spanFor(node) : null
               const rowKey =
                 row.kind === 'node'
                   ? node.task.id
-                  : row.parentId
-                    ? `add-${row.parentId}-${i}`
-                    : `add-proj-${row.projectId ?? 'none'}-${i}`
+                  : `add-${row.afterId || row.parentId || row.projectId || 'root'}-${row.between ? 'between' : 'child'}`
               const rowDone =
                 node && !node.isProject && (node.isLeaf ? node.task.status === 'DONE' : node.allDone)
               const waiting =
@@ -1670,16 +1826,6 @@ function WbsGantt({ project, multi }) {
                         }
                       : undefined
                   }
-                  onDrop={
-                    node && !node.isProject
-                      ? (e) => {
-                          e.preventDefault()
-                          commitTreeMove(node.task.id)
-                          setTreeDragId(null)
-                          setTreeOverId(null)
-                        }
-                      : undefined
-                  }
                 >
                   <div className="gantt-namecell" style={{ width: leftW }}>
                     {row.kind === 'node' ? (
@@ -1689,10 +1835,9 @@ function WbsGantt({ project, multi }) {
                           today={today}
                           collapsed={collapsed}
                           onToggleCollapse={toggleCollapse}
-                          onAddChild={() => {
-                            setAddingChildOf(node.task.id)
-                            expand(node.task.id)
-                          }}
+                          onAddChild={() => openAddChild(node)}
+                          onInsertBelow={() => openInsertBelow(node.task.id)}
+                          insertDepth={slotBelowById.get(node.task.id)?.depth ?? 0}
                         />
                       ) : (
                         <LeftRow
@@ -1719,10 +1864,9 @@ function WbsGantt({ project, multi }) {
                             setSelectedId(node.task.id)
                             setDetailId(node.task.id)
                           }}
-                          onAddChild={() => {
-                            setAddingChildOf(node.task.id)
-                            expand(node.task.id)
-                          }}
+                          onAddChild={() => openAddChild(node)}
+                          onInsertBelow={() => openInsertBelow(node.task.id)}
+                          insertDepth={slotBelowById.get(node.task.id)?.depth ?? node.depth}
                           onTreeDragStart={(id) => {
                             setTreeDragId(id)
                             setTreeOverId(null)
@@ -1733,17 +1877,17 @@ function WbsGantt({ project, multi }) {
                           }}
                         />
                       )
-                    ) : row.parentId ? (
-                      <AddChildRow
-                        depth={row.depth}
-                        parentId={row.parentId}
-                        onClose={() => setAddingChildOf(null)}
-                      />
                     ) : (
                       <AddChildRow
                         depth={row.depth}
-                        projectId={row.projectId}
-                        onClose={() => setAddingChildOf(null)}
+                        parentId={row.parentId ?? null}
+                        projectId={row.projectId ?? null}
+                        beforeId={row.beforeId ?? null}
+                        between={!!row.between}
+                        onClose={() => {
+                          setAddingChildOf(null)
+                          setInsertSlot(null)
+                        }}
                       />
                     )}
                   </div>
@@ -2328,7 +2472,28 @@ function GanttBar({
   )
 }
 
-function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }) {
+function InsertHit({ depth, onInsert }) {
+  return (
+    <button
+      type="button"
+      className="wbs-insert-hit"
+      style={{ '--insert-indent': `${(depth ?? 0) * 12 + 20}px` }}
+      title="ここにタスクを追加"
+      aria-label="ここにタスクを追加"
+      tabIndex={-1}
+      onMouseDown={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+      onClick={(e) => {
+        e.stopPropagation()
+        onInsert?.()
+      }}
+    />
+  )
+}
+
+function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild, onInsertBelow, insertDepth }) {
   const { project, rollup } = node
   const isCollapsed = collapsed.has(node.task.id)
   const pct = rollup.total ? Math.round((rollup.done / rollup.total) * 100) : 0
@@ -2365,6 +2530,7 @@ function ProjectLeftRow({ node, today, collapsed, onToggleCollapse, onAddChild }
       <div className="wbs-actions">
         <button className="wbs-act" onClick={onAddChild} title="ルートタスクを追加" aria-label="ルートタスクを追加"><BtnLabel icon={CornerDownRight} size={13}>＋子</BtnLabel></button>
       </div>
+      <InsertHit depth={insertDepth} onInsert={onInsertBelow} />
     </div>
   )
 }
@@ -2387,6 +2553,8 @@ function LeftRow({
   onOpenAssigneePopover,
   onOpenDetail,
   onAddChild,
+  onInsertBelow,
+  insertDepth,
   onTreeDragStart,
   onTreeDragEnd,
 }) {
@@ -2486,14 +2654,18 @@ function LeftRow({
     setMoreOpen(false)
   }
   function outdent() {
-    if (task.parent_id == null) return
-    const parent = projectTasks.find((t) => t.id === task.parent_id)
-    actions.setTaskParent(task.id, parent ? parent.parent_id ?? null : null)
+    const move = promotedSiblingOrder(projectTasks, task)
+    if (!move) return
+    actions.moveInTree(task.id, move)
     setMoreOpen(false)
   }
   function applyTagToChildren() {
     actions.applyTagToDescendants(task.id)
     setMoreOpen(false)
+  }
+  function insertBelow() {
+    setMoreOpen(false)
+    onInsertBelow?.()
   }
   function toggleMore(e) {
     e.stopPropagation()
@@ -2684,6 +2856,9 @@ function LeftRow({
                 <button type="button" role="menuitem" onClick={startEditFromMore}>
                   名前を編集
                 </button>
+                <button type="button" role="menuitem" onClick={insertBelow}>
+                  この下に追加
+                </button>
                 <button type="button" role="menuitem" onClick={copyTaskFromMore}>
                   コピー
                 </button>
@@ -2763,6 +2938,7 @@ function LeftRow({
           <Trash2 size={13} strokeWidth={2} aria-hidden />
         </button>
       </div>
+      <InsertHit depth={insertDepth ?? depth} onInsert={onInsertBelow} />
     </div>
   )
 }
@@ -2915,7 +3091,7 @@ function autoResizeAddChild(el) {
   el.style.height = `${Math.max(el.scrollHeight, 28)}px`
 }
 
-function AddChildRow({ parentId, projectId, depth, onClose }) {
+function AddChildRow({ parentId, projectId, beforeId, between, depth, onClose }) {
   const { state, actions } = useStore()
   const [title, setTitle] = useState('')
   const ref = useRef(null)
@@ -2926,10 +3102,22 @@ function AddChildRow({ parentId, projectId, depth, onClose }) {
   function submit() {
     const titles = parseTitleLines(title)
     if (titles.length === 0) return
-    if (parentId) {
+    if (parentId && !beforeId) {
       const parent = state.tasks.find((x) => x.id === parentId)
       if (parent) {
         for (const line of titles) actions.addSubtask(parent, line)
+      }
+    } else if (parentId) {
+      const parent = state.tasks.find((x) => x.id === parentId)
+      if (!parent) return
+      for (const line of titles) {
+        actions.addTask({
+          title: line,
+          project_id: parent.project_id ?? null,
+          parent_id: parent.id,
+          scheduled_date: null,
+          insert_before_id: beforeId,
+        })
       }
     } else {
       for (const line of titles) {
@@ -2938,6 +3126,7 @@ function AddChildRow({ parentId, projectId, depth, onClose }) {
           project_id: projectId ?? null,
           parent_id: null,
           scheduled_date: null,
+          ...(beforeId ? { insert_before_id: beforeId } : {}),
         })
       }
     }
@@ -2956,7 +3145,7 @@ function AddChildRow({ parentId, projectId, depth, onClose }) {
         className="wbs-edit wbs-edit-multiline"
         rows={1}
         value={title}
-        placeholder="子タスク名（改行で複数 · Enter追加 / Esc閉じる）"
+        placeholder={between ? 'タスク名（改行で複数 · Enter追加 / Esc閉じる）' : '子タスク名（改行で複数 · Enter追加 / Esc閉じる）'}
         onChange={(e) => {
           setTitle(e.target.value)
           autoResizeAddChild(e.target)

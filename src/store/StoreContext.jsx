@@ -3,7 +3,7 @@ import { uid } from '../lib/id.js'
 import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, syncDatePatch } from '../lib/date.js'
 import { getDb } from '../lib/db.js'
 import { hasLink, wouldCreateCycle } from '../lib/dependencies.js'
-import { seedSortOrderFromStartDate, isSelfOrDescendant, descendantIds } from '../lib/wbs.js'
+import { seedSortOrderFromStartDate, isSelfOrDescendant, descendantIds, orderWithInsert } from '../lib/wbs.js'
 
 const WBS_SORT_MIGRATED_KEY = 'taskmanager.wbs.sort_order_v1'
 
@@ -389,8 +389,21 @@ function reducer(state, action) {
     case 'INIT': return action.state
 
     case 'ADD_TASK': {
-      const task = makeTask(action.input, state.tasks)
-      let next = { ...state, tasks: [...state.tasks, task] }
+      const draft = makeTask(action.input, state.tasks)
+      let task = draft
+      let tasks = state.tasks
+      if (action.input.insert_before_id) {
+        const ids = orderWithInsert(state.tasks, draft, action.input.insert_before_id)
+        const order = new Map(ids.map((id, i) => [id, i]))
+        const now = draft.updated_at
+        tasks = state.tasks.map((t) => {
+          const so = order.get(t.id)
+          if (so == null || (t.sort_order ?? 0) === so) return t
+          return { ...t, sort_order: so, updated_at: now }
+        })
+        task = { ...draft, sort_order: order.get(draft.id) ?? draft.sort_order }
+      }
+      let next = { ...state, tasks: [...tasks, task] }
       const now = stamp()
       const assigneeIds = [...new Set(action.input.assignee_ids ?? [])].filter(Boolean)
       if (assigneeIds.length) {
@@ -1031,6 +1044,11 @@ async function doSyncToDb(prevState, nextState, action) {
         case 'ADD_TASK': {
           const task = nextState.tasks.find((t) => !prevState.tasks.some((p) => p.id === t.id))
           if (task) await dbUpsertTask(db, task)
+          for (const t of nextState.tasks) {
+            if (task && t.id === task.id) continue
+            const prev = prevState.tasks.find((p) => p.id === t.id)
+            if (prev && prev.sort_order !== t.sort_order) await dbUpsertTask(db, t)
+          }
           for (const a of nextState.taskAssignees ?? []) {
             if (!(prevState.taskAssignees ?? []).some((p) => p.id === a.id)) {
               await dbUpsertTaskAssignee(db, a)

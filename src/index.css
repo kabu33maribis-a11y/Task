@@ -5168,6 +5168,54 @@ textarea.wbs-edit,
   background: var(--washi-sink);
 }
 
+.wbs-insert-hit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  z-index: 4;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+}
+.gantt-name-inner:hover > .wbs-insert-hit,
+.wbs-insert-hit:focus-visible {
+  opacity: 1;
+}
+.wbs-insert-hit::before {
+  content: '';
+  position: absolute;
+  left: var(--insert-indent, 20px);
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--shu);
+  pointer-events: none;
+}
+.wbs-insert-hit::after {
+  content: '+';
+  position: absolute;
+  left: var(--insert-indent, 20px);
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--shu);
+  color: #fff;
+  font-size: 12px;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+  transform: translate(-50%, 0);
+}
+.wbs-root:has(.tree-dragging) .wbs-insert-hit {
+  display: none;
+}
+
 /* =====================================================================
    WBS + Gantt combined view — frozen-pane grid
    固定タスク列(左) + タイムライン(右) を1つのスクロール面に。
@@ -5514,6 +5562,10 @@ textarea.wbs-edit,
 }
 .gantt.hour-zoom.hour-no-hscroll {
   overflow-x: hidden;
+}
+.gantt.tree-reordering {
+  scroll-behavior: auto;
+  overscroll-behavior: contain;
 }
 /* 期間の長いバー/依存線が3日キャンバス外へはみ出して横スクロールを押し広げない */
 .gantt.hour-zoom .gantt-track,

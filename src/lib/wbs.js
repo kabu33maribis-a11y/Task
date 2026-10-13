@@ -196,6 +196,118 @@ export function prevSibling(task, tasks) {
   return idx > 0 ? siblings[idx - 1] : null
 }
 
+/**
+ * Promote `task` one level: new parent is the current parent's parent,
+ * and the task is inserted immediately after its former parent
+ * (not at the end of that level).
+ * Returns null when the task is already at the root.
+ */
+export function promotedSiblingOrder(tasks, task) {
+  if (!task || task.parent_id == null) return null
+  const parent = (tasks ?? []).find((t) => t.id === task.parent_id)
+  const newParentId = parent ? parent.parent_id ?? null : null
+  const projectId = task.project_id ?? null
+  const ids = (tasks ?? [])
+    .filter(
+      (t) =>
+        t.id !== task.id &&
+        (t.parent_id ?? null) === newParentId &&
+        (t.project_id ?? null) === projectId,
+    )
+    .sort(bySort)
+    .map((t) => t.id)
+  const at = parent ? ids.indexOf(parent.id) : -1
+  if (at === -1) ids.push(task.id)
+  else ids.splice(at + 1, 0, task.id)
+  return { parentId: newParentId, projectId, orderedIds: ids }
+}
+
+/**
+ * Sibling ids at `task`'s parent, with `task.id` placed immediately before `beforeId`.
+ * Unknown `beforeId` appends. `task` itself does not need to be in `tasks`.
+ */
+export function orderWithInsert(tasks, task, beforeId) {
+  const parentId = task?.parent_id ?? null
+  const projectId = task?.project_id ?? null
+  const ids = (tasks ?? [])
+    .filter(
+      (t) =>
+        t.id !== task?.id &&
+        (t.parent_id ?? null) === parentId &&
+        (t.project_id ?? null) === projectId,
+    )
+    .sort(bySort)
+    .map((t) => t.id)
+  const at = beforeId ? ids.indexOf(beforeId) : -1
+  if (at === -1) ids.push(task.id)
+  else ids.splice(at, 0, task.id)
+  return ids
+}
+
+/**
+ * Where a task created in the gap under `upper` should land.
+ * `lower` is the next visible row, or null at the bottom of the list.
+ * The slot matches that visual gap: a child when the next row is a child,
+ * otherwise a sibling of `upper` placed before the next sibling.
+ */
+export function slotBelowRow(upper, lower) {
+  if (!upper) return null
+
+  if (upper.isProject) {
+    const projectId = upper.project?.id ?? null
+    const nextIsRoot =
+      lower &&
+      !lower.isProject &&
+      (lower.task?.parent_id ?? null) == null &&
+      (lower.task?.project_id ?? null) === projectId
+    if (nextIsRoot) {
+      return {
+        parentId: null,
+        projectId,
+        beforeId: lower.task.id,
+        depth: lower.depth ?? 0,
+      }
+    }
+    const first = upper.children?.[0]
+    if (first?.task?.id) {
+      return {
+        parentId: null,
+        projectId,
+        beforeId: first.task.id,
+        depth: first.depth ?? 0,
+      }
+    }
+    return { parentId: null, projectId, beforeId: null, depth: 0 }
+  }
+
+  const projectId = upper.task?.project_id ?? null
+  const upperParentId = upper.task?.parent_id ?? null
+  const lowerIsChild =
+    !!lower &&
+    !lower.isProject &&
+    (lower.task?.parent_id ?? null) === upper.task.id
+  if (lowerIsChild) {
+    return {
+      parentId: upper.task.id,
+      projectId,
+      beforeId: lower.task.id,
+      depth: lower.depth ?? (upper.depth ?? 0) + 1,
+    }
+  }
+
+  const lowerIsSibling =
+    !!lower &&
+    !lower.isProject &&
+    (lower.task?.parent_id ?? null) === upperParentId &&
+    (lower.task?.project_id ?? null) === projectId
+  return {
+    parentId: upperParentId,
+    projectId,
+    beforeId: lowerIsSibling ? lower.task.id : null,
+    depth: upper.depth ?? 0,
+  }
+}
+
 /** Task ids nested under `ancestorId` (the ancestor itself is excluded). */
 export function descendantIds(ancestorId, tasks) {
   const byParent = new Map()
