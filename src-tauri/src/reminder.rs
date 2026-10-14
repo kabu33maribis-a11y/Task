@@ -1,22 +1,30 @@
 use crate::db::{self, AppDb};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use serde::Serialize;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{Pool, Row, Sqlite};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_store::StoreExt;
+
+static DESKTOP_NOTIFICATIONS_ENABLED: AtomicBool = AtomicBool::new(true);
+const DESKTOP_NOTIF_STORE_KEY: &str = "desktopNotifications";
 
 pub const POLL_INTERVAL_SECS: u64 = 10;
 pub const MISS_GRACE: Duration = Duration::minutes(2);
+/// Fixed lead for start-time notifications (separate from due-at reminders).
+pub const START_LEAD_MINUTES: i64 = 30;
 const QUIT_FLUSH_MS: u64 = 3000;
-const NOTIFY_TITLE: &str = "タスクの期限が近づいています";
+const DUE_NOTIFY_TITLE: &str = "タスクの期限が近づいています";
+const START_NOTIFY_TITLE: &str = "タスクの開始が近づいています";
 
 #[derive(Debug, Clone)]
-struct ReminderTask {
+struct DueReminderTask {
     id: String,
     title: String,
     due_at: String,
@@ -26,10 +34,59 @@ struct ReminderTask {
     status: String,
 }
 
+#[derive(Debug, Clone)]
+struct StartReminderTask {
+    id: String,
+    title: String,
+    start_date: Option<String>,
+    scheduled_date: Option<String>,
+    start_time: Option<String>,
+    start_reminder_sent_at: Option<String>,
+    status: String,
+}
+
 #[derive(Clone, Serialize)]
 struct OpenTaskPayload {
     #[serde(rename = "taskId")]
     task_id: String,
+}
+
+#[derive(Clone, Serialize)]
+struct InboxNotification {
+    id: String,
+    #[serde(rename = "taskId")]
+    task_id: String,
+    title: String,
+    body: String,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+}
+
+fn desktop_notifications_enabled() -> bool {
+    DESKTOP_NOTIFICATIONS_ENABLED.load(Ordering::Relaxed)
+}
+
+fn persist_desktop_notifications_pref(app: &AppHandle, enabled: bool) {
+    if let Ok(store) = app.store("config.json") {
+        store.set(DESKTOP_NOTIF_STORE_KEY, serde_json::Value::Bool(enabled));
+        let _ = store.save();
+    }
+}
+
+pub fn load_desktop_notifications_pref(app: &AppHandle) {
+    let enabled = app
+        .store("config.json")
+        .ok()
+        .and_then(|store| store.get(DESKTOP_NOTIF_STORE_KEY))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    DESKTOP_NOTIFICATIONS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+pub fn set_desktop_notifications_enabled(app: AppHandle, enabled: bool) {
+    DESKTOP_NOTIFICATIONS_ENABLED.store(enabled, Ordering::Relaxed);
+    persist_desktop_notifications_pref(&app, enabled);
 }
 
 pub fn scheduled_at(due: DateTime<Utc>, lead_minutes: i64) -> DateTime<Utc> {
@@ -45,6 +102,34 @@ fn parse_due(s: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(s)
         .ok()
         .map(|d| d.with_timezone(&Utc))
+}
+
+fn nonempty(s: &Option<String>) -> Option<&str> {
+    s.as_deref().map(str::trim).filter(|v| !v.is_empty())
+}
+
+fn parse_naive_time(time: &str) -> Option<NaiveTime> {
+    let t = time.trim();
+    NaiveTime::parse_from_str(t, "%H:%M:%S")
+        .or_else(|_| NaiveTime::parse_from_str(t, "%H:%M"))
+        .ok()
+}
+
+/// Combine local calendar date + wall-clock time into UTC.
+pub fn parse_local_start(date: &str, time: &str) -> Option<DateTime<Utc>> {
+    let d = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
+    let t = parse_naive_time(time)?;
+    let ndt = NaiveDateTime::new(d, t);
+    Local
+        .from_local_datetime(&ndt)
+        .single()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+fn start_instant(task: &StartReminderTask) -> Option<DateTime<Utc>> {
+    let date = nonempty(&task.start_date).or_else(|| nonempty(&task.scheduled_date))?;
+    let time = nonempty(&task.start_time)?;
+    parse_local_start(date, time)
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -103,8 +188,16 @@ fn sqlite_i64(row: &SqliteRow, col: &str) -> i64 {
         .unwrap_or(0)
 }
 
-fn row_to_task(row: &SqliteRow) -> ReminderTask {
-    ReminderTask {
+fn opt_string(row: &SqliteRow, col: &str) -> Option<String> {
+    row.try_get::<Option<String>, _>(col)
+        .ok()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn row_to_due_task(row: &SqliteRow) -> DueReminderTask {
+    DueReminderTask {
         id: row.get::<String, _>("id"),
         title: row.try_get::<String, _>("title").unwrap_or_default(),
         due_at: row.try_get::<String, _>("due_at").unwrap_or_default(),
@@ -113,12 +206,24 @@ fn row_to_task(row: &SqliteRow) -> ReminderTask {
             if n > 0 { n } else { 30 }
         },
         reminder_enabled: sqlite_i64(row, "reminder_enabled"),
-        reminder_sent_at: row.try_get::<Option<String>, _>("reminder_sent_at").ok().flatten(),
+        reminder_sent_at: opt_string(row, "reminder_sent_at"),
         status: row.try_get::<String, _>("status").unwrap_or_default(),
     }
 }
 
-fn is_eligible(task: &ReminderTask, now: DateTime<Utc>) -> bool {
+fn row_to_start_task(row: &SqliteRow) -> StartReminderTask {
+    StartReminderTask {
+        id: row.get::<String, _>("id"),
+        title: row.try_get::<String, _>("title").unwrap_or_default(),
+        start_date: opt_string(row, "start_date"),
+        scheduled_date: opt_string(row, "scheduled_date"),
+        start_time: opt_string(row, "start_time"),
+        start_reminder_sent_at: opt_string(row, "start_reminder_sent_at"),
+        status: row.try_get::<String, _>("status").unwrap_or_default(),
+    }
+}
+
+fn is_due_eligible(task: &DueReminderTask, now: DateTime<Utc>) -> bool {
     if task.reminder_enabled != 1 {
         return false;
     }
@@ -135,7 +240,21 @@ fn is_eligible(task: &ReminderTask, now: DateTime<Utc>) -> bool {
     should_notify(now, scheduled, MISS_GRACE)
 }
 
-async fn load_candidates(pool: &Pool<Sqlite>) -> Result<Vec<ReminderTask>, String> {
+fn is_start_eligible(task: &StartReminderTask, now: DateTime<Utc>) -> bool {
+    if task.status == "DONE" {
+        return false;
+    }
+    if task.start_reminder_sent_at.is_some() {
+        return false;
+    }
+    let Some(start) = start_instant(task) else {
+        return false;
+    };
+    let scheduled = scheduled_at(start, START_LEAD_MINUTES);
+    should_notify(now, scheduled, MISS_GRACE)
+}
+
+async fn load_due_candidates(pool: &Pool<Sqlite>) -> Result<Vec<DueReminderTask>, String> {
     let rows = sqlx::query(
         "SELECT id, title, due_at, reminder_lead_minutes, reminder_enabled, reminder_sent_at, status
          FROM tasks
@@ -148,10 +267,10 @@ async fn load_candidates(pool: &Pool<Sqlite>) -> Result<Vec<ReminderTask>, Strin
     .fetch_all(pool)
     .await
     .map_err(|e| e.to_string())?;
-    Ok(rows.iter().map(row_to_task).collect())
+    Ok(rows.iter().map(row_to_due_task).collect())
 }
 
-async fn load_task(pool: &Pool<Sqlite>, id: &str) -> Result<Option<ReminderTask>, String> {
+async fn load_due_task(pool: &Pool<Sqlite>, id: &str) -> Result<Option<DueReminderTask>, String> {
     let row = sqlx::query(
         "SELECT id, title, due_at, reminder_lead_minutes, reminder_enabled, reminder_sent_at, status
          FROM tasks WHERE id = ?",
@@ -160,10 +279,41 @@ async fn load_task(pool: &Pool<Sqlite>, id: &str) -> Result<Option<ReminderTask>
     .fetch_optional(pool)
     .await
     .map_err(|e| e.to_string())?;
-    Ok(row.as_ref().map(row_to_task))
+    Ok(row.as_ref().map(row_to_due_task))
 }
 
-async fn mark_sent(pool: &Pool<Sqlite>, id: &str, sent_at: &str) -> Result<(), String> {
+async fn load_start_candidates(pool: &Pool<Sqlite>) -> Result<Vec<StartReminderTask>, String> {
+    let rows = sqlx::query(
+        "SELECT id, title, start_date, scheduled_date, start_time, start_reminder_sent_at, status
+         FROM tasks
+         WHERE start_time IS NOT NULL
+           AND TRIM(start_time) != ''
+           AND start_reminder_sent_at IS NULL
+           AND status != 'DONE'
+           AND (
+             (start_date IS NOT NULL AND TRIM(start_date) != '')
+             OR (scheduled_date IS NOT NULL AND TRIM(scheduled_date) != '')
+           )",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rows.iter().map(row_to_start_task).collect())
+}
+
+async fn load_start_task(pool: &Pool<Sqlite>, id: &str) -> Result<Option<StartReminderTask>, String> {
+    let row = sqlx::query(
+        "SELECT id, title, start_date, scheduled_date, start_time, start_reminder_sent_at, status
+         FROM tasks WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(row.as_ref().map(row_to_start_task))
+}
+
+async fn mark_due_sent(pool: &Pool<Sqlite>, id: &str, sent_at: &str) -> Result<(), String> {
     sqlx::query("UPDATE tasks SET reminder_sent_at = ? WHERE id = ? AND reminder_sent_at IS NULL")
         .bind(sent_at)
         .bind(id)
@@ -173,15 +323,90 @@ async fn mark_sent(pool: &Pool<Sqlite>, id: &str, sent_at: &str) -> Result<(), S
     Ok(())
 }
 
-fn show_notification(app: &AppHandle, task_id: &str, title: &str) -> Result<(), String> {
-    let body = if title.trim().is_empty() { "(無題)" } else { title };
+async fn mark_start_sent(pool: &Pool<Sqlite>, id: &str, sent_at: &str) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE tasks SET start_reminder_sent_at = ? WHERE id = ? AND start_reminder_sent_at IS NULL",
+    )
+    .bind(sent_at)
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn notification_body(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        "(無題)".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn next_notification_id(task_id: &str) -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("n_{}_{seq}_{task_id}", Utc::now().timestamp_millis())
+}
+
+fn show_notification(app: &AppHandle, task_id: &str, title: &str, body: &str) -> Result<(), String> {
     app.notification()
         .builder()
-        .title(NOTIFY_TITLE)
+        .title(title)
         .body(body)
         .extra("task_id", task_id)
         .show()
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+async fn record_notification(
+    pool: &Pool<Sqlite>,
+    app: &AppHandle,
+    task_id: &str,
+    title: &str,
+    body: &str,
+) -> Result<(), String> {
+    let created_at = Utc::now().to_rfc3339();
+    let id = next_notification_id(task_id);
+    sqlx::query(
+        "INSERT INTO app_notifications (id, task_id, title, body, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(task_id)
+    .bind(title)
+    .bind(body)
+    .bind(&created_at)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let _ = app.emit(
+        "app-notification",
+        InboxNotification {
+            id,
+            task_id: task_id.to_string(),
+            title: title.to_string(),
+            body: body.to_string(),
+            created_at,
+        },
+    );
+    Ok(())
+}
+
+async fn deliver(
+    app: &AppHandle,
+    pool: &Pool<Sqlite>,
+    task_id: &str,
+    task_title: &str,
+    notify_title: &str,
+) -> Result<(), String> {
+    let body = notification_body(task_title);
+    show_notification(app, task_id, notify_title, &body)?;
+    if let Err(e) = record_notification(pool, app, task_id, notify_title, &body).await {
+        log::warn!("reminder record {task_id}: {e}");
+    }
     Ok(())
 }
 
@@ -213,46 +438,100 @@ pub fn setup_notification_click(app: &AppHandle) {
     });
 }
 
+async fn tick_due(
+    app: &AppHandle,
+    pool: &Pool<Sqlite>,
+    in_flight: &mut HashSet<String>,
+) -> Result<(), String> {
+    let now = Utc::now();
+    let candidates = load_due_candidates(pool).await?;
+    for task in candidates {
+        let key = format!("due:{}", task.id);
+        if in_flight.contains(&key) {
+            continue;
+        }
+        if !is_due_eligible(&task, now) {
+            continue;
+        }
+        if !desktop_notifications_enabled() {
+            continue;
+        }
+        in_flight.insert(key.clone());
+        let latest = load_due_task(pool, &task.id).await?;
+        let Some(latest) = latest else {
+            in_flight.remove(&key);
+            continue;
+        };
+        if !is_due_eligible(&latest, Utc::now()) || !desktop_notifications_enabled() {
+            in_flight.remove(&key);
+            continue;
+        }
+        match deliver(app, pool, &latest.id, &latest.title, DUE_NOTIFY_TITLE).await {
+            Ok(()) => {
+                if let Err(e) = mark_due_sent(pool, &latest.id, &Utc::now().to_rfc3339()).await {
+                    log::warn!("reminder mark_sent {}: {e}", latest.id);
+                }
+            }
+            Err(e) => log::warn!("reminder notify {}: {e}", latest.id),
+        }
+        in_flight.remove(&key);
+    }
+    Ok(())
+}
+
+async fn tick_start(
+    app: &AppHandle,
+    pool: &Pool<Sqlite>,
+    in_flight: &mut HashSet<String>,
+) -> Result<(), String> {
+    let now = Utc::now();
+    let candidates = load_start_candidates(pool).await?;
+    for task in candidates {
+        let key = format!("start:{}", task.id);
+        if in_flight.contains(&key) {
+            continue;
+        }
+        if !is_start_eligible(&task, now) {
+            continue;
+        }
+        if !desktop_notifications_enabled() {
+            continue;
+        }
+        in_flight.insert(key.clone());
+        let latest = load_start_task(pool, &task.id).await?;
+        let Some(latest) = latest else {
+            in_flight.remove(&key);
+            continue;
+        };
+        if !is_start_eligible(&latest, Utc::now()) || !desktop_notifications_enabled() {
+            in_flight.remove(&key);
+            continue;
+        }
+        match deliver(app, pool, &latest.id, &latest.title, START_NOTIFY_TITLE).await {
+            Ok(()) => {
+                if let Err(e) = mark_start_sent(pool, &latest.id, &Utc::now().to_rfc3339()).await {
+                    log::warn!("start reminder mark_sent {}: {e}", latest.id);
+                }
+            }
+            Err(e) => log::warn!("start reminder notify {}: {e}", latest.id),
+        }
+        in_flight.remove(&key);
+    }
+    Ok(())
+}
+
 async fn tick(app: &AppHandle, in_flight: &mut HashSet<String>) -> Result<(), String> {
     let db = app.state::<AppDb>();
     let Some(pool) = db.pool().await else {
         return Ok(());
     };
-    let now = Utc::now();
-    let candidates = load_candidates(&pool).await?;
-    for task in candidates {
-        if in_flight.contains(&task.id) {
-            continue;
-        }
-        if !is_eligible(&task, now) {
-            continue;
-        }
-        in_flight.insert(task.id.clone());
-        let latest = load_task(&pool, &task.id).await?;
-        let Some(latest) = latest else {
-            in_flight.remove(&task.id);
-            continue;
-        };
-        if !is_eligible(&latest, Utc::now()) {
-            in_flight.remove(&task.id);
-            continue;
-        }
-        match show_notification(app, &latest.id, &latest.title) {
-            Ok(()) => {
-                if let Err(e) = mark_sent(&pool, &latest.id, &Utc::now().to_rfc3339()).await {
-                    log::warn!("reminder mark_sent {}: {e}", latest.id);
-                }
-            }
-            Err(e) => {
-                log::warn!("reminder notify {}: {e}", latest.id);
-            }
-        }
-        in_flight.remove(&task.id);
-    }
+    tick_due(app, &pool, in_flight).await?;
+    tick_start(app, &pool, in_flight).await?;
     Ok(())
 }
 
 pub fn spawn_poller(app: AppHandle) {
+    load_desktop_notifications_pref(&app);
     tauri::async_runtime::spawn(async move {
         if let Err(e) = db::ensure_connected(&app).await {
             log::warn!("reminder db connect: {e}");
@@ -300,5 +579,26 @@ mod tests {
             scheduled,
             MISS_GRACE
         ));
+    }
+
+    #[test]
+    fn parses_local_start_hhmm() {
+        let start = parse_local_start("2026-10-14", "10:30").expect("parse");
+        let back = start.with_timezone(&Local);
+        assert_eq!(back.format("%Y-%m-%d %H:%M").to_string(), "2026-10-14 10:30");
+    }
+
+    #[test]
+    fn start_eligible_requires_time() {
+        let task = StartReminderTask {
+            id: "t1".into(),
+            title: "x".into(),
+            start_date: Some("2026-10-14".into()),
+            scheduled_date: None,
+            start_time: None,
+            start_reminder_sent_at: None,
+            status: "TODO".into(),
+        };
+        assert!(!is_start_eligible(&task, Utc::now()));
     }
 }

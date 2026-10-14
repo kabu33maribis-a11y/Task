@@ -16,6 +16,8 @@ const MIGRATION_007: &str = include_str!("../migrations/007_add_tags.sql");
 const MIGRATION_008: &str = include_str!("../migrations/008_add_task_times.sql");
 const MIGRATION_009: &str = include_str!("../migrations/009_add_members.sql");
 const MIGRATION_010: &str = include_str!("../migrations/010_add_task_reminders.sql");
+const MIGRATION_011: &str = include_str!("../migrations/011_add_app_notifications.sql");
+const MIGRATION_012: &str = include_str!("../migrations/012_add_start_reminders.sql");
 
 pub struct AppDb(Mutex<Option<Pool<Sqlite>>>);
 
@@ -151,6 +153,14 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), String> {
 
     if !column_exists(pool, "tasks", "due_at").await? {
         run_sql_script(pool, MIGRATION_010).await?;
+    }
+
+    if !table_exists(pool, "app_notifications").await? {
+        run_sql_script(pool, MIGRATION_011).await?;
+    }
+
+    if !column_exists(pool, "tasks", "start_reminder_sent_at").await? {
+        run_sql_script(pool, MIGRATION_012).await?;
     }
 
     Ok(())

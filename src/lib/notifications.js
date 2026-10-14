@@ -1,5 +1,36 @@
 let _actionBound = false
 
+const NOTIF_PREF_KEY = 'taskmanager.desktopNotifications'
+
+/** App-side ON/OFF for desktop notifications (OS permission is separate). */
+export function getDesktopNotificationsPref() {
+  try {
+    const v = localStorage.getItem(NOTIF_PREF_KEY)
+    if (v === '0') return false
+    if (v === '1') return true
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+export function setDesktopNotificationsPref(on) {
+  try {
+    localStorage.setItem(NOTIF_PREF_KEY, on ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+  syncDesktopNotificationsPrefToBackend(on)
+}
+
+/** Push the app-side ON/OFF to Rust so the poller respects Settings. */
+export function syncDesktopNotificationsPrefToBackend(on = getDesktopNotificationsPref()) {
+  if (on == null) return
+  import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke('set_desktop_notifications_enabled', { enabled: !!on }))
+    .catch(() => {})
+}
+
 export async function isNotificationGranted() {
   try {
     const { isPermissionGranted } = await import('@tauri-apps/plugin-notification')
@@ -11,6 +42,7 @@ export async function isNotificationGranted() {
 
 export async function ensureNotificationPermission() {
   try {
+    setDesktopNotificationsPref(true)
     const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification')
     if (await isPermissionGranted()) return true
     const perm = await requestPermission()
@@ -37,6 +69,10 @@ function taskIdFromNotification(payload) {
 function emitOpenTask(taskId) {
   if (!taskId || typeof window === 'undefined') return
   window.dispatchEvent(new CustomEvent('taskmanager:open-task', { detail: taskId }))
+}
+
+export function requestOpenTask(taskId) {
+  emitOpenTask(taskId)
 }
 
 /** Register desktop notification click handling as early as possible. */

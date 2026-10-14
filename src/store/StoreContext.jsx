@@ -112,6 +112,7 @@ async function loadState() {
       reminder_enabled: t.reminder_enabled === true || t.reminder_enabled === 1 || t.reminder_enabled === '1',
       reminder_lead_minutes: Number(t.reminder_lead_minutes) > 0 ? Number(t.reminder_lead_minutes) : 30,
       reminder_sent_at: t.reminder_sent_at ?? null,
+      start_reminder_sent_at: t.start_reminder_sent_at ?? null,
     }))
     const unifiedTasks = mappedTasks.map(unifyTaskDates)
     for (let i = 0; i < unifiedTasks.length; i++) {
@@ -262,6 +263,7 @@ function pasteTaskBundle(state, action, now) {
       reminder_enabled: false,
       reminder_lead_minutes: Number(src.reminder_lead_minutes) > 0 ? Number(src.reminder_lead_minutes) : 30,
       reminder_sent_at: null,
+      start_reminder_sent_at: null,
       completed_at: null,
       category_id: src.category_id ?? null,
       project_id: projectId,
@@ -452,6 +454,7 @@ function makeTask(input, tasks) {
     reminder_enabled: !!input.reminder_enabled && !!(input.due_at ?? null),
     reminder_lead_minutes: Number(input.reminder_lead_minutes) > 0 ? Number(input.reminder_lead_minutes) : 30,
     reminder_sent_at: null,
+    start_reminder_sent_at: null,
     completed_at: null,
     category_id: input.category_id ?? null,
     project_id: input.project_id ?? null,
@@ -476,8 +479,8 @@ async function dbUpsertTask(db, t) {
     `INSERT OR REPLACE INTO tasks
      (id,title,status,scheduled_date,completed_at,category_id,project_id,
       parent_id,start_date,end_date,console_end_date,priority,sort_order,recurrence,created_at,updated_at,tag_id,
-      start_time,end_time,due_at,reminder_enabled,reminder_lead_minutes,reminder_sent_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      start_time,end_time,due_at,reminder_enabled,reminder_lead_minutes,reminder_sent_at,start_reminder_sent_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [t.id, t.title, t.status, t.scheduled_date, t.completed_at, t.category_id,
      t.project_id, t.parent_id, t.start_date, t.end_date, t.console_end_date, t.priority,
      t.sort_order, t.recurrence, t.created_at, t.updated_at, t.tag_id ?? null,
@@ -485,7 +488,8 @@ async function dbUpsertTask(db, t) {
      t.due_at ?? null,
      t.reminder_enabled ? 1 : 0,
      Number(t.reminder_lead_minutes) > 0 ? Number(t.reminder_lead_minutes) : 30,
-     t.reminder_sent_at ?? null],
+     t.reminder_sent_at ?? null,
+     t.start_reminder_sent_at ?? null],
   )
 }
 
@@ -628,6 +632,12 @@ function reducer(state, action) {
             next.reminder_sent_at = null
           }
           if (!next.due_at) next.reminder_enabled = false
+          const startChanged =
+            next.start_time !== t.start_time
+            || next.start_date !== t.start_date
+            || next.scheduled_date !== t.scheduled_date
+          if (startChanged) next.start_reminder_sent_at = null
+          if (!next.start_time) next.start_reminder_sent_at = null
           return next
         }),
       }

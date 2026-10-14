@@ -5,11 +5,13 @@ export default function ConfirmDialog({ message, detail, okLabel = 'OK', danger 
   useEffect(() => {
     function onKey(e) {
       if (e.key !== 'Escape') return
+      e.preventDefault()
       e.stopPropagation()
+      e.stopImmediatePropagation()
       onCancel()
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [onCancel])
 
   return createPortal(

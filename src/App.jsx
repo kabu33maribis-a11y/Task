@@ -9,6 +9,7 @@ import { StoreProvider, useStore } from './store/StoreContext.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import SettingsModal from './components/SettingsModal.jsx'
 import MasterModal from './components/MasterModal.jsx'
+import NotificationBox, { useNotificationInbox } from './components/NotificationBox.jsx'
 import AppSidebar, { SidebarMenuButton } from './components/sidebar/AppSidebar.jsx'
 import Today from './screens/Today.jsx'
 import Calendar from './screens/Calendar.jsx'
@@ -105,15 +106,16 @@ function Shell() {
   // view / projectFilter live here so they survive the Dashboard <-> Tabbed remount on resize.
   const [view, setView] = useState('console') // 'console' | 'wbs'
   const [projectFilter, setProjectFilter] = useState('all')
-  const shared = { view, setView, projectFilter, setProjectFilter }
+  const notifications = useNotificationInbox()
+  const shared = { view, setView, projectFilter, setProjectFilter, notifications }
   return wide ? <Dashboard {...shared} /> : <Tabbed {...shared} />
 }
 
 // ---- laptop: two-pane console ------------------------------------------
 
-function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
+function Dashboard({ view, setView, projectFilter, setProjectFilter, notifications }) {
   const { state } = useStore()
-  const [overlay, setOverlay] = useState(null) // 'inbox' | 'log' | 'settings' | 'master' | null
+  const [overlay, setOverlay] = useState(null) // 'inbox' | 'log' | 'notifications' | 'settings' | 'master' | null
   const [calDate, setCalDate] = useState(todayStr)
   const [focusTaskId, setFocusTaskId] = useState(null)
   const [focusNonce, setFocusNonce] = useState(0)
@@ -137,7 +139,7 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
   useReminderDeepLink({ setView, onRoute, setCalDate, setFocus })
 
   const activeId =
-    overlay === 'inbox' || overlay === 'log' || overlay === 'master' || overlay === 'settings'
+    overlay === 'inbox' || overlay === 'log' || overlay === 'notifications' || overlay === 'master' || overlay === 'settings'
       ? overlay
       : view === 'wbs'
         ? 'wbs'
@@ -154,7 +156,8 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
       setOverlay(null)
       return
     }
-    if (id === 'inbox' || id === 'log' || id === 'master' || id === 'settings') {
+    if (id === 'inbox' || id === 'log' || id === 'notifications' || id === 'master' || id === 'settings') {
+      if (id === 'notifications') notifications.reload()
       setOverlay(id)
     }
   }
@@ -187,7 +190,7 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
       <AppSidebar
         mode="desktop"
         activeId={activeId}
-        badges={{ inbox: inboxCount }}
+        badges={{ inbox: inboxCount, notifications: notifications.items.length }}
         onNavigate={onNavigate}
         projectFilter={projectFilter}
         onProjectChange={setProjectFilter}
@@ -238,6 +241,16 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
           <Log embedded />
         </SlideOver>
       )}
+      {overlay === 'notifications' && (
+        <SlideOver title="通知" size={420} onClose={close}>
+          <NotificationBox
+            embedded
+            items={notifications.items}
+            onClearAll={notifications.clearAll}
+            onOpen={close}
+          />
+        </SlideOver>
+      )}
       {overlay === 'master' && <MasterModal onClose={close} />}
       {overlay === 'settings' && <SettingsModal onClose={close} />}
 
@@ -272,7 +285,7 @@ function SlideOver({ title, size = 440, onClose, children }) {
 
 // ---- tablet / phone: tabbed --------------------------------------------
 
-function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
+function Tabbed({ view, setView, projectFilter, setProjectFilter, notifications }) {
   const { state } = useStore()
   const [tab, setTab] = useState('today')
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -305,11 +318,12 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
         : tab
 
   function onNavigate(id) {
-    if (id === 'today' || id === 'calendar' || id === 'log' || id === 'inbox') {
+    if (id === 'today' || id === 'calendar' || id === 'log' || id === 'inbox' || id === 'notifications') {
       setView('console')
       setTab(id)
       setSettingsOpen(false)
       setMasterOpen(false)
+      if (id === 'notifications') notifications.reload()
       return
     }
     if (id === 'wbs') {
@@ -341,7 +355,7 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
       <AppSidebar
         mode="mobile"
         activeId={activeId}
-        badges={{ inbox: inboxCount }}
+        badges={{ inbox: inboxCount, notifications: notifications.items.length }}
         onNavigate={onNavigate}
         projectFilter={projectFilter}
         onProjectChange={setProjectFilter}
@@ -393,6 +407,13 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
             )}
             {tab === 'log' && <Log />}
             {tab === 'inbox' && <Inbox projectFilter={projectFilter} focusTaskId={focusTaskId} focusNonce={focusNonce} />}
+            {tab === 'notifications' && (
+              <NotificationBox
+                items={notifications.items}
+                onClearAll={notifications.clearAll}
+                onOpen={() => setTab('today')}
+              />
+            )}
           </>
         )}
       </main>

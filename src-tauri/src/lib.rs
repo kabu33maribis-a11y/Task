@@ -37,6 +37,7 @@ pub fn run() {
       db::app_db_execute,
       db::app_db_select,
       db::app_db_close,
+      reminder::set_desktop_notifications_enabled,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -11,7 +11,12 @@ import {
 } from '../lib/ganttBarColor.js'
 import { setIconMode, useIconMode, setBarLabel, useBarLabel } from '../lib/iconMode.js'
 import { CALENDAR_VIEWS, setCalendarDefaultView, useCalendarDefaultView } from '../lib/calendarView.js'
-import { isNotificationGranted, ensureNotificationPermission } from '../lib/notifications.js'
+import {
+  isNotificationGranted,
+  ensureNotificationPermission,
+  getDesktopNotificationsPref,
+  setDesktopNotificationsPref,
+} from '../lib/notifications.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { ColorPickerSwatch, SettingsShell } from './settingsShared.jsx'
@@ -40,10 +45,29 @@ export default function SettingsModal({ onClose }) {
   const barLabel = useBarLabel()
   const calendarView = useCalendarDefaultView()
   const [notifGranted, setNotifGranted] = useState(null)
+  const [notifOn, setNotifOn] = useState(() => getDesktopNotificationsPref() !== false)
 
   useEffect(() => {
-    isNotificationGranted().then(setNotifGranted)
+    isNotificationGranted().then((granted) => {
+      setNotifGranted(granted)
+      const pref = getDesktopNotificationsPref()
+      if (pref != null) setNotifOn(pref)
+      else if (granted === true) setNotifOn(true)
+      else if (granted === false) setNotifOn(false)
+    })
   }, [])
+
+  async function handleNotifPrefChange(nextOn) {
+    setNotifOn(nextOn)
+    setDesktopNotificationsPref(nextOn)
+    if (nextOn) {
+      const ok = await ensureNotificationPermission()
+      setNotifGranted(ok)
+      if (!ok) setNotifOn(false)
+    } else {
+      setNotifGranted(await isNotificationGranted())
+    }
+  }
 
   function applyTheme(t) {
     setTheme(setThemeOnDocument(t))
@@ -134,15 +158,20 @@ export default function SettingsModal({ onClose }) {
           {tab === 'appearance' && (
           <div className="settings-groups">
             <section className="settings-group">
-              <div className="section-title">デスクトップ通知</div>
-              {notifGranted === false && (
+              <div className="section-title">通知の許可</div>
+              {notifOn && notifGranted === false && (
                 <p className="help settings-notif-warn" style={{ marginTop: 0, marginBottom: 8 }}>
-                  Windows の通知が無効です。リマインダを使うには、下のボタンか OS の通知設定から許可してください。
+                  Windows の通知が無効です。OS の通知設定から許可してください。
                 </p>
               )}
-              {notifGranted === true && (
+              {notifOn && notifGranted === true && (
                 <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                  デスクトップ通知は許可されています。タスクに期限とリマインダを設定すると、指定時刻に通知します。
+                  開始時刻の30分前、および期限リマインダの指定時刻に通知します。
+                </p>
+              )}
+              {!notifOn && notifGranted != null && (
+                <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+                  オフです。デスクトップ通知と通知ボックスへの追加は行いません。
                 </p>
               )}
               {notifGranted == null && (
@@ -150,16 +179,15 @@ export default function SettingsModal({ onClose }) {
                   この環境ではデスクトップ通知を確認できません（ブラウザ開発時など）。
                 </p>
               )}
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={async () => {
-                  const ok = await ensureNotificationPermission()
-                  setNotifGranted(ok)
-                }}
+              <select
+                value={notifOn ? 'on' : 'off'}
+                disabled={notifGranted == null}
+                onChange={(e) => handleNotifPrefChange(e.target.value === 'on')}
+                aria-label="通知の許可"
               >
-                通知を許可する
-              </button>
+                <option value="on">ON</option>
+                <option value="off">OFF</option>
+              </select>
             </section>
             <section className="settings-group">
               <div className="section-title">表示モード</div>

@@ -1,4 +1,5 @@
 import {
+  Bell,
   CalendarCheck2,
   CalendarDays,
   ChartGantt,
@@ -78,6 +79,14 @@ export const NAV_SECTIONS = [
         show: 'all',
         badgeKey: 'inbox',
         ariaLabel: 'Inbox',
+      },
+      {
+        id: 'notifications',
+        label: '通知',
+        icon: Bell,
+        show: 'all',
+        badgeKey: 'notifications',
+        ariaLabel: '通知',
       },
       {
         id: 'log',
