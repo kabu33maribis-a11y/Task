@@ -58,13 +58,18 @@ export default function SettingsModal({ onClose }) {
   }, [])
 
   async function handleNotifPrefChange(nextOn) {
-    setNotifOn(nextOn)
-    setDesktopNotificationsPref(nextOn)
     if (nextOn) {
+      setNotifOn(true)
+      setDesktopNotificationsPref(true)
       const ok = await ensureNotificationPermission()
       setNotifGranted(ok)
-      if (!ok) setNotifOn(false)
+      if (!ok) {
+        setNotifOn(false)
+        setDesktopNotificationsPref(false)
+      }
     } else {
+      setNotifOn(false)
+      setDesktopNotificationsPref(false)
       setNotifGranted(await isNotificationGranted())
     }
   }

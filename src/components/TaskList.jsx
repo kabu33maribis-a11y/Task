@@ -10,6 +10,7 @@ export default function TaskList({
   showDate = false,
   showDateActions = false,
   showProject = true,
+  compact = false,
   reorderable = true,
   focusTaskId = null,
   focusNonce = 0,
@@ -51,6 +52,7 @@ export default function TaskList({
           showDate={showDate}
           showDateActions={showDateActions}
           showProject={showProject}
+          compact={compact}
           focusTaskId={focusTaskId}
           focusNonce={focusNonce}
           dnd={

@@ -1,7 +1,9 @@
 import { isoToDatetimeLocal, datetimeLocalToIso } from '../lib/date.js'
 import { ensureNotificationPermission } from '../lib/notifications.js'
+import DueDateTimePicker from './DueDateTimePicker.jsx'
 
 export const REMINDER_LEAD_OPTIONS = [
+  { value: 1, label: '1分前' },
   { value: 5, label: '5分前' },
   { value: 15, label: '15分前' },
   { value: 30, label: '30分前' },
@@ -33,11 +35,7 @@ export default function ReminderFields({ task, onChange, compact = false }) {
     <div className={`reminder-fields${compact ? ' reminder-fields--compact' : ''}`}>
       <label>
         期限
-        <input
-          type="datetime-local"
-          value={dueLocal}
-          onChange={(e) => setDue(e.target.value)}
-        />
+        <DueDateTimePicker value={dueLocal} onChange={setDue} />
       </label>
       <label className="reminder-toggle" title={hasDue ? undefined : '先に期限を設定してください'}>
         <input

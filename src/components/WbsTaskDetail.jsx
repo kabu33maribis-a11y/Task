@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarDays, ChevronRight, X } from 'lucide-react'
 import { useStore, useProjectMap, useVisibleProjects } from '../store/StoreContext.jsx'
-import { formatFullJP, deadlineInfo, diffDays, normalizeTimeStr } from '../lib/date.js'
+import { formatMonthDayJP, formatWeekdayJP, deadlineInfo, diffDays, normalizeTimeStr } from '../lib/date.js'
 import { predecessorsOf, successorsOf } from '../lib/dependencies.js'
 import { descendantIds } from '../lib/wbs.js'
 import { ownTag, inheritedTag } from '../lib/tags.js'
@@ -18,12 +19,24 @@ function fmtStamp(iso) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`
 }
 
+function fmtDay(str, today) {
+  if (!str) return ''
+  const base = `${formatMonthDayJP(str)}（${formatWeekdayJP(str)}）`
+  if (today && str.slice(0, 4) !== String(today).slice(0, 4)) return `${str.slice(0, 4)}年${base}`
+  return base
+}
+
 function hhmm(t) {
   const n = normalizeTimeStr(t)
   return n ? n.slice(0, 5) : null
 }
 
-const PRIORITY_LABEL = { high: '高', medium: '中', low: '低' }
+const PRIORITIES = [
+  { id: '', label: 'なし' },
+  { id: 'high', label: '高' },
+  { id: 'medium', label: '中' },
+  { id: 'low', label: '低' },
+]
 
 /**
  * WBS タスク詳細（右からのスライダー）。
@@ -47,7 +60,6 @@ export default function WbsTaskDetail({
   const visibleProjects = useVisibleProjects()
   const task = state.tasks.find((t) => t.id === taskId) ?? null
 
-  // 子孫タスクも同じプロジェクトに揃える（WBS ツリーはプロジェクト単位のため）
   function changeProject(projectId) {
     if (!task) return
     const ids = [task.id]
@@ -56,11 +68,13 @@ export default function WbsTaskDetail({
     }
     for (const id of ids) actions.updateTask(id, { project_id: projectId })
   }
+
   const [titleDraft, setTitleDraft] = useState(task?.title ?? '')
   const [addingCheck, setAddingCheck] = useState('')
   const [shown, setShown] = useState(false)
   const blockEscapeRef = useRef(blockEscape)
   blockEscapeRef.current = blockEscape
+  const titleRef = useRef(null)
 
   useEffect(() => {
     setTitleDraft(task?.title ?? '')
@@ -76,16 +90,22 @@ export default function WbsTaskDetail({
   }, [])
 
   useEffect(() => {
+    const el = titleRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [titleDraft, taskId])
+
+  useEffect(() => {
     function onKey(e) {
       if (e.key !== 'Escape' || blockEscapeRef.current) return
-      if (e.target?.closest?.('input, textarea')) return
+      if (e.target?.closest?.('input, textarea, select')) return
       onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // 削除などでタスクが消えたら閉じる
   useEffect(() => {
     if (!task) onClose()
   }, [task, onClose])
@@ -137,6 +157,8 @@ export default function WbsTaskDetail({
   const days = start && end ? diffDays(start, end) + 1 : null
   const deadline = end ? deadlineInfo(end, { today, completed: done, progressPct }) : null
   const checkDone = checklist.filter((i) => i.done).length
+  const showEnd = !!(end && (end !== start || endTime))
+  const priority = task.priority ?? ''
 
   function commitTitle() {
     const t = titleDraft.trim()
@@ -147,6 +169,11 @@ export default function WbsTaskDetail({
     if (hasChildren) actions.setSubtreeDone(task.id, !done)
     else actions.toggleComplete(task.id)
   }
+  function setPriority(next) {
+    const value = next || null
+    if ((task.priority ?? null) === value) return
+    actions.updateTask(task.id, { priority: value })
+  }
   function submitCheck() {
     const t = addingCheck.trim()
     if (!t) return
@@ -155,25 +182,50 @@ export default function WbsTaskDetail({
   }
   const open = (fn) => (e) => fn?.(task.id, e.currentTarget.getBoundingClientRect())
 
+  const periodBody = start ? (
+    <span className="wbs-detail-range">
+      <span className="wbs-detail-range-row">
+        <span className="wbs-detail-range-mark">{showEnd ? '開始' : '日付'}</span>
+        <span>{fmtDay(start, today)}</span>
+        {startTime && <span className="wbs-detail-range-time">{startTime}</span>}
+      </span>
+      {showEnd && (
+        <span className="wbs-detail-range-row">
+          <span className="wbs-detail-range-mark">終了</span>
+          <span>{fmtDay(end, today)}</span>
+          {endTime && <span className="wbs-detail-range-time">{endTime}</span>}
+        </span>
+      )}
+      <span className="wbs-detail-range-meta">
+        {days != null && <span>{days}日間</span>}
+        {hasChildren && <span>子タスクから集計</span>}
+        {deadline && (
+          <span className={`wbs-deadline-badge wbs-deadline-badge--${deadline.tier}`}>
+            {deadline.label}
+          </span>
+        )}
+      </span>
+    </span>
+  ) : (
+    <span className="wbs-detail-placeholder">期間を設定</span>
+  )
+
   return (
     <aside
       className={`wbs-detail${shown ? ' is-shown' : ''}`}
       role="dialog"
       aria-label="タスク詳細"
     >
-      <div className="slideover-head wbs-detail-head">
-        <span className="slideover-title">
-          {wbsNo && <span className="wbs-detail-no">{wbsNo}</span>}
-          詳細
-        </span>
-        <button className="close-x" onClick={onClose} aria-label="閉じる">
-          ×
-        </button>
-      </div>
-
-      <div className="slideover-body wbs-detail-body">
+      <header className="wbs-detail-head">
+        <div className="wbs-detail-head-top">
+          <p className="wbs-detail-eyebrow">{wbsNo ? `WBS ${wbsNo}` : 'タスク'}</p>
+          <button type="button" className="wbs-detail-close" onClick={onClose} aria-label="閉じる">
+            <X size={16} strokeWidth={2} aria-hidden />
+          </button>
+        </div>
         <div className="wbs-detail-titlebar">
           <button
+            type="button"
             className={`check ${done ? 'done' : ''}`}
             onClick={toggleDone}
             title={done ? '未完了に戻す' : '完了にする'}
@@ -182,9 +234,11 @@ export default function WbsTaskDetail({
             {done ? '✓' : ''}
           </button>
           <textarea
-            className="wbs-detail-title"
+            ref={titleRef}
+            className={`wbs-detail-title${done ? ' is-done' : ''}`}
             value={titleDraft}
             rows={1}
+            aria-label="タスク名"
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={commitTitle}
             onKeyDown={(e) => {
@@ -199,231 +253,247 @@ export default function WbsTaskDetail({
             }}
           />
         </div>
-
-        <dl className="wbs-detail-props">
-          <dt>状態</dt>
-          <dd>
-            {done ? '完了' : '未完了'}
+        <div className="wbs-detail-status">
+          <div className="wbs-detail-statusline">
+            <button
+              type="button"
+              className={`wbs-detail-chip${done ? ' is-done' : ' is-open'}`}
+              onClick={toggleDone}
+            >
+              {done ? '完了' : '進行中'}
+            </button>
             {task.completed_at && done && (
-              <span className="wbs-detail-sub">（{fmtStamp(task.completed_at)}）</span>
+              <span className="wbs-detail-sub">{fmtStamp(task.completed_at)}</span>
             )}
-          </dd>
+            <span className="wbs-detail-pct">
+              {progressPct}%
+              {hasChildren ? <span className="wbs-detail-sub"> {rollup.done}/{rollup.total}</span> : null}
+            </span>
+          </div>
+          <div className="wbs-detail-progress-bar" aria-hidden>
+            <span style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+      </header>
 
-          <dt>進捗</dt>
-          <dd>
-            <div className="wbs-detail-progress">
-              <div className="wbs-detail-progress-bar">
-                <span style={{ width: `${progressPct}%` }} />
-              </div>
-              <span className="wbs-detail-sub">
-                {progressPct}%{hasChildren ? `（${rollup.done}/${rollup.total}）` : ''}
-              </span>
+      <div className="wbs-detail-body">
+        <section className="wbs-detail-card">
+          <h3>スケジュール</h3>
+          {hasChildren ? (
+            <div className="wbs-detail-field is-static">
+              <CalendarDays size={15} strokeWidth={2} className="wbs-detail-field-icon" aria-hidden />
+              {periodBody}
             </div>
-          </dd>
-
-          <dt>プロジェクト</dt>
-          <dd>
-            {parent ? (
-              project ? (
-                <span className="wbs-detail-project" title="親タスクのプロジェクトに従います">
-                  {project.color && (
-                    <span className="tag-dot" style={{ background: project.color }} />
-                  )}
-                  {project.name}
-                </span>
-              ) : (
-                <span className="wbs-detail-empty">未設定</span>
-              )
-            ) : (
-              <select
-                value={task.project_id ?? ''}
-                onChange={(e) => changeProject(e.target.value || null)}
-                className="btn btn-sm"
-                style={{ padding: '4px 8px' }}
-              >
-                <option value="">未設定</option>
-                {visibleProjects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </dd>
-
-          {parent && (
-            <>
-              <dt>親タスク</dt>
-              <dd>
-                <button className="wbs-detail-link" onClick={() => onSelectTask?.(parent.id)}>
-                  {parent.title || '(無題)'}
-                </button>
-              </dd>
-            </>
+          ) : (
+            <button type="button" className="wbs-detail-field" onClick={open(onOpenDatePopover)}>
+              <CalendarDays size={15} strokeWidth={2} className="wbs-detail-field-icon" aria-hidden />
+              {periodBody}
+              <ChevronRight size={16} strokeWidth={2} className="wbs-detail-field-go" aria-hidden />
+            </button>
           )}
-
-          <dt>期間</dt>
-          <dd>
-            {start ? (
-              <div className="wbs-detail-period">
-                <span>
-                  {formatFullJP(start)}
-                  {startTime && ` ${startTime}`}
-                </span>
-                {end && (end !== start || endTime) && (
-                  <span>
-                    〜 {formatFullJP(end)}
-                    {endTime && ` ${endTime}`}
-                  </span>
-                )}
-                <span className="wbs-detail-sub">
-                  {days != null && `${days}日間`}
-                  {deadline && (
-                    <span
-                      className={`wbs-deadline-badge wbs-deadline-badge--${deadline.tier}`}
-                    >
-                      {deadline.label}
-                    </span>
-                  )}
-                </span>
-              </div>
-            ) : (
-              <span className="wbs-detail-empty">未設定</span>
-            )}
-            {!hasChildren && (
-              <button className="wbs-detail-edit" onClick={open(onOpenDatePopover)}>
-                設定
-              </button>
-            )}
-          </dd>
-
-          <dt>期限・リマインダ</dt>
-          <dd>
+          <div className="wbs-detail-block">
+            <span className="wbs-detail-kicker">期限・リマインダ</span>
             <ReminderFields
               task={task}
               onChange={(patch) => actions.updateTask(task.id, patch)}
             />
-          </dd>
+          </div>
+        </section>
 
-          {task.priority && (
-            <>
-              <dt>優先度</dt>
-              <dd>{PRIORITY_LABEL[task.priority] ?? task.priority}</dd>
-            </>
+        <section className="wbs-detail-card">
+          <h3>整理</h3>
+
+          <div className="wbs-detail-block">
+            <span className="wbs-detail-kicker">プロジェクト</span>
+            {parent ? (
+              project ? (
+                <div className="wbs-detail-field is-static" title="親タスクのプロジェクトに従います">
+                  {project.color && (
+                    <span className="wbs-detail-swatch" style={{ background: project.color }} />
+                  )}
+                  <span className="wbs-detail-field-value">{project.name}</span>
+                  <span className="wbs-detail-field-note">親に従う</span>
+                </div>
+              ) : (
+                <div className="wbs-detail-field is-static">
+                  <span className="wbs-detail-placeholder">未設定</span>
+                </div>
+              )
+            ) : (
+              <div className={`wbs-detail-select-wrap${project?.color ? ' has-swatch' : ''}`}>
+                {project?.color && (
+                  <span className="wbs-detail-swatch" style={{ background: project.color }} />
+                )}
+                <select
+                  className="wbs-detail-select"
+                  value={task.project_id ?? ''}
+                  aria-label="プロジェクト"
+                  onChange={(e) => changeProject(e.target.value || null)}
+                >
+                  <option value="">未設定</option>
+                  {visibleProjects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {parent && (
+            <div className="wbs-detail-block">
+              <span className="wbs-detail-kicker">親タスク</span>
+              <button
+                type="button"
+                className="wbs-detail-field"
+                onClick={() => onSelectTask?.(parent.id)}
+              >
+                <span className="wbs-detail-field-value">{parent.title || '(無題)'}</span>
+                <ChevronRight size={16} strokeWidth={2} className="wbs-detail-field-go" aria-hidden />
+              </button>
+            </div>
           )}
 
-          <dt>タグ</dt>
-          <dd>
-            {tag ? (
-              <span
-                className="wbs-tag-badge"
-                style={
-                  tag.color
-                    ? { borderColor: tag.color, color: tag.color, background: tag.color + '22' }
-                    : undefined
-                }
-              >
-                [{tag.name}]
-              </span>
-            ) : inherited ? (
-              <span className="wbs-detail-empty">[{inherited.name}]（親から継承）</span>
-            ) : (
-              <span className="wbs-detail-empty">なし</span>
-            )}
-            <span className="wbs-detail-actions">
+          <div className="wbs-detail-block">
+            <span className="wbs-detail-kicker">優先度</span>
+            <div className="dtd-priority" role="group" aria-label="優先度">
+              {PRIORITIES.map((p) => (
+                <button
+                  key={p.id || 'none'}
+                  type="button"
+                  className={`dtd-priority-btn${priority === p.id ? ' is-on' : ''}${p.id ? ` is-${p.id}` : ''}`}
+                  aria-pressed={priority === p.id}
+                  onClick={() => setPriority(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="wbs-detail-block">
+            <div className="wbs-detail-block-head">
+              <span className="wbs-detail-kicker">タグ</span>
               {canApplyTagToChildren && (
                 <button
                   type="button"
-                  className="wbs-detail-edit"
+                  className="wbs-detail-textbtn"
                   title="配下のすべてのタスクに、このタグを付けます"
                   onClick={() => actions.applyTagToDescendants(task.id)}
                 >
                   子に付ける
                 </button>
               )}
-              <button className="wbs-detail-edit" onClick={open(onOpenTagPopover)}>
-                変更
-              </button>
-            </span>
-          </dd>
+            </div>
+            <button type="button" className="wbs-detail-field" onClick={open(onOpenTagPopover)}>
+              {tag ? (
+                <span
+                  className="wbs-tag-badge"
+                  style={
+                    tag.color
+                      ? { borderColor: tag.color, color: tag.color, background: tag.color + '22' }
+                      : undefined
+                  }
+                >
+                  {tag.name}
+                </span>
+              ) : inherited ? (
+                <>
+                  <span className="wbs-detail-field-value">{inherited.name}</span>
+                  <span className="wbs-detail-field-note">親から継承</span>
+                </>
+              ) : (
+                <span className="wbs-detail-placeholder">タグを付ける</span>
+              )}
+              <ChevronRight size={16} strokeWidth={2} className="wbs-detail-field-go" aria-hidden />
+            </button>
+          </div>
 
-          <dt>担当者</dt>
-          <dd>
-            {assignees.length ? (
-              <span className="wbs-assignee-list">
-                {assignees.map((m) => (
-                  <span
-                    key={m.id}
-                    className="wbs-assignee-badge"
-                    style={m.color ? { borderColor: m.color } : undefined}
+          <div className="wbs-detail-block">
+            <span className="wbs-detail-kicker">担当者</span>
+            <button type="button" className="wbs-detail-field" onClick={open(onOpenAssigneePopover)}>
+              {assignees.length ? (
+                <span className="wbs-assignee-list">
+                  {assignees.map((m) => (
+                    <span
+                      key={m.id}
+                      className="wbs-assignee-badge"
+                      style={m.color ? { borderColor: m.color } : undefined}
+                    >
+                      {m.name}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span className="wbs-detail-placeholder">担当者を選ぶ</span>
+              )}
+              <ChevronRight size={16} strokeWidth={2} className="wbs-detail-field-go" aria-hidden />
+            </button>
+          </div>
+        </section>
+
+        <section className="wbs-detail-card">
+          <div className="wbs-detail-block-head">
+            <h3>依存関係</h3>
+          </div>
+          {(preds.length > 0 || succs.length > 0) && (
+            <ul className="wbs-detail-deps">
+              {preds.map((p) => (
+                <li key={p.id}>
+                  <span className="wbs-detail-dep-dir">先行</span>
+                  <button type="button" className="wbs-detail-link" onClick={() => onSelectTask?.(p.id)}>
+                    {p.title || '(無題)'}
+                  </button>
+                  <button
+                    type="button"
+                    className="wbs-detail-x"
+                    onClick={() => actions.removeDependency(p.id, task.id)}
+                    aria-label="依存を解除"
+                    title="依存を解除"
                   >
-                    {m.name}
-                  </span>
-                ))}
-              </span>
-            ) : (
-              <span className="wbs-detail-empty">なし</span>
-            )}
-            <button className="wbs-detail-edit" onClick={open(onOpenAssigneePopover)}>
-              変更
-            </button>
-          </dd>
-
-          <dt>依存関係</dt>
-          <dd>
-            {preds.length || succs.length ? (
-              <ul className="wbs-detail-deps">
-                {preds.map((p) => (
-                  <li key={p.id}>
-                    <span className="wbs-detail-dep-dir">← 先行</span>
-                    <button className="wbs-detail-link" onClick={() => onSelectTask?.(p.id)}>
-                      {p.title || '(無題)'}
-                    </button>
-                    <button
-                      className="wbs-detail-x"
-                      onClick={() => actions.removeDependency(p.id, task.id)}
-                      aria-label="依存を解除"
-                      title="依存を解除"
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-                {succs.map((s) => (
-                  <li key={s.id}>
-                    <span className="wbs-detail-dep-dir">→ 後続</span>
-                    <button className="wbs-detail-link" onClick={() => onSelectTask?.(s.id)}>
-                      {s.title || '(無題)'}
-                    </button>
-                    <button
-                      className="wbs-detail-x"
-                      onClick={() => actions.removeDependency(task.id, s.id)}
-                      aria-label="依存を解除"
-                      title="依存を解除"
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <span className="wbs-detail-empty">なし</span>
-            )}
-            <button className="wbs-detail-edit" onClick={open(onOpenLinkPopover)}>
-              追加
-            </button>
-          </dd>
-        </dl>
+                    <X size={13} strokeWidth={2} aria-hidden />
+                  </button>
+                </li>
+              ))}
+              {succs.map((s) => (
+                <li key={s.id}>
+                  <span className="wbs-detail-dep-dir is-next">後続</span>
+                  <button type="button" className="wbs-detail-link" onClick={() => onSelectTask?.(s.id)}>
+                    {s.title || '(無題)'}
+                  </button>
+                  <button
+                    type="button"
+                    className="wbs-detail-x"
+                    onClick={() => actions.removeDependency(task.id, s.id)}
+                    aria-label="依存を解除"
+                    title="依存を解除"
+                  >
+                    <X size={13} strokeWidth={2} aria-hidden />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="wbs-detail-add" onClick={open(onOpenLinkPopover)}>
+            依存を追加
+          </button>
+        </section>
 
         {hasChildren && (
-          <section className="wbs-detail-section">
+          <section className="wbs-detail-card">
             <h3>子タスク {rollup.done}/{rollup.total}</h3>
             <ul className="wbs-detail-children">
               {children.map((c) => (
-                <li key={c.id} className={c.status === 'DONE' ? 'is-done' : undefined}>
-                  <span className="wbs-detail-child-mark">{c.status === 'DONE' ? '✓' : '・'}</span>
-                  <button className="wbs-detail-link" onClick={() => onSelectTask?.(c.id)}>
-                    {c.title || '(無題)'}
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className={`wbs-detail-child${c.status === 'DONE' ? ' is-done' : ''}`}
+                    onClick={() => onSelectTask?.(c.id)}
+                  >
+                    <span className={`wbs-detail-dot${c.status === 'DONE' ? ' is-done' : ''}`} aria-hidden />
+                    <span className="wbs-detail-child-title">{c.title || '(無題)'}</span>
+                    <ChevronRight size={15} strokeWidth={2} className="wbs-detail-field-go" aria-hidden />
                   </button>
                 </li>
               ))}
@@ -431,20 +501,18 @@ export default function WbsTaskDetail({
           </section>
         )}
 
-        <section className="wbs-detail-section">
-          <h3>
-            チェックリスト{checklist.length > 0 && ` ${checkDone}/${checklist.length}`}
-          </h3>
+        <section className="wbs-detail-card">
+          <h3>チェックリスト{checklist.length > 0 ? ` ${checkDone}/${checklist.length}` : ''}</h3>
           <div className="subtask-list">
             {checklist.map((item) => (
               <ChecklistItemRow key={item.id} item={item} />
             ))}
             <div className="subtask-adder">
-              <span className="addbar-subtask-prefix" aria-hidden>☐</span>
               <input
                 type="text"
                 value={addingCheck}
-                placeholder="チェック項目を追加"
+                placeholder="項目を追加して Enter"
+                aria-label="チェック項目を追加"
                 onChange={(e) => setAddingCheck(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') submitCheck()
@@ -452,7 +520,8 @@ export default function WbsTaskDetail({
                 }}
               />
               <button
-                className="btn btn-sm btn-primary"
+                type="button"
+                className="wbs-detail-textbtn"
                 onClick={submitCheck}
                 disabled={!addingCheck.trim()}
               >
@@ -462,7 +531,7 @@ export default function WbsTaskDetail({
           </div>
         </section>
 
-        <section className="wbs-detail-section">
+        <section className="wbs-detail-card">
           <h3>メモ</h3>
           <ActivityPanel task={task} />
         </section>

@@ -37,7 +37,7 @@ export default function Inbox({ embedded = false, projectFilter = 'all', focusTa
       onDrop={handleDrop}
     >
       {!embedded && <h1 className="screen-date screen-title">Inbox</h1>}
-      <p className="help" style={{ marginTop: embedded ? 0 : -8, marginBottom: 16 }}>
+      <p className="help" style={{ marginTop: embedded ? 0 : -8, marginBottom: 12 }}>
         日付を決めていないタスクの一時保管場所です。思いついたら素早く登録しましょう。
       </p>
 
@@ -51,7 +51,13 @@ export default function Inbox({ embedded = false, projectFilter = 'all', focusTa
 
       {inboxTasks.length > 0 ? (
         <div style={{ marginTop: 12 }}>
-          <TaskList tasks={inboxTasks} showDateActions focusTaskId={focusTaskId} focusNonce={focusNonce} />
+          <TaskList
+            tasks={inboxTasks}
+            showDateActions
+            compact
+            focusTaskId={focusTaskId}
+            focusNonce={focusNonce}
+          />
         </div>
       ) : (
           <p className="empty">Inboxは空です。思いつきを置いて、あとから日付を付けられます</p>

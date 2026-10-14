@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.jsx'
-import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays, isoToDatetimeLocal } from '../lib/date.js'
+import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays, isoToDatetimeLocal, normalizeConsoleDateRange } from '../lib/date.js'
 import { unfinishedPredecessors, successorsOf } from '../lib/dependencies.js'
 import { ownTag } from '../lib/tags.js'
 import { assigneesOf, candidateMembersFor } from '../lib/members.js'
@@ -19,6 +19,7 @@ export default function TaskItem({
   showDate = false,
   showDateActions = false,
   showProject = true,
+  compact = false,
   dnd = null,
   focusTaskId = null,
   focusNonce = 0,
@@ -151,13 +152,14 @@ export default function TaskItem({
   }
 
   const classes = ['task']
+  if (compact) classes.push('task-compact')
   if (done) classes.push('done')
   if (waiting && !done) classes.push('waiting')
   if (isHighPriority && !done) classes.push('priority-high')
   if (dnd?.isDragging) classes.push('dragging')
   if (dnd?.isOver) classes.push('drag-over')
-  if (focusTaskId === task.id) classes.push('task-focus')
   if (!editing) classes.push('task-draggable')
+  if (menuOpen || activityOpen) classes.push('task-actions-open')
 
   return (
     <div
@@ -202,12 +204,30 @@ export default function TaskItem({
 
         <div className="task-main">
           {editing ? (
-            <InlineEditor task={task} categories={state.categories} onClose={() => setEditing(false)} />
+            <InlineEditor
+              task={task}
+              categories={state.categories}
+              rootRef={rootRef}
+              onClose={() => setEditing(false)}
+            />
           ) : (
             <>
               <div className="task-title" onClick={() => setEditing(true)} title="クリックで編集">
                 {task.title || '(無題)'}
               </div>
+              {(
+                task.priority === 'medium'
+                || task.priority === 'low'
+                || (showProject && project)
+                || category
+                || tag
+                || assignees.length > 0
+                || (showDate && task.scheduled_date)
+                || task.due_at
+                || (done && task.completed_at)
+                || waitingPreds.length > 0
+                || successors.length > 0
+              ) && (
               <div className="task-meta">
                 {task.priority === 'medium' && (
                   <span className="priority-chip medium">中</span>
@@ -295,19 +315,25 @@ export default function TaskItem({
                   <span className="chip chip-next">ほか{successors.length - 2}</span>
                 )}
               </div>
+              )}
               {showDateActions && (
-                <div className="editor-row" style={{ marginTop: 8 }}>
-                  <button className="btn btn-sm" onClick={() => actions.setConsoleDateRange(task.id, todayStr(), null)}>
+                <div className={`task-schedule${compact ? ' task-schedule--compact' : ' editor-row'}`}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm${compact ? ' task-schedule-chip' : ''}`}
+                    onClick={() => actions.setConsoleDateRange(task.id, todayStr(), null)}
+                  >
                     今日
                   </button>
                   <button
-                    className="btn btn-sm"
+                    type="button"
+                    className={`btn btn-sm${compact ? ' task-schedule-chip' : ''}`}
                     onClick={() => actions.setConsoleDateRange(task.id, addDays(todayStr(), 1), null)}
                   >
                     明日
                   </button>
                   <ConsoleDateRangeFields
-                    className="date-range-inline"
+                    className={`date-range-inline${compact ? ' date-range-inline--compact' : ''}`}
                     start={task.scheduled_date}
                     end={task.console_end_date}
                     onCommit={({ scheduled_date, console_end_date }) =>
@@ -320,119 +346,121 @@ export default function TaskItem({
           )}
         </div>
 
-        {showStar && (
-          <button
-            className={`star${isHighPriority ? ' on' : ''}`}
-            onClick={() => actions.togglePriority(task)}
-            title={isHighPriority ? '重要を解除' : '重要としてマーク'}
-            aria-label={isHighPriority ? '重要を解除' : '重要としてマーク'}
-          >
-            {isHighPriority ? '★' : '☆'}
-          </button>
-        )}
-
-        <button
-          className={`activity-toggle${activityCount > 0 ? ' has-activity' : ''}${activityOpen ? ' open' : ''}`}
-          onClick={() => setActivityOpen((o) => !o)}
-          title="アクティビティ"
-          aria-label="アクティビティを表示"
-        >
-          {activityCount > 0 ? activityCount : '≡'}
-        </button>
-
-        <button
-          className="task-del"
-          onClick={() => actions.deleteTask(task)}
-          title="削除"
-          aria-label="タスクを削除"
-        >
-          <Trash2 size={14} strokeWidth={2} aria-hidden />
-        </button>
-
-        <div className="task-menu" ref={menuRef}>
-          <button
-            className="kebab"
-            onClick={() => setMenuOpen((o) => !o)}
-            title="メニュー"
-            aria-label="タスクメニュー"
-          >
-            ⋯
-          </button>
-          {menuOpen && (
-            <div className="menu-pop">
-              <button
-                onClick={() => {
-                  setMenuOpen(false)
-                  setEditing(true)
-                }}
-              >
-                編集
-              </button>
-              <button
-                onClick={() => {
-                  setMenuOpen(false)
-                  actions.copyTask(task)
-                }}
-              >
-                コピー
-              </button>
-              {clipboardTask && (
-                <button
-                  onClick={() => {
-                    setMenuOpen(false)
-                    actions.pasteTask(task)
-                  }}
-                >
-                  貼り付け
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  setMenuOpen(false)
-                  setAddingSubtask(true)
-                  setTimeout(() => subtaskInputRef.current?.focus(), 0)
-                }}
-              >
-                子タスクを追加
-              </button>
-              <button
-                onClick={() => {
-                  setMenuOpen(false)
-                  setAddingChecklist(true)
-                  setTimeout(() => checklistInputRef.current?.focus(), 0)
-                }}
-              >
-                チェック項目を追加
-              </button>
-              <button
-                onClick={() => {
-                  setMenuOpen(false)
-                  setPickingSuccessor(true)
-                }}
-              >
-                依存関係
-              </button>
-              <button
-                onClick={() => {
-                  setMenuOpen(false)
-                  setAddingSuccessor(true)
-                  setTimeout(() => successorInputRef.current?.focus(), 0)
-                }}
-              >
-                このあとやるタスクを追加
-              </button>
-              {task.scheduled_date && (
-                <button
-                  onClick={() => {
-                    setMenuOpen(false)
-                    actions.moveToDate(task.id, null)
-                  }}
-                >
-                  Inboxへ移動
-                </button>
-              )}
-            </div>
+        <div className="task-side">
+          {showStar && (
+            <button
+              className={`star${isHighPriority ? ' on' : ''}`}
+              onClick={() => actions.togglePriority(task)}
+              title={isHighPriority ? '重要を解除' : '重要としてマーク'}
+              aria-label={isHighPriority ? '重要を解除' : '重要としてマーク'}
+            >
+              {isHighPriority ? '★' : '☆'}
+            </button>
           )}
+
+          <button
+            className={`activity-toggle${activityCount > 0 ? ' has-activity' : ''}${activityOpen ? ' open' : ''}`}
+            onClick={() => setActivityOpen((o) => !o)}
+            title="アクティビティ"
+            aria-label="アクティビティを表示"
+          >
+            {activityCount > 0 ? activityCount : '≡'}
+          </button>
+
+          <button
+            className="task-del"
+            onClick={() => actions.deleteTask(task)}
+            title="削除"
+            aria-label="タスクを削除"
+          >
+            <Trash2 size={compact ? 13 : 14} strokeWidth={2} aria-hidden />
+          </button>
+
+          <div className="task-menu" ref={menuRef}>
+            <button
+              className="kebab"
+              onClick={() => setMenuOpen((o) => !o)}
+              title="メニュー"
+              aria-label="タスクメニュー"
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <div className="menu-pop">
+                <button
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setEditing(true)
+                  }}
+                >
+                  編集
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false)
+                    actions.copyTask(task)
+                  }}
+                >
+                  コピー
+                </button>
+                {clipboardTask && (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      actions.pasteTask(task)
+                    }}
+                  >
+                    貼り付け
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setAddingSubtask(true)
+                    setTimeout(() => subtaskInputRef.current?.focus(), 0)
+                  }}
+                >
+                  子タスクを追加
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setAddingChecklist(true)
+                    setTimeout(() => checklistInputRef.current?.focus(), 0)
+                  }}
+                >
+                  チェック項目を追加
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setPickingSuccessor(true)
+                  }}
+                >
+                  依存関係
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setAddingSuccessor(true)
+                    setTimeout(() => successorInputRef.current?.focus(), 0)
+                  }}
+                >
+                  このあとやるタスクを追加
+                </button>
+                {task.scheduled_date && (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      actions.moveToDate(task.id, null)
+                    }}
+                  >
+                    Inboxへ移動
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -705,67 +733,148 @@ function SubtaskRow({ task }) {
   )
 }
 
-function InlineEditor({ task, categories, onClose }) {
+function sameIdSet(a, b) {
+  if (a.size !== b.size) return false
+  for (const id of a) if (!b.has(id)) return false
+  return true
+}
+
+function editorDraftFromTask(task) {
+  return {
+    title: task.title ?? '',
+    scheduled_date: task.scheduled_date ?? null,
+    console_end_date: task.console_end_date ?? null,
+    project_id: task.project_id ?? null,
+    category_id: task.category_id ?? null,
+    tag_id: task.tag_id ?? null,
+    due_at: task.due_at ?? null,
+    reminder_enabled: !!task.reminder_enabled && !!task.due_at,
+    reminder_lead_minutes: Number(task.reminder_lead_minutes) > 0 ? Number(task.reminder_lead_minutes) : 30,
+  }
+}
+
+function InlineEditor({ task, categories, rootRef, onClose }) {
   const { state, actions } = useStore()
   const projects = state.projects.filter((p) => !p.hidden || p.id === task.project_id)
-  const [title, setTitle] = useState(task.title)
+  const [draft, setDraft] = useState(() => editorDraftFromTask(task))
+  const [assigneeIds, setAssigneeIds] = useState(
+    () => new Set(assigneesOf(task.id, state).map((m) => m.id)),
+  )
   const inputRef = useRef(null)
+  const commitRef = useRef(() => {})
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  function save(patch) {
-    actions.updateTask(task.id, patch)
+  function patchDraft(patch) {
+    setDraft((d) => ({ ...d, ...patch }))
   }
 
-  function commitTitle() {
-    const t = title.trim()
-    if (t && t !== task.title) save({ title: t })
+  function toggleAssignee(id) {
+    setAssigneeIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const storedAssignees = new Set(assigneesOf(task.id, state).map((m) => m.id))
+  const dates = normalizeConsoleDateRange(draft.scheduled_date, draft.console_end_date)
+  const title = draft.title.trim() || task.title
+  const dirty = (
+    title !== (task.title ?? '')
+    || dates.scheduled_date !== (task.scheduled_date ?? null)
+    || dates.console_end_date !== (task.console_end_date ?? null)
+    || (draft.project_id ?? null) !== (task.project_id ?? null)
+    || (draft.category_id ?? null) !== (task.category_id ?? null)
+    || (draft.tag_id ?? null) !== (task.tag_id ?? null)
+    || (draft.due_at ?? null) !== (task.due_at ?? null)
+    || !!draft.reminder_enabled !== !!task.reminder_enabled
+    || Number(draft.reminder_lead_minutes) !== Number(task.reminder_lead_minutes || 30)
+    || !sameIdSet(assigneeIds, storedAssignees)
+  )
+
+  function commit() {
+    if (dirty) {
+      actions.updateTask(task.id, {
+        title,
+        scheduled_date: dates.scheduled_date,
+        console_end_date: dates.console_end_date,
+        project_id: draft.project_id || null,
+        category_id: draft.category_id || null,
+        tag_id: draft.tag_id || null,
+        due_at: draft.due_at ?? null,
+        reminder_enabled: !!draft.reminder_enabled && !!draft.due_at,
+        reminder_lead_minutes: Number(draft.reminder_lead_minutes) > 0 ? Number(draft.reminder_lead_minutes) : 30,
+      })
+      for (const id of assigneeIds) {
+        if (!storedAssignees.has(id)) actions.toggleTaskAssignee(task.id, id)
+      }
+      for (const id of storedAssignees) {
+        if (!assigneeIds.has(id)) actions.toggleTaskAssignee(task.id, id)
+      }
+    }
+    onClose()
+  }
+  commitRef.current = commit
+
+  useEffect(() => {
+    function onDoc(e) {
+      const root = rootRef?.current
+      if (root?.contains(e.target)) return
+      if (e.target.closest?.('[data-slot="popover-content"]')) return
+      const ae = document.activeElement
+      if (ae && root?.contains(ae) && ae.tagName === 'SELECT') return
+      commitRef.current()
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [rootRef])
+
+  const reminderTask = {
+    ...task,
+    due_at: draft.due_at,
+    reminder_enabled: draft.reminder_enabled,
+    reminder_lead_minutes: draft.reminder_lead_minutes,
   }
 
   return (
     <div
       className="editor"
-      onKeyDown={(e) => e.key === 'Escape' && onClose()}
-      onBlur={(e) => {
-        if (e.currentTarget.contains(e.relatedTarget)) return
-        if (e.relatedTarget?.closest?.('[data-slot="popover-content"]')) return
-        window.setTimeout(() => {
-          const ae = document.activeElement
-          if (ae?.closest?.('[data-slot="popover-content"]')) return
-          if (document.querySelector('[data-slot="popover-content"]')) return
-          commitTitle()
-          onClose()
-        }, 0)
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return
+        e.stopPropagation()
+        onClose()
       }}
     >
       <input
         ref={inputRef}
         type="text"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        value={draft.title}
+        onChange={(e) => patchDraft({ title: e.target.value })}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
-            commitTitle()
-            onClose()
+            e.preventDefault()
+            commit()
           }
         }}
       />
       <div className="editor-row">
         <ConsoleDateRangeFields
-          start={task.scheduled_date}
-          end={task.console_end_date}
-          onCommit={({ scheduled_date, console_end_date }) =>
-            save({ scheduled_date, console_end_date })
+          start={draft.scheduled_date}
+          end={draft.console_end_date}
+          onChange={({ scheduled_date, console_end_date }) =>
+            patchDraft({ scheduled_date, console_end_date })
           }
         />
         {projects.length > 0 && (
           <label>
             プロジェクト
             <select
-              value={task.project_id ?? ''}
-              onChange={(e) => save({ project_id: e.target.value || null })}
+              value={draft.project_id ?? ''}
+              onChange={(e) => patchDraft({ project_id: e.target.value || null })}
             >
               <option value="">なし</option>
               {projects.map((p) => (
@@ -779,8 +888,8 @@ function InlineEditor({ task, categories, onClose }) {
         <label>
           カテゴリ
           <select
-            value={task.category_id ?? ''}
-            onChange={(e) => save({ category_id: e.target.value || null })}
+            value={draft.category_id ?? ''}
+            onChange={(e) => patchDraft({ category_id: e.target.value || null })}
           >
             <option value="">なし</option>
             {categories.map((c) => (
@@ -794,8 +903,8 @@ function InlineEditor({ task, categories, onClose }) {
           <label>
             タグ
             <select
-              value={task.tag_id ?? ''}
-              onChange={(e) => save({ tag_id: e.target.value || null })}
+              value={draft.tag_id ?? ''}
+              onChange={(e) => patchDraft({ tag_id: e.target.value || null })}
             >
               <option value="">なし</option>
               {[...(state.tags ?? [])]
@@ -809,17 +918,30 @@ function InlineEditor({ task, categories, onClose }) {
           </label>
         )}
       </div>
-      <ReminderFields task={task} onChange={(patch) => save(patch)} compact />
-      <AssigneeToggles task={task} />
+      <ReminderFields task={reminderTask} onChange={patchDraft} compact />
+      <AssigneeToggles
+        task={{ ...task, project_id: draft.project_id }}
+        assignedIds={assigneeIds}
+        onToggle={toggleAssignee}
+      />
+      <div className="editor-footer">
+        <button
+          type="button"
+          className="btn btn-sm btn-date-commit"
+          onClick={commit}
+        >
+          確定
+        </button>
+      </div>
     </div>
   )
 }
 
-function AssigneeToggles({ task }) {
+function AssigneeToggles({ task, assignedIds, onToggle }) {
   const { state, actions } = useStore()
   const candidates = candidateMembersFor(task, state)
   if (candidates.length === 0) return null
-  const assigned = new Set(assigneesOf(task.id, state).map((m) => m.id))
+  const assigned = assignedIds ?? new Set(assigneesOf(task.id, state).map((m) => m.id))
   return (
     <div className="editor-row assignee-toggles" role="group" aria-label="担当者">
       <span className="assignee-toggles-label">担当</span>
@@ -832,7 +954,7 @@ function AssigneeToggles({ task }) {
             className={`chip chip-assignee assignee-toggle${on ? ' is-on' : ''}`}
             aria-pressed={on}
             style={m.color ? { borderColor: m.color } : undefined}
-            onClick={() => actions.toggleTaskAssignee(task.id, m.id)}
+            onClick={() => (onToggle ? onToggle(m.id) : actions.toggleTaskAssignee(task.id, m.id))}
           >
             {m.name}
           </button>

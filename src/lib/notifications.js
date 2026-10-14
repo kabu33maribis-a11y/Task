@@ -40,9 +40,9 @@ export async function isNotificationGranted() {
   }
 }
 
+/** Request OS notification permission only. Does not change the app ON/OFF pref. */
 export async function ensureNotificationPermission() {
   try {
-    setDesktopNotificationsPref(true)
     const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification')
     if (await isPermissionGranted()) return true
     const perm = await requestPermission()
