@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.jsx'
-import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays } from '../lib/date.js'
+import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays, isoToDatetimeLocal } from '../lib/date.js'
 import { unfinishedPredecessors, successorsOf } from '../lib/dependencies.js'
 import { ownTag } from '../lib/tags.js'
 import { assigneesOf, candidateMembersFor } from '../lib/members.js'
 import ActivityPanel from './ActivityPanel.jsx'
 import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
+import ReminderFields from './ReminderFields.jsx'
 import TaskPicker from './TaskPicker.jsx'
 import { TASK_DND_TYPE, setActiveDragTaskId, clearActiveDragTaskId } from '../lib/taskDnd.js'
 
@@ -19,6 +20,8 @@ export default function TaskItem({
   showDateActions = false,
   showProject = true,
   dnd = null,
+  focusTaskId = null,
+  focusNonce = 0,
 }) {
   const { state, actions, clipboardTask } = useStore()
   const catMap = useCategoryMap()
@@ -34,6 +37,7 @@ export default function TaskItem({
   const [successorTitle, setSuccessorTitle] = useState('')
   const [pickingSuccessor, setPickingSuccessor] = useState(false)
   const menuRef = useRef(null)
+  const rootRef = useRef(null)
   const subtaskInputRef = useRef(null)
   const checklistInputRef = useRef(null)
   const successorInputRef = useRef(null)
@@ -117,6 +121,12 @@ export default function TaskItem({
   }, [addingSuccessor])
 
   useEffect(() => {
+    if (focusTaskId !== task.id) return
+    setEditing(true)
+    rootRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [focusTaskId, focusNonce, task.id])
+
+  useEffect(() => {
     if (!menuOpen) return
     function onDoc(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
@@ -146,10 +156,12 @@ export default function TaskItem({
   if (isHighPriority && !done) classes.push('priority-high')
   if (dnd?.isDragging) classes.push('dragging')
   if (dnd?.isOver) classes.push('drag-over')
+  if (focusTaskId === task.id) classes.push('task-focus')
   if (!editing) classes.push('task-draggable')
 
   return (
     <div
+      ref={rootRef}
       className={classes.join(' ')}
       draggable={!editing}
       onDragStart={handleDragStart}
@@ -233,6 +245,12 @@ export default function TaskItem({
                 ))}
                 {showDate && task.scheduled_date && (
                   <span className="meta-note">{formatConsoleDateRange(task)}</span>
+                )}
+                {task.due_at && (
+                  <span className="meta-note" title="期限">
+                    期限 {isoToDatetimeLocal(task.due_at).replace('T', ' ')}
+                    {task.reminder_enabled ? ' · 通知' : ''}
+                  </span>
                 )}
                 {done && task.completed_at && (
                   <span className="meta-note">
@@ -791,6 +809,7 @@ function InlineEditor({ task, categories, onClose }) {
           </label>
         )}
       </div>
+      <ReminderFields task={task} onChange={(patch) => save(patch)} compact />
       <AssigneeToggles task={task} />
     </div>
   )

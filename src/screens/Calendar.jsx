@@ -177,7 +177,7 @@ function CalDeleteButton({ task, onDelete }) {
   )
 }
 
-export default function Calendar({ selected: selectedProp, onSelect, resetKey = 0, projectFilter = 'all' }) {
+export default function Calendar({ selected: selectedProp, onSelect, resetKey = 0, projectFilter = 'all', focusTaskId = null, focusNonce = 0 }) {
   const { state, actions } = useStore()
   const catMap = useCategoryMap()
   const projMap = useProjectMap()
@@ -620,7 +620,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
             {holidayMap.get(selected) && <span className="cal-day-holiday">{holidayMap.get(selected)}</span>}
           </h3>
           {selectedTasks.length > 0
-            ? <TaskList tasks={selectedTasks} />
+            ? <TaskList tasks={selectedTasks} focusTaskId={focusTaskId} focusNonce={focusNonce} />
             : <p className="empty">この日のタスクはありません</p>
           }
         </div>

@@ -7,7 +7,7 @@ import { isInboxTask, parentIdSet } from '../lib/wbs.js'
 
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
 
-export default function Inbox({ embedded = false, projectFilter = 'all' }) {
+export default function Inbox({ embedded = false, projectFilter = 'all', focusTaskId = null, focusNonce = 0 }) {
   const { state, actions } = useStore()
   const visibleProjects = useVisibleProjects()
   const hiddenIds = useHiddenProjectIds()
@@ -51,7 +51,7 @@ export default function Inbox({ embedded = false, projectFilter = 'all' }) {
 
       {inboxTasks.length > 0 ? (
         <div style={{ marginTop: 12 }}>
-          <TaskList tasks={inboxTasks} showDateActions />
+          <TaskList tasks={inboxTasks} showDateActions focusTaskId={focusTaskId} focusNonce={focusNonce} />
         </div>
       ) : (
           <p className="empty">Inboxは空です。思いつきを置いて、あとから日付を付けられます</p>

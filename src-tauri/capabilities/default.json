@@ -29,6 +29,12 @@
     "updater:allow-check",
     "updater:allow-download-and-install",
     "process:allow-restart",
-    "process:allow-exit"
+    "process:allow-exit",
+    "core:tray:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-focus",
+    "notification:default"
   ]
 }

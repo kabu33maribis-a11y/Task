@@ -6,6 +6,7 @@ import { descendantIds } from '../lib/wbs.js'
 import { ownTag, inheritedTag } from '../lib/tags.js'
 import { assigneesOf } from '../lib/members.js'
 import { ChecklistItemRow } from './TaskItem.jsx'
+import ReminderFields from './ReminderFields.jsx'
 import ActivityPanel from './ActivityPanel.jsx'
 
 function fmtStamp(iso) {
@@ -294,6 +295,14 @@ export default function WbsTaskDetail({
                 設定
               </button>
             )}
+          </dd>
+
+          <dt>期限・リマインダ</dt>
+          <dd>
+            <ReminderFields
+              task={task}
+              onChange={(patch) => actions.updateTask(task.id, patch)}
+            />
           </dd>
 
           {task.priority && (

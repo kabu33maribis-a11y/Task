@@ -108,6 +108,10 @@ async function loadState() {
       end_time: t.end_time ?? null,
       tag_id: t.tag_id ?? null,
       sort_order: t.sort_order ?? 0,
+      due_at: t.due_at ?? null,
+      reminder_enabled: t.reminder_enabled === true || t.reminder_enabled === 1 || t.reminder_enabled === '1',
+      reminder_lead_minutes: Number(t.reminder_lead_minutes) > 0 ? Number(t.reminder_lead_minutes) : 30,
+      reminder_sent_at: t.reminder_sent_at ?? null,
     }))
     const unifiedTasks = mappedTasks.map(unifyTaskDates)
     for (let i = 0; i < unifiedTasks.length; i++) {
@@ -254,6 +258,10 @@ function pasteTaskBundle(state, action, now) {
       console_end_date: src.console_end_date ?? null,
       start_time: src.start_time ?? null,
       end_time: src.end_time ?? null,
+      due_at: src.due_at ?? null,
+      reminder_enabled: false,
+      reminder_lead_minutes: Number(src.reminder_lead_minutes) > 0 ? Number(src.reminder_lead_minutes) : 30,
+      reminder_sent_at: null,
       completed_at: null,
       category_id: src.category_id ?? null,
       project_id: projectId,
@@ -440,6 +448,10 @@ function makeTask(input, tasks) {
     ...dates,
     start_time: input.start_time ?? null,
     end_time: input.end_time ?? null,
+    due_at: input.due_at ?? null,
+    reminder_enabled: !!input.reminder_enabled && !!(input.due_at ?? null),
+    reminder_lead_minutes: Number(input.reminder_lead_minutes) > 0 ? Number(input.reminder_lead_minutes) : 30,
+    reminder_sent_at: null,
     completed_at: null,
     category_id: input.category_id ?? null,
     project_id: input.project_id ?? null,
@@ -464,12 +476,16 @@ async function dbUpsertTask(db, t) {
     `INSERT OR REPLACE INTO tasks
      (id,title,status,scheduled_date,completed_at,category_id,project_id,
       parent_id,start_date,end_date,console_end_date,priority,sort_order,recurrence,created_at,updated_at,tag_id,
-      start_time,end_time)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      start_time,end_time,due_at,reminder_enabled,reminder_lead_minutes,reminder_sent_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [t.id, t.title, t.status, t.scheduled_date, t.completed_at, t.category_id,
      t.project_id, t.parent_id, t.start_date, t.end_date, t.console_end_date, t.priority,
      t.sort_order, t.recurrence, t.created_at, t.updated_at, t.tag_id ?? null,
-     t.start_time ?? null, t.end_time ?? null],
+     t.start_time ?? null, t.end_time ?? null,
+     t.due_at ?? null,
+     t.reminder_enabled ? 1 : 0,
+     Number(t.reminder_lead_minutes) > 0 ? Number(t.reminder_lead_minutes) : 30,
+     t.reminder_sent_at ?? null],
   )
 }
 
@@ -605,11 +621,15 @@ function reducer(state, action) {
     case 'UPDATE_TASK': {
       return {
         ...state,
-        tasks: state.tasks.map((t) =>
-          t.id === action.id
-            ? { ...t, ...syncDatePatch(t, action.patch), updated_at: stamp() }
-            : t,
-        ),
+        tasks: state.tasks.map((t) => {
+          if (t.id !== action.id) return t
+          const next = { ...t, ...syncDatePatch(t, action.patch), updated_at: stamp() }
+          if (Object.prototype.hasOwnProperty.call(action.patch, 'due_at') && action.patch.due_at !== t.due_at) {
+            next.reminder_sent_at = null
+          }
+          if (!next.due_at) next.reminder_enabled = false
+          return next
+        }),
       }
     }
 
@@ -1693,15 +1713,22 @@ export function StoreProvider({ children }) {
       })
   }, [])
 
-  // 終了前に未完了の DB 書き込みを待ってから終了する（タイムアウト付きで ✕ が固まらないようにする）
+  // × はウィンドウを隠すだけ。トレイの「終了」で flush してプロセス終了する。
   useEffect(() => {
-    let unlisten
-    let closing = false
+    let unlistenClose
+    let unlistenQuit
     import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
       getCurrentWindow().onCloseRequested(async (event) => {
-        if (closing) return
         event.preventDefault()
-        closing = true
+        try {
+          await getCurrentWindow().hide()
+        } catch (e) {
+          console.error('hide failed', e)
+        }
+      }).then((fn) => { unlistenClose = fn })
+    })
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen('app-quit-requested', async () => {
         try {
           await flushSyncWithTimeout()
         } finally {
@@ -1710,12 +1737,14 @@ export function StoreProvider({ children }) {
             await exit(0)
           } catch (e) {
             console.error('exit failed', e)
-            closing = false
           }
         }
-      }).then((fn) => { unlisten = fn })
+      }).then((fn) => { unlistenQuit = fn })
     })
-    return () => { unlisten?.() }
+    return () => {
+      unlistenClose?.()
+      unlistenQuit?.()
+    }
   }, [])
 
   // dispatch をラップして DB sync

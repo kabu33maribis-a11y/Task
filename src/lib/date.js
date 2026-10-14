@@ -1,5 +1,5 @@
 // Date helpers. All "date strings" are local calendar dates in 'YYYY-MM-DD'.
-// completed_at is stored as a full ISO datetime string (new Date().toISOString()).
+// completed_at / due_at / reminder_sent_at are stored as UTC ISO datetime (new Date().toISOString()).
 
 const WEEK_JP = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -20,6 +20,22 @@ export function fromDateStr(str) {
 
 export function todayStr() {
   return toDateStr(new Date())
+}
+
+/** UTC ISO datetime -> value for `<input type="datetime-local">` (local wall time). */
+export function isoToDatetimeLocal(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${toDateStr(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** datetime-local value (local) -> UTC ISO, or null if empty/invalid. */
+export function datetimeLocalToIso(value) {
+  if (!value || typeof value !== 'string') return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString()
 }
 
 export function addDays(str, n) {

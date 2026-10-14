@@ -1,6 +1,8 @@
 mod db;
+mod reminder;
 
 use db::AppDb;
+use tauri_plugin_window_state::StateFlags;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -13,14 +15,22 @@ pub fn run() {
             .build(),
         )?;
       }
+      reminder::setup_tray(app.handle())?;
+      reminder::setup_notification_click(app.handle());
+      reminder::spawn_poller(app.handle().clone());
       Ok(())
     })
     .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .plugin(tauri_plugin_window_state::Builder::default().build())
+    .plugin(
+      tauri_plugin_window_state::Builder::default()
+        .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
+        .build(),
+    )
     .plugin(tauri_plugin_store::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
+    .plugin(tauri_plugin_notification::init())
     .manage(AppDb::new())
     .invoke_handler(tauri::generate_handler![
       db::app_db_connect,

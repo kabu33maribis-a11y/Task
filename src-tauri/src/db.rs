@@ -15,12 +15,17 @@ const MIGRATION_006: &str = include_str!("../migrations/006_add_task_dependencie
 const MIGRATION_007: &str = include_str!("../migrations/007_add_tags.sql");
 const MIGRATION_008: &str = include_str!("../migrations/008_add_task_times.sql");
 const MIGRATION_009: &str = include_str!("../migrations/009_add_members.sql");
+const MIGRATION_010: &str = include_str!("../migrations/010_add_task_reminders.sql");
 
 pub struct AppDb(Mutex<Option<Pool<Sqlite>>>);
 
 impl AppDb {
     pub fn new() -> Self {
         Self(Mutex::new(None))
+    }
+
+    pub async fn pool(&self) -> Option<Pool<Sqlite>> {
+        self.0.lock().await.clone()
     }
 }
 
@@ -144,34 +149,37 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), String> {
         run_sql_script(pool, MIGRATION_009).await?;
     }
 
+    if !column_exists(pool, "tasks", "due_at").await? {
+        run_sql_script(pool, MIGRATION_010).await?;
+    }
+
     Ok(())
 }
 
-fn bind_value<'q>(
-    query: sqlx::query::Query<'q, Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
-    value: Value,
-) -> sqlx::query::Query<'q, Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
-    if value.is_null() {
-        query.bind(None::<String>)
-    } else if let Some(s) = value.as_str() {
-        query.bind(s.to_owned())
-    } else if let Some(n) = value.as_number() {
-        query.bind(n.as_f64().unwrap_or_default())
-    } else {
-        query.bind(value)
-    }
+fn read_custom_db_path(app: &AppHandle) -> Option<String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store("config.json").ok()?;
+    let val = store.get("dbPath")?;
+    val.as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
-#[tauri::command]
-pub async fn app_db_connect(
-    app: AppHandle,
-    db: State<'_, AppDb>,
+/// Open the app DB if it is not already connected (used by reminder polling).
+pub async fn ensure_connected(app: &AppHandle) -> Result<String, String> {
+    let db = app.state::<AppDb>();
+    if db.pool().await.is_some() {
+        return Ok(String::new());
+    }
+    open_pool(app, &db, read_custom_db_path(app)).await
+}
+
+async fn open_pool(
+    app: &AppHandle,
+    db: &AppDb,
     custom_path: Option<String>,
-    custom_dir: Option<String>,
 ) -> Result<String, String> {
-    let db_path = resolve_db_path(&app, custom_path.or(custom_dir))?;
-    // URL 文字列だと Windows 絶対パスや未作成ファイルで SQLITE_CANTOPEN (14) になりやすい。
-    // filename + create_if_missing で確実に開く／作成する。
+    let db_path = resolve_db_path(app, custom_path)?;
     let options = SqliteConnectOptions::new()
         .filename(&db_path)
         .create_if_missing(true);
@@ -187,6 +195,35 @@ pub async fn app_db_connect(
     let path_str = db_path.to_string_lossy().to_string();
     *db.0.lock().await = Some(pool);
     Ok(path_str)
+}
+
+fn bind_value<'q>(
+    query: sqlx::query::Query<'q, Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
+    value: Value,
+) -> sqlx::query::Query<'q, Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
+    if value.is_null() {
+        query.bind(None::<String>)
+    } else if let Some(s) = value.as_str() {
+        query.bind(s.to_owned())
+    } else if let Some(n) = value.as_number() {
+        if let Some(i) = n.as_i64() {
+            query.bind(i)
+        } else {
+            query.bind(n.as_f64().unwrap_or_default())
+        }
+    } else {
+        query.bind(value)
+    }
+}
+
+#[tauri::command]
+pub async fn app_db_connect(
+    app: AppHandle,
+    db: State<'_, AppDb>,
+    custom_path: Option<String>,
+    custom_dir: Option<String>,
+) -> Result<String, String> {
+    open_pool(&app, &*db, custom_path.or(custom_dir)).await
 }
 
 #[tauri::command]

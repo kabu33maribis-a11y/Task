@@ -11,6 +11,8 @@ export default function TaskList({
   showDateActions = false,
   showProject = true,
   reorderable = true,
+  focusTaskId = null,
+  focusNonce = 0,
 }) {
   const { actions } = useStore()
   const [dragId, setDragId] = useState(null)
@@ -49,6 +51,8 @@ export default function TaskList({
           showDate={showDate}
           showDateActions={showDateActions}
           showProject={showProject}
+          focusTaskId={focusTaskId}
+          focusNonce={focusNonce}
           dnd={
             reorderable
               ? {

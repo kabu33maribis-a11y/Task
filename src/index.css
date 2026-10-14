@@ -2464,6 +2464,7 @@ select {
 }
 .editor input[type='text'],
 .editor input[type='date'],
+.editor input[type='datetime-local'],
 .editor select {
   border: 1px solid var(--rule-strong);
   border-radius: 8px;
@@ -2484,6 +2485,42 @@ select {
   align-items: center;
   gap: 6px;
 }
+.reminder-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.reminder-fields label {
+  font-size: 12px;
+  color: var(--sumi-soft);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.reminder-fields input[type='datetime-local'],
+.reminder-fields select {
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  background: var(--washi-raised);
+  color: var(--sumi);
+}
+.reminder-toggle {
+  user-select: none;
+}
+.reminder-fields--compact {
+  margin-top: 6px;
+}
+.task.task-focus {
+  outline: 2px solid var(--accent, #c0402e);
+  outline-offset: 2px;
+}
+.settings-notif-warn {
+  color: var(--shu, #c0402e);
+}
+
 .date-range-inline {
   display: contents;
 }

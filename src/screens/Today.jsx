@@ -60,7 +60,7 @@ function afterglowDismissKey(day) {
   return `taskmanager.afterglow.dismissed.${day}`
 }
 
-export default function Today({ addBarRef, calendarDate, onResetCalDate, projectFilter = 'all', onOpenLog }) {
+export default function Today({ addBarRef, calendarDate, onResetCalDate, projectFilter = 'all', onOpenLog, focusTaskId = null, focusNonce = 0 }) {
   const { state, actions } = useStore()
   const visibleProjects = useVisibleProjects()
   const hiddenIds = useHiddenProjectIds()
@@ -410,7 +410,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
               </div>
               <div className="proj-lane-body">
                 {tasks.length > 0 && (
-                  <TaskList tasks={tasks} showStar showDate={false} showProject={false} />
+                  <TaskList tasks={tasks} showStar showDate={false} showProject={false} focusTaskId={focusTaskId} focusNonce={focusNonce} />
                 )}
                 <LaneAddInput projectId={laneProjectId} date={today} />
               </div>
@@ -425,7 +425,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
       >
         <div className="section-title">Inbox</div>
         {inbox.length > 0 ? (
-          <TaskList tasks={inbox} showDateActions />
+          <TaskList tasks={inbox} showDateActions focusTaskId={focusTaskId} focusNonce={focusNonce} />
         ) : (
           <p className="empty">Inboxは空です。日付未定のメモ置き場です</p>
         )}

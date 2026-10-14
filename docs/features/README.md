@@ -8,7 +8,7 @@
 
 | 機能 | ファイル | ステータス |
 |---|---|---|
-| リマインダ | [reminder_specification.md](./reminder_specification.md) | 設計案 |
+| リマインダ | [reminder_specification.md](./reminder_specification.md) | 実装済み |
 
 ## 新規仕様書の追加
 

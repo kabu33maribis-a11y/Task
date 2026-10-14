@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.56"
+version = "0.1.57"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -21,11 +21,13 @@ tauri-build = { version = "2.6.3", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.11.3", features = [] }
+tauri = { version = "2.11.3", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time"] }
+chrono = { version = "0.4", features = ["clock"] }
 tauri-plugin-store = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-process = "2"

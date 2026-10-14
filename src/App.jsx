@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { check } from '@tauri-apps/plugin-updater'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { todayStr } from './lib/date.js'
 import { isInboxTask, parentIdSet } from './lib/wbs.js'
+import { listenOpenTask } from './lib/notifications.js'
 import { StoreProvider, useStore } from './store/StoreContext.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import SettingsModal from './components/SettingsModal.jsx'
@@ -37,6 +38,53 @@ export default function App() {
   )
 }
 
+async function revealMainWindow() {
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    const w = getCurrentWindow()
+    await w.show()
+    await w.unminimize()
+    await w.setFocus()
+  } catch {
+    // browser / non-tauri
+  }
+}
+
+function useReminderDeepLink({ setView, onRoute, setCalDate, setFocus }) {
+  const { state } = useStore()
+  const tasksRef = useRef(state.tasks)
+  tasksRef.current = state.tasks
+
+  useEffect(() => {
+    let unlisten
+    listenOpenTask(async (taskId) => {
+      await revealMainWindow()
+      const task = tasksRef.current.find((t) => t.id === taskId)
+      if (!task) {
+        setView('console')
+        onRoute('missing')
+        setFocus(null)
+        return
+      }
+      if (task.parent_id || task.project_id) {
+        setView('wbs')
+        onRoute('wbs')
+        setFocus(task.id)
+        return
+      }
+      setView('console')
+      if (!task.scheduled_date) {
+        onRoute('inbox')
+      } else {
+        onRoute('console')
+        setCalDate?.(task.scheduled_date)
+      }
+      setFocus(task.id)
+    }).then((fn) => { unlisten = fn })
+    return () => unlisten?.()
+  }, [setView, onRoute, setCalDate, setFocus])
+}
+
 function Shell() {
   useEffect(() => {
     check().then(async (update) => {
@@ -67,6 +115,8 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
   const { state } = useStore()
   const [overlay, setOverlay] = useState(null) // 'inbox' | 'log' | 'settings' | 'master' | null
   const [calDate, setCalDate] = useState(todayStr)
+  const [focusTaskId, setFocusTaskId] = useState(null)
+  const [focusNonce, setFocusNonce] = useState(0)
   const [calResetKey, setCalResetKey] = useState(0)
   const [split, setSplit] = useState(() => {
     const s = localStorage.getItem('taskmanager.split')
@@ -76,6 +126,15 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
   const parentIds = parentIdSet(state.tasks)
   const inboxCount = state.tasks.filter((t) => isInboxTask(t, parentIds)).length
   const close = () => setOverlay(null)
+  const setFocus = useCallback((id) => {
+    setFocusTaskId(id)
+    if (id) setFocusNonce((n) => n + 1)
+  }, [])
+  const onRoute = useCallback((kind) => {
+    if (kind === 'inbox') setOverlay('inbox')
+    else setOverlay(null)
+  }, [])
+  useReminderDeepLink({ setView, onRoute, setCalDate, setFocus })
 
   const activeId =
     overlay === 'inbox' || overlay === 'log' || overlay === 'master' || overlay === 'settings'
@@ -138,7 +197,7 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
         {view === 'wbs' ? (
           <div className="dashboard dashboard-full">
             <section className="pane pane-wbs">
-              <Wbs projectFilter={projectFilter} />
+              <Wbs projectFilter={projectFilter} focusTaskId={focusTaskId} focusNonce={focusNonce} />
             </section>
           </div>
         ) : (
@@ -153,6 +212,8 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
                   }}
                   projectFilter={projectFilter}
                   onOpenLog={() => setOverlay('log')}
+                  focusTaskId={focusTaskId}
+                  focusNonce={focusNonce}
                 />
               </div>
             </section>
@@ -160,7 +221,7 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
             <section className="pane pane-cal" style={{ flex: '1 1 0', minWidth: '300px' }}>
               <div className="pane-label">Calendar</div>
               <div className="pane-scroll">
-                <Calendar selected={calDate} onSelect={setCalDate} resetKey={calResetKey} projectFilter={projectFilter} />
+                <Calendar selected={calDate} onSelect={setCalDate} resetKey={calResetKey} projectFilter={projectFilter} focusTaskId={focusTaskId} focusNonce={focusNonce} />
               </div>
             </section>
           </div>
@@ -169,7 +230,7 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter }) {
 
       {overlay === 'inbox' && (
         <SlideOver title="Inbox" onClose={close}>
-          <Inbox embedded projectFilter={projectFilter} />
+          <Inbox embedded projectFilter={projectFilter} focusTaskId={focusTaskId} focusNonce={focusNonce} />
         </SlideOver>
       )}
       {overlay === 'log' && (
@@ -218,7 +279,20 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
   const [masterOpen, setMasterOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [calDate, setCalDate] = useState(todayStr)
+  const [focusTaskId, setFocusTaskId] = useState(null)
+  const [focusNonce, setFocusNonce] = useState(0)
   const [calResetKey, setCalResetKey] = useState(0)
+  const setFocus = useCallback((id) => {
+    setFocusTaskId(id)
+    if (id) setFocusNonce((n) => n + 1)
+  }, [])
+  const onRoute = useCallback((kind) => {
+    setSettingsOpen(false)
+    setMasterOpen(false)
+    if (kind === 'inbox') setTab('inbox')
+    else if (kind === 'console' || kind === 'missing') setTab('today')
+  }, [])
+  useReminderDeepLink({ setView, onRoute, setCalDate, setFocus })
   const parentIds = parentIdSet(state.tasks)
   const inboxCount = state.tasks.filter((t) => isInboxTask(t, parentIds)).length
 
@@ -277,7 +351,7 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
 
       <main className="app-body app-body--drawer">
         {view === 'wbs' ? (
-          <Wbs projectFilter={projectFilter} />
+          <Wbs projectFilter={projectFilter} focusTaskId={focusTaskId} focusNonce={focusNonce} />
         ) : (
           <>
             {tab === 'today' && (
@@ -293,6 +367,8 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
                     setView('console')
                     setTab('log')
                   }}
+                  focusTaskId={focusTaskId}
+                  focusNonce={focusNonce}
                 />
                 <div className="stacked-cal-divider">Calendar</div>
                 <Calendar
@@ -300,6 +376,8 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
                   onSelect={setCalDate}
                   resetKey={calResetKey}
                   projectFilter={projectFilter}
+                  focusTaskId={focusTaskId}
+                  focusNonce={focusNonce}
                 />
               </>
             )}
@@ -309,10 +387,12 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter }) {
                 onSelect={setCalDate}
                 resetKey={calResetKey}
                 projectFilter={projectFilter}
+                focusTaskId={focusTaskId}
+                focusNonce={focusNonce}
               />
             )}
             {tab === 'log' && <Log />}
-            {tab === 'inbox' && <Inbox projectFilter={projectFilter} />}
+            {tab === 'inbox' && <Inbox projectFilter={projectFilter} focusTaskId={focusTaskId} focusNonce={focusNonce} />}
           </>
         )}
       </main>

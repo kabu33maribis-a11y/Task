@@ -11,6 +11,7 @@ import {
 } from '../lib/ganttBarColor.js'
 import { setIconMode, useIconMode, setBarLabel, useBarLabel } from '../lib/iconMode.js'
 import { CALENDAR_VIEWS, setCalendarDefaultView, useCalendarDefaultView } from '../lib/calendarView.js'
+import { isNotificationGranted, ensureNotificationPermission } from '../lib/notifications.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { ColorPickerSwatch, SettingsShell } from './settingsShared.jsx'
@@ -38,6 +39,11 @@ export default function SettingsModal({ onClose }) {
   const iconMode = useIconMode()
   const barLabel = useBarLabel()
   const calendarView = useCalendarDefaultView()
+  const [notifGranted, setNotifGranted] = useState(null)
+
+  useEffect(() => {
+    isNotificationGranted().then(setNotifGranted)
+  }, [])
 
   function applyTheme(t) {
     setTheme(setThemeOnDocument(t))
@@ -127,6 +133,34 @@ export default function SettingsModal({ onClose }) {
       >
           {tab === 'appearance' && (
           <div className="settings-groups">
+            <section className="settings-group">
+              <div className="section-title">デスクトップ通知</div>
+              {notifGranted === false && (
+                <p className="help settings-notif-warn" style={{ marginTop: 0, marginBottom: 8 }}>
+                  Windows の通知が無効です。リマインダを使うには、下のボタンか OS の通知設定から許可してください。
+                </p>
+              )}
+              {notifGranted === true && (
+                <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+                  デスクトップ通知は許可されています。タスクに期限とリマインダを設定すると、指定時刻に通知します。
+                </p>
+              )}
+              {notifGranted == null && (
+                <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+                  この環境ではデスクトップ通知を確認できません（ブラウザ開発時など）。
+                </p>
+              )}
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={async () => {
+                  const ok = await ensureNotificationPermission()
+                  setNotifGranted(ok)
+                }}
+              >
+                通知を許可する
+              </button>
+            </section>
             <section className="settings-group">
               <div className="section-title">表示モード</div>
               <div className="view-toggle" style={{ marginLeft: 0 }}>

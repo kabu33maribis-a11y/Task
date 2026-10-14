@@ -155,7 +155,7 @@ function addWorkDays(str, n) {
   return d
 }
 
-export default function Wbs({ projectFilter = 'all' }) {
+export default function Wbs({ projectFilter = 'all', focusTaskId = null, focusNonce = 0 }) {
   const projMap = useProjectMap()
   const multi = projectFilter === 'all'
   const project = multi ? null : projMap.get(projectFilter)
@@ -168,10 +168,17 @@ export default function Wbs({ projectFilter = 'all' }) {
     )
   }
 
-  return <WbsGantt project={project} multi={multi} />
+  return (
+    <WbsGantt
+      project={project}
+      multi={multi}
+      focusTaskId={focusTaskId}
+      focusNonce={focusNonce}
+    />
+  )
 }
 
-function WbsGantt({ project, multi }) {
+function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
   const { state, actions, clipboardTask } = useStore()
   const catMap = useCategoryMap()
   const visibleProjects = useVisibleProjects()
@@ -242,6 +249,15 @@ function WbsGantt({ project, multi }) {
   const [now, setNow] = useState(() => new Date())
   const [selectedId, setSelectedId] = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())
+
+  useEffect(() => {
+    if (!focusTaskId) return
+    const exists = state.tasks.some((t) => t.id === focusTaskId)
+    if (exists) {
+      setSelectedId(focusTaskId)
+      setDetailId(focusTaskId)
+    }
+  }, [focusTaskId, focusNonce])
   const [hoveredId, setHoveredId] = useState(null)
   const [hoveredLinkId, setHoveredLinkId] = useState(null)
   const [linkDrag, setLinkDrag] = useState(null) // { fromId, fromSide, x1, y1, x2, y2, overId, valid }
