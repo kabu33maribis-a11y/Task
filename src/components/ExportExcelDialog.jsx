@@ -1,9 +1,26 @@
 import { useEffect, useState } from 'react'
+import DatePicker from './DatePicker.jsx'
+import { addDays, fromDateStr, todayStr, toDateStr } from '../lib/date.js'
 
 /**
  * Excel 出力オプションダイアログ。
- * 帳票種別（ガントチャート／作業計画書）・対象プロジェクト・土日／祝日の表示を選んでから出力する。
+ * 帳票種別（ガントチャート／作業計画書）・対象プロジェクト・出力期間・土日／祝日の表示を選んでから出力する。
  */
+
+function presetRange(kind) {
+  const today = todayStr()
+  if (kind === 'month') {
+    const d = fromDateStr(today)
+    return {
+      start: toDateStr(new Date(d.getFullYear(), d.getMonth(), 1)),
+      end: toDateStr(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
+    }
+  }
+  const dow = fromDateStr(today).getDay()
+  const mondayOffset = dow === 0 ? -6 : 1 - dow
+  const start = addDays(today, mondayOffset)
+  return { start, end: addDays(start, 6) }
+}
 export default function ExportExcelDialog({
   projects,
   includeUnassigned = false,
@@ -18,6 +35,9 @@ export default function ExportExcelDialog({
   const [showWeekends, setShowWeekends] = useState(initialShowWeekends)
   const [showHolidays, setShowHolidays] = useState(initialShowHolidays)
   const [kind, setKind] = useState('gantt')
+  const [rangeMode, setRangeMode] = useState('all')
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
 
   useEffect(() => {
     function onKey(e) {
@@ -33,6 +53,7 @@ export default function ExportExcelDialog({
   ]
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id))
   const noneSelected = selected.size === 0
+  const rangeIncomplete = rangeMode === 'custom' && (!rangeStart || !rangeEnd)
 
   function toggle(id) {
     setSelected((prev) => {
@@ -47,13 +68,27 @@ export default function ExportExcelDialog({
     setSelected(allSelected ? new Set() : new Set(allIds))
   }
 
+  function applyPreset(kindName) {
+    const next = presetRange(kindName)
+    setRangeMode('custom')
+    setRangeStart(next.start)
+    setRangeEnd(next.end)
+  }
+
   function handleOk() {
-    if (noneSelected || exporting) return
+    if (noneSelected || rangeIncomplete || exporting) return
+    let range = null
+    if (rangeMode === 'custom') {
+      const start = rangeStart <= rangeEnd ? rangeStart : rangeEnd
+      const end = rangeStart <= rangeEnd ? rangeEnd : rangeStart
+      range = { start, end }
+    }
     onExport({
       kind,
       projectIds: [...selected],
       showWeekends,
       showHolidays,
+      range,
     })
   }
 
@@ -63,7 +98,7 @@ export default function ExportExcelDialog({
       style={{ zIndex: 80 }}
       onMouseDown={(e) => e.target === e.currentTarget && !exporting && onCancel()}
     >
-      <div className="modal export-excel-dialog" style={{ maxWidth: 400 }}>
+        <div className="modal export-excel-dialog" style={{ maxWidth: 440 }}>
         <button
           className="close-x"
           onClick={onCancel}
@@ -134,6 +169,53 @@ export default function ExportExcelDialog({
           )}
         </div>
 
+        <div className="section-title">
+          出力期間
+        </div>
+        <label className="export-opt-row">
+          <input
+            type="radio"
+            name="export-range"
+            checked={rangeMode === 'all'}
+            onChange={() => setRangeMode('all')}
+          />
+          <span className="export-opt-label">全期間</span>
+        </label>
+        <label className="export-opt-row">
+          <input
+            type="radio"
+            name="export-range"
+            checked={rangeMode === 'custom'}
+            onChange={() => setRangeMode('custom')}
+          />
+          <span className="export-opt-label">期間を指定</span>
+        </label>
+        {rangeMode === 'custom' && (
+          <div className="export-range-box">
+            <DatePicker
+              value={rangeStart}
+              endValue={rangeEnd}
+              onRangeChange={(start, end) => {
+                setRangeStart(start)
+                setRangeEnd(end)
+              }}
+              placeholder="開始日 〜 終了日"
+              allowClear
+            />
+            <div className="export-range-presets">
+              <button type="button" className="btn btn-sm" onClick={() => applyPreset('week')}>
+                今週
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => applyPreset('month')}>
+                今月
+              </button>
+            </div>
+            <p className="help" style={{ marginTop: 8, marginBottom: 0 }}>
+              この期間に重なるタスクだけを出力します。ガントの日付列はこの期間になります。作業計画書の開始・終了・日数・予定時間は、期間に重なる部分だけを数えます。
+            </p>
+          </div>
+        )}
+
         {kind === 'plan' ? (
           <p className="help" style={{ marginTop: 12 }}>
             作業順・予定時間（営業日×9〜18時、昼休憩除く）・ステータス（未着手／作業中／完了）を自動で埋めた A4 横の計画書を出力します。数値やステータスは Excel 上で修正できます。
@@ -172,7 +254,7 @@ export default function ExportExcelDialog({
           <button
             className="btn btn-sm btn-primary"
             onClick={handleOk}
-            disabled={noneSelected || exporting}
+            disabled={noneSelected || rangeIncomplete || exporting}
             autoFocus
           >
             {exporting ? '出力中…' : '出力'}

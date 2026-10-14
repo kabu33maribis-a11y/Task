@@ -105,6 +105,29 @@ function aggregateChildren(children) {
   }
 }
 
+/** 葉の期間が [start, end] と重なるものだけ残し、その祖先も残す。WBS番号は維持する。 */
+export function filterTreeToRange(roots, range) {
+  if (!range?.start || !range?.end) return roots
+  const start = range.start <= range.end ? range.start : range.end
+  const end = range.start <= range.end ? range.end : range.start
+  const overlaps = (span) => span && span.end >= start && span.start <= end
+
+  function walk(nodes) {
+    const out = []
+    for (const n of nodes) {
+      if (n.children?.length) {
+        const children = walk(n.children)
+        if (!children.length) continue
+        out.push({ ...n, children, ...aggregateChildren(children), isLeaf: false })
+      } else if (overlaps(n.span)) {
+        out.push(n)
+      }
+    }
+    return out
+  }
+  return walk(roots)
+}
+
 // Build a WBS tree from a flat, single-project task list.
 // Each node: { task, children, depth, wbsNo, rollup: {done, total}, allDone }
 // - wbsNo: '1', '1.1', '1.1.2' … (siblings ordered by sort_order)

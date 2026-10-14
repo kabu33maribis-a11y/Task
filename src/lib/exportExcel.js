@@ -209,11 +209,14 @@ function addWbsSheet(wb, {
 
   ws.mergeCells(2, 1, 2, Math.min(lastCol, TABLE_COLS + 12))
   const metaCell = ws.getCell(2, 1)
+  const periodNote = externalRange?.start && externalRange?.end
+    ? `      期間 ${externalRange.start} 〜 ${externalRange.end}`
+    : ''
   metaCell.value = {
     richText: [
       { text: '全体進捗  ', font: { name: FONT, size: 10, color: { argb: C.inkSoft } } },
       { text: `${Math.round(overallPct * 100)}%`, font: { name: FONT, size: 11, bold: true, color: { argb: C.shu } } },
-      { text: `  (${overall.done}/${overall.total})      出力日 ${today}`, font: { name: FONT, size: 10, color: { argb: C.inkSoft } } },
+      { text: `  (${overall.done}/${overall.total})      出力日 ${today}${periodNote}`, font: { name: FONT, size: 10, color: { argb: C.inkSoft } } },
     ],
   }
   metaCell.alignment = { vertical: 'middle' }
@@ -437,6 +440,7 @@ function addWbsSheet(wb, {
  * @param {Array}    [opts.tags]
  * @param {Array}    [opts.members]
  * @param {Array}    [opts.taskAssignees]
+ * @param {{start: string, end: string}|null} [opts.range] 指定時は日付列をこの期間にする
  */
 export async function buildWbsWorkbook({
   project,
@@ -448,6 +452,7 @@ export async function buildWbsWorkbook({
   tags = [],
   members = [],
   taskAssignees = [],
+  range = null,
 }) {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
@@ -465,6 +470,7 @@ export async function buildWbsWorkbook({
     tags,
     members,
     taskAssignees,
+    range,
   })
   return wb
 }
@@ -478,6 +484,7 @@ export async function buildAllProjectsWorkbook({
   tags = [],
   members = [],
   taskAssignees = [],
+  range = null,
 }) {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
@@ -489,7 +496,7 @@ export async function buildAllProjectsWorkbook({
   if (sheets.length === 0) return wb
 
   const allNodes = sheets.flatMap((pn) => flattenVisible(pn.children, new Set()))
-  const sharedRange = computeRange(allNodes, today)
+  const sharedRange = range?.start && range?.end ? range : computeRange(allNodes, today)
 
   for (const pn of sheets) {
     addWbsSheet(wb, {
@@ -510,6 +517,10 @@ export async function buildAllProjectsWorkbook({
   return wb
 }
 
+export function periodStamp(today, range) {
+  return range?.start && range?.end ? `${range.start}_${range.end}` : today
+}
+
 export async function downloadWorkbook(wb, filename) {
   const buffer = await wb.xlsx.writeBuffer()
   const blob = new Blob([buffer], {
@@ -528,15 +539,16 @@ export async function downloadWorkbook(wb, filename) {
 // ブラウザでダウンロードをトリガーする。
 export async function exportWbsToExcel(opts) {
   const wb = await buildWbsWorkbook(opts)
-  await downloadWorkbook(wb, `${sheetName(opts.project.name)}_WBS_${opts.today}.xlsx`)
+  await downloadWorkbook(wb, `${sheetName(opts.project.name)}_WBS_${periodStamp(opts.today, opts.range)}.xlsx`)
 }
 
 export async function exportAllWbsToExcel(opts) {
   const wb = await buildAllProjectsWorkbook(opts)
   const sheets = (opts.projectNodes ?? []).filter((pn) => pn.rollup.total > 0)
+  const stamp = periodStamp(opts.today, opts.range)
   const filename =
     sheets.length === 1
-      ? `${sheetName(sheets[0].project.name)}_WBS_${opts.today}.xlsx`
-      : `全プロジェクト_WBS_${opts.today}.xlsx`
+      ? `${sheetName(sheets[0].project.name)}_WBS_${stamp}.xlsx`
+      : `全プロジェクト_WBS_${stamp}.xlsx`
   await downloadWorkbook(wb, filename)
 }

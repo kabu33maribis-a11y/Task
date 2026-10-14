@@ -1,9 +1,10 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Layers, Menu, X } from 'lucide-react'
 import { useVisibleProjects } from '../../store/StoreContext.jsx'
 import { SIDEBAR_SECTION_ORDER, sectionsForMode } from './navConfig.js'
 import { projectAvatar } from './projectAvatar.js'
 import SidebarNavItem from './SidebarNavItem.jsx'
+import SidebarToggle from './SidebarToggle.jsx'
 
 /**
  * @param {{
@@ -28,6 +29,7 @@ export default function AppSidebar({
   onMobileOpenChange,
 }) {
   const navId = useId()
+  const panelRef = useRef(null)
   const [expanded, setExpanded] = useState(false)
   const isDesktop = mode === 'desktop'
   const sections = sectionsForMode(mode)
@@ -73,7 +75,7 @@ export default function AppSidebar({
     const target = e.target
     if (!(target instanceof Element)) return
     // Glyphs and labels navigate. Blank rail (padding, gaps, empty area) toggles.
-    if (target.closest('.app-sidebar-link, .app-sidebar-icon-hit')) return
+    if (target.closest('.app-sidebar-link, .app-sidebar-icon-hit, .app-sidebar-toggle')) return
     setExpanded((open) => !open)
   }
 
@@ -82,6 +84,7 @@ export default function AppSidebar({
 
   const panel = (
     <aside
+      ref={panelRef}
       id={navId}
       className={[
         'app-sidebar',
@@ -92,6 +95,13 @@ export default function AppSidebar({
       onDoubleClick={handleRailDoubleClick}
     >
       <div className="app-sidebar-inner">
+        {isDesktop && (
+          <SidebarToggle
+            expanded={expanded}
+            panelRef={panelRef}
+            onToggle={() => setExpanded((open) => !open)}
+          />
+        )}
         {!isDesktop && (
           <div className="app-sidebar-drawer-head">
             <button

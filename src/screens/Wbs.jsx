@@ -15,6 +15,7 @@ import {
   promotedSiblingOrder,
   slotBelowRow,
   flattenVisible,
+  filterTreeToRange,
   filterCompletedTree,
   filterTreeByQuery,
   isSelfOrDescendant,
@@ -752,7 +753,7 @@ function WbsGantt({ project, multi }) {
     localStorage.setItem(HOUR_RANGE_DAYS_KEY, String(next))
   }
 
-  async function handleExport({ kind = 'gantt', projectIds, showWeekends: exportWeekends, showHolidays }) {
+  async function handleExport({ kind = 'gantt', projectIds, showWeekends: exportWeekends, showHolidays, range = null }) {
     if (exporting) return
     setExporting(true)
     try {
@@ -760,7 +761,7 @@ function WbsGantt({ project, multi }) {
       const exportProjects = visibleProjects.filter((p) => idSet.has(p.id))
       const withUnassigned = idSet.has('__unassigned__')
 
-      const projectNodes = buildProjectTrees(
+      let projectNodes = buildProjectTrees(
         state.tasks.filter((t) => {
           if (!t.project_id) return withUnassigned
           return idSet.has(t.project_id)
@@ -771,6 +772,16 @@ function WbsGantt({ project, multi }) {
           (pn.project.id == null && withUnassigned) ||
           (pn.project.id != null && idSet.has(pn.project.id)),
       )
+      if (range?.start && range?.end) {
+        projectNodes = projectNodes.flatMap((pn) => {
+          const children = filterTreeToRange(pn.children, range)
+          const rollup = children.reduce(
+            (a, n) => ({ done: a.done + n.rollup.done, total: a.total + n.rollup.total }),
+            { done: 0, total: 0 },
+          )
+          return rollup.total > 0 ? [{ ...pn, children, rollup }] : []
+        })
+      }
 
       const opts = {
         catMap,
@@ -781,11 +792,14 @@ function WbsGantt({ project, multi }) {
         members: state.members,
         taskAssignees: state.taskAssignees,
         dependencies: state.dependencies,
+        range: range?.start && range?.end ? range : null,
       }
       const plan = kind === 'plan'
       const withTasks = projectNodes.filter((pn) => pn.rollup.total > 0)
       if (withTasks.length === 0) {
-        alert('選択したプロジェクトに出力できるタスクがありません。')
+        alert(range?.start
+          ? '選択した期間に出力できるタスクがありません。'
+          : '選択したプロジェクトに出力できるタスクがありません。')
         return
       }
       if (withTasks.length === 1) {

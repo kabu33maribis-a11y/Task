@@ -70,6 +70,10 @@ server/                       # Node.js AI サイドカー
 └─ scripts/
    └─ smoke-test.js           # AI 機能のクイックテスト
 
+docs/features/                # 追加機能の実装仕様書（機能単位）
+├─ README.md                  # 仕様書一覧と追加ルール
+└─ reminder_specification.md  # リマインダ機能
+
 .cursor/
 └─ rules/
    └─ release-bump.mdc        # Cursor ルール：patch バンプ + コミット + プッシュ + タグを自動化

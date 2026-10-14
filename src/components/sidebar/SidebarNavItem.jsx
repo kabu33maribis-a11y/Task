@@ -25,7 +25,7 @@ export default function SidebarNavItem({
   onSelect,
 }) {
   const Icon = item.icon
-  const btnRef = useRef(null)
+  const iconRef = useRef(null)
   const [tipHover, setTipHover] = useState(false)
   const [tipFocus, setTipFocus] = useState(false)
   const hasBadge = badgeCount > 0
@@ -52,7 +52,6 @@ export default function SidebarNavItem({
   return (
     <li className="app-sidebar-item">
       <button
-        ref={btnRef}
         type="button"
         className={`app-sidebar-link${active ? ' is-active' : ''}${item.avatar ? ' has-avatar' : ''}`}
         onClick={handleClick}
@@ -69,7 +68,7 @@ export default function SidebarNavItem({
         }}
         onBlur={() => setTipFocus(false)}
       >
-        <span className="app-sidebar-link-icon" aria-hidden>
+        <span ref={iconRef} className="app-sidebar-link-icon" aria-hidden>
           <span className="app-sidebar-icon-hit">
             {item.avatar ? (
               <span
@@ -96,7 +95,7 @@ export default function SidebarNavItem({
           </span>
         )}
       </button>
-      <SidebarTooltip label={item.label} visible={showTip} anchorRef={btnRef} />
+      <SidebarTooltip label={item.label} visible={showTip} anchorRef={iconRef} />
     </li>
   )
 }

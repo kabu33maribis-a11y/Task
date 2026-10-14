@@ -126,63 +126,71 @@ export default function SettingsModal({ onClose }) {
         }
       >
           {tab === 'appearance' && (
-          <>
-            <div className="section-title" style={{ marginTop: 0 }}>表示モード</div>
-            <div className="view-toggle" style={{ marginLeft: 0 }}>
-              <button className={theme === THEMES.light ? 'active' : ''} onClick={() => applyTheme(THEMES.light)}>ライト</button>
-              <button className={theme === THEMES.dark ? 'active' : ''} onClick={() => applyTheme(THEMES.dark)}>ダーク</button>
-              <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
-              <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
-            </div>
-            <div className="section-title">カレンダーの表示</div>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              カレンダーを開いたときの表示です。未設定のときは1日です。カレンダー上の切り替えとも同じ設定を使います。
-            </p>
-            <div className="view-toggle" style={{ marginLeft: 0 }}>
-              {CALENDAR_VIEWS.map((v) => (
-                <button
-                  key={v.id}
-                  className={calendarView === v.id ? 'active' : ''}
-                  onClick={() => setCalendarDefaultView(v.id)}
-                >
-                  {v.label}
-                </button>
-              ))}
-            </div>
-            <div className="section-title">WBSボタン表示</div>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              ONにすると、WBSのボタンをテキストなしのアイコンのみで表示します（ホバーで名称を表示）。
-            </p>
-            <div className="view-toggle" style={{ marginLeft: 0 }}>
-              <button className={!iconMode ? 'active' : ''} onClick={() => setIconMode(false)}>テキスト</button>
-              <button className={iconMode ? 'active' : ''} onClick={() => setIconMode(true)}>アイコンのみ</button>
-            </div>
-            <div className="section-title">WBSガントバー</div>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              ONにすると、バー内にタスク名を表示します（バーの幅を超える分は折り返さず切り詰めます）。
-            </p>
-            <div className="view-toggle" style={{ marginLeft: 0, marginBottom: 8 }}>
-              <button className={!barLabel ? 'active' : ''} onClick={() => setBarLabel(false)}>タスク名なし</button>
-              <button className={barLabel ? 'active' : ''} onClick={() => setBarLabel(true)}>タスク名を表示</button>
-            </div>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              日付上のタスクバーの色です。未設定時はテーマのアクセント色を使います。
-            </p>
-            <div className="cat-edit-row" style={{ alignItems: 'center' }}>
-              <ColorPickerSwatch
-                color={ganttBarColor || DEFAULT_GANTT_BAR_SWATCH}
-                onChange={(c) => applyGanttBarColor(c)}
-              />
-              <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-soft)' }}>
-                {ganttBarColor || 'デフォルト'}
-              </span>
-              {ganttBarColor && (
-                <button className="btn btn-sm" type="button" onClick={() => applyGanttBarColor(null)}>
-                  リセット
-                </button>
-              )}
-            </div>
-          </>
+          <div className="settings-groups">
+            <section className="settings-group">
+              <div className="section-title">表示モード</div>
+              <div className="view-toggle" style={{ marginLeft: 0 }}>
+                <button className={theme === THEMES.light ? 'active' : ''} onClick={() => applyTheme(THEMES.light)}>ライト</button>
+                <button className={theme === THEMES.dark ? 'active' : ''} onClick={() => applyTheme(THEMES.dark)}>ダーク</button>
+                <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
+                <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
+              </div>
+            </section>
+            <section className="settings-group">
+              <div className="section-title">カレンダーの表示</div>
+              <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+                カレンダーを開いたときの表示です。未設定のときは1日です。カレンダー上の切り替えとも同じ設定を使います。
+              </p>
+              <div className="view-toggle" style={{ marginLeft: 0 }}>
+                {CALENDAR_VIEWS.map((v) => (
+                  <button
+                    key={v.id}
+                    className={calendarView === v.id ? 'active' : ''}
+                    onClick={() => setCalendarDefaultView(v.id)}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="settings-group">
+              <div className="section-title">WBSボタン表示</div>
+              <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+                ONにすると、WBSのボタンをテキストなしのアイコンのみで表示します（ホバーで名称を表示）。
+              </p>
+              <div className="view-toggle" style={{ marginLeft: 0 }}>
+                <button className={!iconMode ? 'active' : ''} onClick={() => setIconMode(false)}>テキスト</button>
+                <button className={iconMode ? 'active' : ''} onClick={() => setIconMode(true)}>アイコンのみ</button>
+              </div>
+            </section>
+            <section className="settings-group">
+              <div className="section-title">WBSガントバー</div>
+              <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+                ONにすると、バー内にタスク名を表示します（バーの幅を超える分は折り返さず切り詰めます）。
+              </p>
+              <div className="view-toggle" style={{ marginLeft: 0, marginBottom: 8 }}>
+                <button className={!barLabel ? 'active' : ''} onClick={() => setBarLabel(false)}>タスク名なし</button>
+                <button className={barLabel ? 'active' : ''} onClick={() => setBarLabel(true)}>タスク名を表示</button>
+              </div>
+              <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+                日付上のタスクバーの色です。未設定時はテーマのアクセント色を使います。
+              </p>
+              <div className="cat-edit-row" style={{ alignItems: 'center' }}>
+                <ColorPickerSwatch
+                  color={ganttBarColor || DEFAULT_GANTT_BAR_SWATCH}
+                  onChange={(c) => applyGanttBarColor(c)}
+                />
+                <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-soft)' }}>
+                  {ganttBarColor || 'デフォルト'}
+                </span>
+                {ganttBarColor && (
+                  <button className="btn btn-sm" type="button" onClick={() => applyGanttBarColor(null)}>
+                    リセット
+                  </button>
+                )}
+              </div>
+            </section>
+          </div>
           )}
 
           {tab === 'tags' && (

@@ -581,6 +581,82 @@ select {
   padding: 4px 12px 8px;
 }
 
+.app-sidebar-toggle-wrap {
+  flex: 0 0 auto;
+  margin-bottom: 6px;
+}
+
+.app-sidebar-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--sidebar-item-h);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.app-sidebar-toggle-icon {
+  width: var(--sidebar-rail);
+  height: var(--sidebar-item-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.app-sidebar-toggle-hit {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.app-sidebar-toggle:hover .app-sidebar-toggle-hit,
+.app-sidebar-toggle:focus-visible .app-sidebar-toggle-hit {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.app-sidebar-toggle-mark,
+.app-sidebar-toggle-panel {
+  grid-area: 1 / 1;
+  transition: opacity 120ms ease;
+}
+
+.app-sidebar-toggle-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: contain;
+  opacity: 1;
+  pointer-events: none;
+}
+
+.app-sidebar-toggle-panel {
+  opacity: 0;
+}
+
+.app-sidebar-toggle:hover .app-sidebar-toggle-mark,
+.app-sidebar-toggle:focus-visible .app-sidebar-toggle-mark {
+  opacity: 0;
+}
+
+.app-sidebar-toggle:hover .app-sidebar-toggle-panel,
+.app-sidebar-toggle:focus-visible .app-sidebar-toggle-panel {
+  opacity: 1;
+}
+
+.app-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
 .app-sidebar-nav {
   flex: 1 1 auto;
   min-height: 0;
@@ -4540,6 +4616,21 @@ textarea.dtd-title-input,
   max-height: none;
   overflow: visible;
 }
+.settings-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-group {
+  margin: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-muted) 55%, var(--surface));
+}
+.settings-group .section-title {
+  margin: 0 0 10px;
+}
 @media (max-width: 640px) {
   .modal.settings-modal.settings-shell {
     height: calc(100vh - 64px);
@@ -5420,9 +5511,21 @@ textarea.wbs-edit,
   margin-bottom: 4px;
   font-weight: 600;
 }
-.export-opt-row input[type='checkbox'] {
+.export-opt-row input[type='checkbox'],
+.export-opt-row input[type='radio'] {
   flex: 0 0 auto;
   accent-color: var(--shu);
+}
+.export-range-box {
+  margin: 2px 12px 4px 32px;
+}
+.export-range-box .date-picker-trigger {
+  width: 100%;
+}
+.export-range-presets {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
 }
 .export-proj-swatch {
   flex: 0 0 auto;

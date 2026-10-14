@@ -19,6 +19,7 @@ import {
   sheetName,
   uniqueSheetName,
   holidayMapForRange,
+  periodStamp,
   downloadWorkbook,
 } from './exportExcel.js'
 
@@ -55,6 +56,22 @@ function workMinutes(s, e) {
   return e - s - lunch
 }
 
+// 指定期間と重なる部分だけ残す。はみ出した端は営業時間の端（9:00 / 18:00）に揃える。
+function clipSpanToRange(span, range) {
+  if (!span) return null
+  if (!range?.start || !range?.end) return span
+  if (span.end < range.start || span.start > range.end) return null
+  const startClipped = span.start < range.start
+  const endClipped = span.end > range.end
+  return {
+    ...span,
+    start: startClipped ? range.start : span.start,
+    end: endClipped ? range.end : span.end,
+    startTime: startClipped ? DEFAULT_START_TIME : span.startTime,
+    endTime: endClipped ? DEFAULT_END_TIME : span.endTime,
+  }
+}
+
 // span の営業日数と予定時間(h)。全日が休日のタスクは休日も作業日として数える。
 function planOf(span, holidays) {
   const n = diffDays(span.start, span.end) + 1
@@ -85,10 +102,11 @@ function statusOf(node, today) {
 
 const fmtDate = (s) => (s ? s.split('-').map(Number).join('/') : '')
 
-function addWorkPlanSheet(wb, { project, roots, today, usedNames, members = [], taskAssignees = [], dependencies = [] }) {
+function addWorkPlanSheet(wb, { project, roots, today, usedNames, members = [], taskAssignees = [], dependencies = [], range = null }) {
   const nodes = flattenVisible(roots, new Set())
   const assigneeState = { members, taskAssignees }
   const wbsNoById = new Map(nodes.map((n) => [n.task.id, n.wbsNo]))
+  const shownSpan = (span) => clipSpanToRange(span, range)
 
   // 全体期間（祝日マップと表紙の計画期間に使う）
   let min = null
@@ -98,7 +116,9 @@ function addWorkPlanSheet(wb, { project, roots, today, usedNames, members = [], 
     if (!min || n.span.start < min) min = n.span.start
     if (!max || n.span.end > max) max = n.span.end
   }
-  const holidays = min ? holidayMapForRange({ start: min, end: max }) : new Map()
+  const periodStart = range?.start || min
+  const periodEnd = range?.end || max
+  const holidays = periodStart ? holidayMapForRange({ start: periodStart, end: periodEnd }) : new Map()
 
   const overall = roots.reduce(
     (a, n) => ({ done: a.done + n.rollup.done, total: a.total + n.rollup.total }),
@@ -163,7 +183,7 @@ function addWorkPlanSheet(wb, { project, roots, today, usedNames, members = [], 
   value(6, COL.title, COL.title, '1.0')
 
   label(3, COL.assignee, COL.pred, '計画期間')
-  value(3, COL.start, COL.days, min ? `${fmtDate(min)} 〜 ${fmtDate(max)}` : '')
+  value(3, COL.start, COL.days, periodStart ? `${fmtDate(periodStart)} 〜 ${fmtDate(periodEnd)}` : '')
   label(4, COL.assignee, COL.pred, '総予定時間(h)')
   value(4, COL.start, COL.days, nodes.length ? { formula: `${hoursCol}${totalRow}` } : 0, { numFmt: '0.0' })
   label(5, COL.assignee, COL.pred, '全体進捗')
@@ -199,7 +219,8 @@ function addWorkPlanSheet(wb, { project, roots, today, usedNames, members = [], 
     const r = rowOf.get(task.id)
     const row = ws.getRow(r)
     row.height = 20
-    const plan = span ? planOf(span, holidays) : null
+    const shown = shownSpan(span)
+    const plan = shown ? planOf(shown, holidays) : null
     const base = font({ size: 9, bold: !isLeaf })
 
     const set = (key, v, style = {}) => {
@@ -228,8 +249,8 @@ function addWorkPlanSheet(wb, { project, roots, today, usedNames, members = [], 
         .join('、'),
       { font: { ...base, name: 'Consolas', color: { argb: C.inkSoft } }, alignment: { vertical: 'middle', horizontal: 'center', shrinkToFit: true } },
     )
-    set('start', span ? toJsDate(span.start) : '', { numFmt: 'yyyy/m/d' })
-    set('end', span ? toJsDate(span.end) : '', { numFmt: 'yyyy/m/d' })
+    set('start', shown ? toJsDate(shown.start) : '', { numFmt: 'yyyy/m/d' })
+    set('end', shown ? toJsDate(shown.end) : '', { numFmt: 'yyyy/m/d' })
     set('days', plan ? plan.days : '')
 
     // 予定時間: 葉は算出値、親は直下の子の合計（数式）
@@ -237,7 +258,13 @@ function addWorkPlanSheet(wb, { project, roots, today, usedNames, members = [], 
       set('hours', plan ? plan.hours : '', { numFmt: '0.0' })
     } else {
       const refs = node.children.map((c) => `${hoursCol}${rowOf.get(c.task.id)}`).join(',')
-      const sum = (n) => (n.isLeaf ? (n.span ? planOf(n.span, holidays).hours : 0) : n.children.reduce((s, c) => s + sum(c), 0))
+      const sum = (n) => {
+        if (n.isLeaf) {
+          const clipped = shownSpan(n.span)
+          return clipped ? planOf(clipped, holidays).hours : 0
+        }
+        return n.children.reduce((s, c) => s + sum(c), 0)
+      }
       set('hours', { formula: `SUM(${refs})`, result: sum(node) }, { numFmt: '0.0' })
     }
 
@@ -269,7 +296,11 @@ function addWorkPlanSheet(wb, { project, roots, today, usedNames, members = [], 
     const t = ws.getCell(totalRow, 1)
     t.value = '合計'
     t.alignment = { vertical: 'middle', horizontal: 'right', indent: 1 }
-    const leafHours = nodes.reduce((s, n) => s + (n.isLeaf && n.span ? planOf(n.span, holidays).hours : 0), 0)
+    const leafHours = nodes.reduce((s, n) => {
+      if (!n.isLeaf) return s
+      const clipped = shownSpan(n.span)
+      return s + (clipped ? planOf(clipped, holidays).hours : 0)
+    }, 0)
     ws.getCell(totalRow, COL.hours).value = {
       formula: `SUMIF(${flagRange},1,${hoursCol}${firstDataRow}:${hoursCol}${lastDataRow})`,
       result: leafHours,
@@ -370,15 +401,16 @@ export async function buildAllWorkPlanWorkbook({ projectNodes, ...opts }) {
 
 export async function exportWorkPlanToExcel(opts) {
   const wb = await buildWorkPlanWorkbook(opts)
-  await downloadWorkbook(wb, `${sheetName(opts.project.name)}_作業計画書_${opts.today}.xlsx`)
+  await downloadWorkbook(wb, `${sheetName(opts.project.name)}_作業計画書_${periodStamp(opts.today, opts.range)}.xlsx`)
 }
 
 export async function exportAllWorkPlanToExcel(opts) {
   const wb = await buildAllWorkPlanWorkbook(opts)
   const sheets = (opts.projectNodes ?? []).filter((pn) => pn.rollup.total > 0)
+  const stamp = periodStamp(opts.today, opts.range)
   const filename =
     sheets.length === 1
-      ? `${sheetName(sheets[0].project.name)}_作業計画書_${opts.today}.xlsx`
-      : `全プロジェクト_作業計画書_${opts.today}.xlsx`
+      ? `${sheetName(sheets[0].project.name)}_作業計画書_${stamp}.xlsx`
+      : `全プロジェクト_作業計画書_${stamp}.xlsx`
   await downloadWorkbook(wb, filename)
 }
