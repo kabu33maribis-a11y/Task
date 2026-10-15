@@ -55,6 +55,9 @@ import WbsTaskDetail from '../components/WbsTaskDetail.jsx'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 
 const ROW_H = 38 // 行高（左ツリーとガント行で共有）
+// これより細い葉バーは、描画幅はそのまま当たり判定だけ広げる（選択・端の伸縮）
+// 日表示の1日（34px）や週・月表示の短いバーが対象
+const COMPACT_BAR_PX = 40
 const DEFAULT_LEFT_W = 340 // 固定タスク列の初期幅
 const MIN_LEFT_W = 220
 const MAX_LEFT_W = 760
@@ -2574,6 +2577,13 @@ function UnscheduledGanttTrack({
   )
 }
 
+/** 短いバーの拡張当たり判定。端ゾーンなら伸縮、それ以外は移動。 */
+function compactDragMode(e) {
+  const edge = e.target?.closest?.('.gantt-bar-slop-edge')
+  if (!edge) return 'move'
+  return edge.classList.contains('left') ? 'start' : 'end'
+}
+
 function GanttBar({
   node,
   span,
@@ -2618,9 +2628,11 @@ function GanttBar({
   const completed = rollup.done >= rollup.total
   const deadline = deadlineInfo(span.end, { today, completed, progressPct: pct })
 
+  const isCompact = isLeaf && !isProject && width < COMPACT_BAR_PX
   const cls = ['gantt-bar']
   if (isProject) cls.push('project')
   else cls.push(isLeaf ? 'leaf' : 'summary')
+  if (isCompact) cls.push('is-compact')
   if (dragging) cls.push('dragging')
   if (isSelected) cls.push('is-multi-selected')
   if (deadline) cls.push(`deadline-end--${deadline.tier}`)
@@ -2662,7 +2674,7 @@ function GanttBar({
           e.stopPropagation()
           return
         }
-        if (isLeaf) onStartDrag(e, node, 'move')
+        if (isLeaf) onStartDrag(e, node, compactDragMode(e))
         else e.stopPropagation()
       }}
       onClick={(e) => {
@@ -2674,11 +2686,17 @@ function GanttBar({
       {showBarLabel && isLeaf && !isProject && (
         <span className="gantt-bar-label">{node.task.title}</span>
       )}
-      {isLeaf && (
+      {isLeaf && !isCompact && (
         <>
           <span className="gantt-bar-handle left" onMouseDown={(e) => onStartDrag(e, node, 'start')} />
           <span className="gantt-bar-handle right" onMouseDown={(e) => onStartDrag(e, node, 'end')} />
         </>
+      )}
+      {isCompact && (
+        <span className="gantt-bar-slop" aria-hidden="true">
+          <span className="gantt-bar-slop-edge left" />
+          <span className="gantt-bar-slop-edge right" />
+        </span>
       )}
       {!isProject && (
         <>

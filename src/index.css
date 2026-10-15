@@ -7209,7 +7209,8 @@ textarea.wbs-edit,
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-left: 2px;
   box-sizing: border-box;
   border-right: 1px solid var(--rule);
   font-family: var(--font-mono);
@@ -7454,6 +7455,68 @@ textarea.wbs-edit,
 .gantt-matrix.dep-linking .gantt-bar-handle {
   opacity: 0 !important;
   pointer-events: none;
+}
+
+/* 短いバー: 見た目の幅は変えず、行の高さまで・最低 48px 幅まで当たり判定を広げる。
+   左右 16px が伸縮、中央が選択・移動。 */
+.gantt-bar.leaf.is-compact {
+  --gantt-slop: 48px;
+}
+.gantt-bar.leaf.is-compact .gantt-bar-slop {
+  position: absolute;
+  z-index: 3;
+  top: -8px;
+  bottom: -6px;
+  left: 50%;
+  width: max(100%, var(--gantt-slop));
+  transform: translateX(-50%);
+  cursor: grab;
+}
+.gantt-bar.leaf.is-compact.dragging .gantt-bar-slop {
+  cursor: grabbing;
+}
+.gantt-bar.leaf.is-compact.dragging .gantt-bar-slop-edge {
+  cursor: ew-resize;
+}
+.gantt-bar.leaf.is-compact .gantt-bar-slop-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  z-index: 1;
+  cursor: ew-resize;
+}
+.gantt-bar.leaf.is-compact .gantt-bar-slop-edge.left {
+  left: 0;
+}
+.gantt-bar.leaf.is-compact .gantt-bar-slop-edge.right {
+  right: 0;
+}
+.gantt-bar.leaf.is-compact:hover .gantt-bar-slop-edge.left,
+.gantt-bar.leaf.is-compact.dragging .gantt-bar-slop-edge.left {
+  background: linear-gradient(var(--sumi), var(--sumi)) right 2px center / 2px 55% no-repeat;
+}
+.gantt-bar.leaf.is-compact:hover .gantt-bar-slop-edge.right,
+.gantt-bar.leaf.is-compact.dragging .gantt-bar-slop-edge.right {
+  background: linear-gradient(var(--sumi), var(--sumi)) 2px center / 2px 55% no-repeat;
+}
+.gantt-matrix.axis-locked:not(.hour-zoom) .gantt-bar.leaf.is-compact .gantt-bar-slop,
+.gantt-matrix.axis-locked:not(.hour-zoom) .gantt-bar.leaf.is-compact .gantt-bar-slop-edge {
+  cursor: default;
+}
+.gantt-matrix.axis-locked:not(.hour-zoom) .gantt-bar-slop-edge {
+  background: none !important;
+}
+.gantt-matrix.dep-linking .gantt-bar-slop-edge {
+  cursor: inherit;
+  background: none !important;
+  pointer-events: none;
+}
+.gantt-bar.leaf.is-compact .gantt-bar-link.left {
+  left: calc((100% - var(--gantt-slop)) / 2 - 16px);
+}
+.gantt-bar.leaf.is-compact .gantt-bar-link.right {
+  right: calc((100% - var(--gantt-slop)) / 2 - 16px);
 }
 
 .gantt-bar-link {
