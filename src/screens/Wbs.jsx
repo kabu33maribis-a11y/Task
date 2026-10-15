@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import {
   Trash2, Plus, FileSpreadsheet, Maximize2, Calendar, CalendarDays, CheckCircle2,
   Lock, Unlock, ChevronsUpDown, ChevronsDownUp, CornerDownRight, X,
-  Pencil, Copy, ClipboardPaste,
+  Pencil, Copy, ClipboardPaste, FileText, ListPlus, Tag, Tags, User, Link2,
+  ListIndentIncrease, ListIndentDecrease,
 } from 'lucide-react'
 import { useIconMode, useBarLabel } from '../lib/iconMode.js'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
@@ -72,6 +73,10 @@ const HOUR_RANGE_DAYS_MAX = 7
 function BtnLabel({ icon: Icon, children, size = 14 }) {
   const iconMode = useIconMode()
   return iconMode ? <Icon size={size} strokeWidth={2} aria-hidden /> : children
+}
+
+function MenuIcon({ icon: Icon }) {
+  return <Icon size={14} strokeWidth={2} aria-hidden />
 }
 
 /** sticky タスク列セパレータの右を基準に、contentX を可視トラック上の fraction 位置へ置く */
@@ -2901,7 +2906,7 @@ function LeftRow({
       return
     }
     const r = e.currentTarget.getBoundingClientRect()
-    const menuW = 176
+    const menuW = 200
     setMorePos({
       top: r.bottom + 4,
       left: Math.max(8, Math.min(r.right - menuW, window.innerWidth - menuW - 8)),
@@ -2924,7 +2929,7 @@ function LeftRow({
     if (e.target.closest('input, textarea, .wbs-select-check')) return
     e.preventDefault()
     onSelect?.({ keepIfSelected: true })
-    const menuW = 176
+    const menuW = 200
     setMorePos({
       top: e.clientY,
       left: Math.max(8, Math.min(e.clientX, window.innerWidth - menuW - 8)),
@@ -3100,19 +3105,24 @@ function LeftRow({
                 style={{ top: morePos.top, left: morePos.left }}
               >
                 <button type="button" role="menuitem" onClick={openDetailFromMore}>
+                  <MenuIcon icon={FileText} />
                   詳細
                 </button>
                 <button type="button" role="menuitem" onClick={startEditFromMore}>
+                  <MenuIcon icon={Pencil} />
                   名前を編集
                 </button>
                 <button type="button" role="menuitem" onClick={insertBelow}>
+                  <MenuIcon icon={ListPlus} />
                   この下に追加
                 </button>
                 <button type="button" role="menuitem" onClick={copyTaskFromMore}>
+                  <MenuIcon icon={Copy} />
                   {copyingMany ? `コピー（${selectionSize}件）` : 'コピー'}
                 </button>
                 {clipboardTask && (
                   <button type="button" role="menuitem" onClick={pasteTaskFromMore}>
+                    <MenuIcon icon={ClipboardPaste} />
                     {clipCount > 1 ? `貼り付け（${clipCount}件）` : '貼り付け'}
                   </button>
                 )}
@@ -3122,6 +3132,7 @@ function LeftRow({
                   className={tag ? 'set' : undefined}
                   onClick={openFromMore(onOpenTagPopover)}
                 >
+                  <MenuIcon icon={Tag} />
                   タグ{tag ? ` · ${tag.name}` : ''}
                 </button>
                 {canApplyTagToChildren && (
@@ -3131,6 +3142,7 @@ function LeftRow({
                     onClick={applyTagToChildren}
                     title="配下のすべてのタスクに、このタグを付けます"
                   >
+                    <MenuIcon icon={Tags} />
                     子にタグを付ける
                   </button>
                 )}
@@ -3140,6 +3152,7 @@ function LeftRow({
                   className={assignees.length ? 'set' : undefined}
                   onClick={openFromMore(onOpenAssigneePopover)}
                 >
+                  <MenuIcon icon={User} />
                   担当者
                   {assignees.length
                     ? ` · ${assignees[0].name}${assignees.length > 1 ? ` 他${assignees.length - 1}` : ''}`
@@ -3151,9 +3164,11 @@ function LeftRow({
                   className={hasAnyDep ? 'set' : undefined}
                   onClick={openFromMore(onOpenLinkPopover)}
                 >
+                  <MenuIcon icon={Link2} />
                   依存関係
                 </button>
                 <button type="button" role="menuitem" onClick={indent}>
+                  <MenuIcon icon={ListIndentIncrease} />
                   階層を下げる →
                 </button>
                 <button
@@ -3162,6 +3177,7 @@ function LeftRow({
                   onClick={outdent}
                   disabled={task.parent_id == null}
                 >
+                  <MenuIcon icon={ListIndentDecrease} />
                   階層を上げる ←
                 </button>
                 {isLeaf && (
@@ -3171,6 +3187,7 @@ function LeftRow({
                     className={hasDate ? 'set' : undefined}
                     onClick={openFromMore(onOpenDatePopover)}
                   >
+                    <MenuIcon icon={CalendarDays} />
                     期間を設定
                   </button>
                 )}

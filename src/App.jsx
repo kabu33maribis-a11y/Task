@@ -43,9 +43,15 @@ async function revealMainWindow() {
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     const w = getCurrentWindow()
-    await w.show()
     await w.unminimize()
+    await w.show()
     await w.setFocus()
+    try {
+      await w.setAlwaysOnTop(true)
+      await w.setAlwaysOnTop(false)
+    } catch {
+      /* optional permission */
+    }
   } catch {
     // browser / non-tauri
   }
@@ -81,7 +87,7 @@ function useReminderDeepLink({ setView, onRoute, setCalDate, setFocus }) {
         setCalDate?.(task.scheduled_date)
       }
       setFocus(task.id)
-    }).then((fn) => { unlisten = fn })
+    }, revealMainWindow).then((fn) => { unlisten = fn })
     return () => unlisten?.()
   }, [setView, onRoute, setCalDate, setFocus])
 }

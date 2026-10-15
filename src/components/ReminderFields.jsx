@@ -1,21 +1,22 @@
 import { isoToDatetimeLocal, datetimeLocalToIso } from '../lib/date.js'
-import { ensureNotificationPermission } from '../lib/notifications.js'
+import {
+  coerceLeadMinutes,
+  ensureNotificationPermission,
+  getDefaultReminderLeadMinutes,
+  NOTIFICATION_LEAD_OPTIONS,
+  useDefaultReminderLeadMinutes,
+} from '../lib/notifications.js'
 import DueDateTimePicker from './DueDateTimePicker.jsx'
 
-export const REMINDER_LEAD_OPTIONS = [
-  { value: 1, label: '1分前' },
-  { value: 5, label: '5分前' },
-  { value: 15, label: '15分前' },
-  { value: 30, label: '30分前' },
-  { value: 60, label: '1時間前' },
-  { value: 1440, label: '1日前' },
-]
+export const REMINDER_LEAD_OPTIONS = NOTIFICATION_LEAD_OPTIONS
 
 export default function ReminderFields({ task, onChange, compact = false }) {
   const dueLocal = isoToDatetimeLocal(task.due_at)
   const hasDue = !!task.due_at
   const enabled = !!task.reminder_enabled && hasDue
-  const lead = Number(task.reminder_lead_minutes) > 0 ? Number(task.reminder_lead_minutes) : 30
+  const defaultLead = useDefaultReminderLeadMinutes()
+  const storedLead = coerceLeadMinutes(task.reminder_lead_minutes, defaultLead)
+  const lead = enabled ? storedLead : defaultLead
 
   function setDue(localValue) {
     const iso = datetimeLocalToIso(localValue)
@@ -27,7 +28,7 @@ export default function ReminderFields({ task, onChange, compact = false }) {
     if (next) await ensureNotificationPermission()
     onChange({
       reminder_enabled: next,
-      reminder_lead_minutes: lead,
+      reminder_lead_minutes: next ? getDefaultReminderLeadMinutes() : storedLead,
     })
   }
 
@@ -53,7 +54,7 @@ export default function ReminderFields({ task, onChange, compact = false }) {
           disabled={!enabled}
           onChange={(e) => onChange({ reminder_lead_minutes: Number(e.target.value) })}
         >
-          {REMINDER_LEAD_OPTIONS.map((opt) => (
+          {NOTIFICATION_LEAD_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>

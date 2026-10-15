@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-notifications"
+description = "Allows desktop notification preference commands."
+commands.allow = ["set_desktop_notifications_enabled", "set_start_lead_minutes"]

@@ -16,6 +16,11 @@ import {
   ensureNotificationPermission,
   getDesktopNotificationsPref,
   setDesktopNotificationsPref,
+  NOTIFICATION_LEAD_OPTIONS,
+  setDefaultReminderLeadMinutes,
+  setStartLeadMinutes,
+  useDefaultReminderLeadMinutes,
+  useStartLeadMinutes,
 } from '../lib/notifications.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
@@ -46,6 +51,8 @@ export default function SettingsModal({ onClose }) {
   const calendarView = useCalendarDefaultView()
   const [notifGranted, setNotifGranted] = useState(null)
   const [notifOn, setNotifOn] = useState(() => getDesktopNotificationsPref() !== false)
+  const startLead = useStartLeadMinutes()
+  const reminderLeadDefault = useDefaultReminderLeadMinutes()
 
   useEffect(() => {
     isNotificationGranted().then((granted) => {
@@ -171,7 +178,7 @@ export default function SettingsModal({ onClose }) {
               )}
               {notifOn && notifGranted === true && (
                 <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                  開始時刻の30分前、および期限リマインダの指定時刻に通知します。
+                  開始時刻の前と、期限リマインダの指定時刻に通知します。
                 </p>
               )}
               {!notifOn && notifGranted != null && (
@@ -193,6 +200,35 @@ export default function SettingsModal({ onClose }) {
                 <option value="on">ON</option>
                 <option value="off">OFF</option>
               </select>
+              <fieldset className="settings-nested" disabled={!notifOn}>
+                <label className="settings-nested-row">
+                  <span>タスクの開始通知</span>
+                  <select
+                    value={startLead}
+                    onChange={(e) => setStartLeadMinutes(Number(e.target.value))}
+                    aria-label="タスクの開始通知"
+                  >
+                    {NOTIFICATION_LEAD_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-nested-row">
+                  <span>リマインダー通知</span>
+                  <select
+                    value={reminderLeadDefault}
+                    onChange={(e) => setDefaultReminderLeadMinutes(Number(e.target.value))}
+                    aria-label="リマインダー通知の初期値"
+                  >
+                    {NOTIFICATION_LEAD_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <p className="help settings-nested-note">
+                  開始通知はすべてのタスクに共通です。リマインダーは、オンにしたときの初期値で、タスクごとに変更できます。
+                </p>
+              </fieldset>
             </section>
             <section className="settings-group">
               <div className="section-title">表示モード</div>

@@ -1,17 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import {
+  PenLine, Trash2, Pencil, Copy, ClipboardPaste, CornerDownRight,
+  ListChecks, Link2, ArrowRight, Inbox,
+} from 'lucide-react'
 import { useStore, useCategoryMap, useProjectMap } from '../store/StoreContext.jsx'
 import { formatMonthDayJP, formatConsoleDateRange, todayStr, addDays, isoToDatetimeLocal, normalizeConsoleDateRange } from '../lib/date.js'
 import { unfinishedPredecessors, successorsOf } from '../lib/dependencies.js'
 import { ownTag } from '../lib/tags.js'
 import { assigneesOf, candidateMembersFor } from '../lib/members.js'
 import ActivityPanel from './ActivityPanel.jsx'
+import ChildTaskDialog from './ChildTaskDialog.jsx'
 import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
 import ReminderFields from './ReminderFields.jsx'
 import TaskPicker from './TaskPicker.jsx'
 import { TASK_DND_TYPE, setActiveDragTaskId, clearActiveDragTaskId } from '../lib/taskDnd.js'
+import { coerceLeadMinutes } from '../lib/notifications.js'
 
 export { TASK_DND_TYPE }
+
+function MenuIcon({ icon: Icon }) {
+  return <Icon size={14} strokeWidth={2} aria-hidden />
+}
 
 export default function TaskItem({
   task,
@@ -393,6 +402,7 @@ export default function TaskItem({
                     setEditing(true)
                   }}
                 >
+                  <MenuIcon icon={Pencil} />
                   編集
                 </button>
                 <button
@@ -401,6 +411,7 @@ export default function TaskItem({
                     actions.copyTask(task)
                   }}
                 >
+                  <MenuIcon icon={Copy} />
                   コピー
                 </button>
                 {clipboardTask && (
@@ -410,6 +421,7 @@ export default function TaskItem({
                       actions.pasteTask(task)
                     }}
                   >
+                    <MenuIcon icon={ClipboardPaste} />
                     貼り付け
                   </button>
                 )}
@@ -420,6 +432,7 @@ export default function TaskItem({
                     setTimeout(() => subtaskInputRef.current?.focus(), 0)
                   }}
                 >
+                  <MenuIcon icon={CornerDownRight} />
                   子タスクを追加
                 </button>
                 <button
@@ -429,6 +442,7 @@ export default function TaskItem({
                     setTimeout(() => checklistInputRef.current?.focus(), 0)
                   }}
                 >
+                  <MenuIcon icon={ListChecks} />
                   チェック項目を追加
                 </button>
                 <button
@@ -437,6 +451,7 @@ export default function TaskItem({
                     setPickingSuccessor(true)
                   }}
                 >
+                  <MenuIcon icon={Link2} />
                   依存関係
                 </button>
                 <button
@@ -446,6 +461,7 @@ export default function TaskItem({
                     setTimeout(() => successorInputRef.current?.focus(), 0)
                   }}
                 >
+                  <MenuIcon icon={ArrowRight} />
                   このあとやるタスクを追加
                 </button>
                 {task.scheduled_date && (
@@ -455,6 +471,7 @@ export default function TaskItem({
                       actions.moveToDate(task.id, null)
                     }}
                   >
+                    <MenuIcon icon={Inbox} />
                     Inboxへ移動
                   </button>
                 )}
@@ -665,11 +682,15 @@ export function ChecklistItemRow({ item }) {
 }
 
 function SubtaskRow({ task }) {
-  const { actions } = useStore()
+  const { state, actions } = useStore()
   const [editing, setEditing] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
   const [title, setTitle] = useState(task.title)
   const inputRef = useRef(null)
   const done = task.status === 'DONE'
+  const checklist = (state.checklistItems ?? []).filter((i) => i.task_id === task.id)
+  const checkDone = checklist.filter((i) => i.done).length
+  const memoCount = (state.activities ?? []).filter((a) => a.task_id === task.id && a.body).length
 
   useEffect(() => {
     if (!editing) setTitle(task.title)
@@ -718,9 +739,35 @@ function SubtaskRow({ task }) {
           {task.title || '(無題)'}
         </span>
       )}
+      {(checklist.length > 0 || memoCount > 0) && (
+        <span className="subtask-meta">
+          {checklist.length > 0 && `☐${checkDone}/${checklist.length}`}
+          {checklist.length > 0 && memoCount > 0 && ' '}
+          {memoCount > 0 && `メモ${memoCount}`}
+        </span>
+      )}
       {task.scheduled_date && (
         <span className="subtask-date">{formatConsoleDateRange(task)}</span>
       )}
+      <button
+        type="button"
+        className="subtask-detail-btn"
+        draggable={false}
+        title="メモ・チェックリストなどを編集"
+        aria-label="子タスクの詳細を編集"
+        onMouseDown={(e) => e.stopPropagation()}
+        onDragStart={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+        }}
+        onClick={(e) => {
+          e.stopPropagation()
+          setDetailOpen(true)
+        }}
+      >
+        <PenLine size={12} strokeWidth={2} aria-hidden />
+        詳細
+      </button>
       <button
         className="task-del"
         onClick={() => actions.deleteTask(task)}
@@ -729,6 +776,9 @@ function SubtaskRow({ task }) {
       >
         <Trash2 size={14} strokeWidth={2} aria-hidden />
       </button>
+      {detailOpen && (
+        <ChildTaskDialog taskId={task.id} onClose={() => setDetailOpen(false)} />
+      )}
     </div>
   )
 }
@@ -749,7 +799,7 @@ function editorDraftFromTask(task) {
     tag_id: task.tag_id ?? null,
     due_at: task.due_at ?? null,
     reminder_enabled: !!task.reminder_enabled && !!task.due_at,
-    reminder_lead_minutes: Number(task.reminder_lead_minutes) > 0 ? Number(task.reminder_lead_minutes) : 30,
+    reminder_lead_minutes: coerceLeadMinutes(task.reminder_lead_minutes),
   }
 }
 
@@ -792,7 +842,7 @@ function InlineEditor({ task, categories, rootRef, onClose }) {
     || (draft.tag_id ?? null) !== (task.tag_id ?? null)
     || (draft.due_at ?? null) !== (task.due_at ?? null)
     || !!draft.reminder_enabled !== !!task.reminder_enabled
-    || Number(draft.reminder_lead_minutes) !== Number(task.reminder_lead_minutes || 30)
+    || coerceLeadMinutes(draft.reminder_lead_minutes) !== coerceLeadMinutes(task.reminder_lead_minutes)
     || !sameIdSet(assigneeIds, storedAssignees)
   )
 
@@ -807,7 +857,7 @@ function InlineEditor({ task, categories, rootRef, onClose }) {
         tag_id: draft.tag_id || null,
         due_at: draft.due_at ?? null,
         reminder_enabled: !!draft.reminder_enabled && !!draft.due_at,
-        reminder_lead_minutes: Number(draft.reminder_lead_minutes) > 0 ? Number(draft.reminder_lead_minutes) : 30,
+        reminder_lead_minutes: coerceLeadMinutes(draft.reminder_lead_minutes),
       })
       for (const id of assigneeIds) {
         if (!storedAssignees.has(id)) actions.toggleTaskAssignee(task.id, id)

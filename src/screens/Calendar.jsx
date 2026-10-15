@@ -329,6 +329,11 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
     else setMonth((m) => addMonth(m, 1))
   }
 
+  function goToday() {
+    setSelected(today)
+    syncAroundDate(today)
+  }
+
   function headLabel() {
     if (viewMode === 'day') {
       return `${formatMonthDayJP(selected)}（${formatWeekdayJP(selected)}）`
@@ -414,6 +419,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
           )}
         </div>
         <button className="btn btn-sm" onClick={navNext}>›</button>
+        <button type="button" className="btn btn-sm" onClick={goToday}>今日へ移動</button>
         <div className="cal-view-toggle">
           {CALENDAR_VIEWS.map((v) => (
             <button

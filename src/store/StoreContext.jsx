@@ -4,6 +4,7 @@ import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, 
 import { getDb } from '../lib/db.js'
 import { hasLink, wouldCreateCycle } from '../lib/dependencies.js'
 import { seedSortOrderFromStartDate, isSelfOrDescendant, descendantIds, orderWithInsert } from '../lib/wbs.js'
+import { coerceLeadMinutes } from '../lib/notifications.js'
 
 const WBS_SORT_MIGRATED_KEY = 'taskmanager.wbs.sort_order_v1'
 
@@ -110,7 +111,7 @@ async function loadState() {
       sort_order: t.sort_order ?? 0,
       due_at: t.due_at ?? null,
       reminder_enabled: t.reminder_enabled === true || t.reminder_enabled === 1 || t.reminder_enabled === '1',
-      reminder_lead_minutes: Number(t.reminder_lead_minutes) > 0 ? Number(t.reminder_lead_minutes) : 30,
+      reminder_lead_minutes: coerceLeadMinutes(t.reminder_lead_minutes),
       reminder_sent_at: t.reminder_sent_at ?? null,
       start_reminder_sent_at: t.start_reminder_sent_at ?? null,
     }))
@@ -261,7 +262,7 @@ function pasteTaskBundle(state, action, now) {
       end_time: src.end_time ?? null,
       due_at: src.due_at ?? null,
       reminder_enabled: false,
-      reminder_lead_minutes: Number(src.reminder_lead_minutes) > 0 ? Number(src.reminder_lead_minutes) : 30,
+      reminder_lead_minutes: coerceLeadMinutes(src.reminder_lead_minutes),
       reminder_sent_at: null,
       start_reminder_sent_at: null,
       completed_at: null,
@@ -452,7 +453,7 @@ function makeTask(input, tasks) {
     end_time: input.end_time ?? null,
     due_at: input.due_at ?? null,
     reminder_enabled: !!input.reminder_enabled && !!(input.due_at ?? null),
-    reminder_lead_minutes: Number(input.reminder_lead_minutes) > 0 ? Number(input.reminder_lead_minutes) : 30,
+    reminder_lead_minutes: coerceLeadMinutes(input.reminder_lead_minutes),
     reminder_sent_at: null,
     start_reminder_sent_at: null,
     completed_at: null,
@@ -487,7 +488,7 @@ async function dbUpsertTask(db, t) {
      t.start_time ?? null, t.end_time ?? null,
      t.due_at ?? null,
      t.reminder_enabled ? 1 : 0,
-     Number(t.reminder_lead_minutes) > 0 ? Number(t.reminder_lead_minutes) : 30,
+     coerceLeadMinutes(t.reminder_lead_minutes),
      t.reminder_sent_at ?? null,
      t.start_reminder_sent_at ?? null],
   )

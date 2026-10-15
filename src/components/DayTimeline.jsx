@@ -25,6 +25,7 @@ import {
   hasExplicitTimes,
 } from '../lib/dayTimeline.js'
 import DayAddTaskDialog from './DayAddTaskDialog.jsx'
+import ChildTaskDialog from './ChildTaskDialog.jsx'
 import { TASK_DND_TYPE, peekDragTaskId } from '../lib/taskDnd.js'
 
 function getTaskColor(t, projMap, catMap) {
@@ -52,7 +53,7 @@ function nowMinutes() {
 }
 
 /** ブロック高さに応じてタイトル下に出せる余白コンテンツを組み立てる */
-function DayBlockBody({ height, checklist = [], activities = [], childTasks = [] }) {
+function DayBlockBody({ height, checklist = [], activities = [], childTasks = [], onEditChild }) {
   // 見出し行（〜18px）＋余白を見て、本文を出せる高さか判定
   if (height < 52) return null
   const memoText = activities
@@ -86,7 +87,18 @@ function DayBlockBody({ height, checklist = [], activities = [], childTasks = []
       {hasChildren && (
         <ul className="cal-day-block-list cal-day-block-children">
           {childTasks.map((c) => (
-            <li key={c.id} className={c.status === 'DONE' ? 'is-done' : ''}>
+            <li
+              key={c.id}
+              className={`is-openable${c.status === 'DONE' ? ' is-done' : ''}`}
+              title="クリックでメモ・チェックリストを編集"
+              onMouseDown={(e) => {
+                e.stopPropagation()
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onEditChild?.(c.id)
+              }}
+            >
               <span className="cal-day-block-mark" aria-hidden="true">
                 {c.status === 'DONE' ? '✓' : '・'}
               </span>
@@ -145,6 +157,7 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
   actionsRef.current = actions
   dateRef.current = date
   const [draft, setDraft] = useState(null)
+  const [childEditId, setChildEditId] = useState(null)
   const [nowMins, setNowMins] = useState(nowMinutes)
   const today = todayStr()
   const isToday = date === today
@@ -621,16 +634,39 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
             const multi = !isSingleDayOn(t, date)
             const st = taskBlockStyle(color, t.status)
             const dragging = drag?.id === t.id && drag.kind === 'schedule'
+            const childTasks = extrasByTask.childBy.get(t.id) ?? []
             return (
               <span
                 key={t.id}
-                className={`cal-day-allday-chip${t.status === 'DONE' ? ' done' : ''}${multi ? ' multi' : ''}${dragging ? ' dragging' : ''}`}
+                className={`cal-day-allday-chip${t.status === 'DONE' ? ' done' : ''}${multi ? ' multi' : ''}${dragging ? ' dragging' : ''}${childTasks.length ? ' has-children' : ''}`}
                 style={st}
                 title={`${t.title}（クリックで編集／時間帯へドラッグで時間を設定）`}
                 onMouseDown={(e) => startAllDaySchedule(e, t)}
               >
-                {t.title}
-                {multi && <span className="cal-day-allday-badge">複数日</span>}
+                <span className="cal-day-allday-main">
+                  <span className="cal-day-allday-name">{t.title}</span>
+                  {multi && <span className="cal-day-allday-badge">複数日</span>}
+                </span>
+                {childTasks.length > 0 && (
+                  <span className="cal-day-allday-kids">
+                    {childTasks.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={`cal-day-allday-kid${c.status === 'DONE' ? ' done' : ''}`}
+                        title="メモ・チェックリストを編集"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setChildEditId(c.id)
+                        }}
+                      >
+                        {c.title || '(無題)'}
+                      </button>
+                    ))}
+                  </span>
+                )}
               </span>
             )
           })}
@@ -829,6 +865,7 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
                       checklist={checklist}
                       activities={activities}
                       childTasks={childTasks}
+                      onEditChild={setChildEditId}
                     />
                   )}
                 </div>
@@ -863,6 +900,9 @@ export default function DayTimeline({ date, tasks, defaultProjectId = null }) {
           defaultProjectId={defaultProjectId}
           onClose={() => setDraft(null)}
         />
+      )}
+      {childEditId && (
+        <ChildTaskDialog taskId={childEditId} onClose={() => setChildEditId(null)} />
       )}
     </div>
   )

@@ -4,21 +4,23 @@ use serde::Serialize;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{Pool, Row, Sqlite};
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Listener, Manager};
-use tauri_plugin_notification::NotificationExt;
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 
 static DESKTOP_NOTIFICATIONS_ENABLED: AtomicBool = AtomicBool::new(true);
+static START_LEAD_MINUTES: AtomicI64 = AtomicI64::new(DEFAULT_START_LEAD_MINUTES);
 const DESKTOP_NOTIF_STORE_KEY: &str = "desktopNotifications";
+const START_LEAD_STORE_KEY: &str = "startLeadMinutes";
 
 pub const POLL_INTERVAL_SECS: u64 = 10;
 pub const MISS_GRACE: Duration = Duration::minutes(2);
-/// Fixed lead for start-time notifications (separate from due-at reminders).
-pub const START_LEAD_MINUTES: i64 = 30;
+/// Default lead for start-time notifications (separate from due-at reminders).
+pub const DEFAULT_START_LEAD_MINUTES: i64 = 30;
+const LEAD_CHOICES: [i64; 6] = [1, 5, 15, 30, 60, 1440];
 const QUIT_FLUSH_MS: u64 = 3000;
 const DUE_NOTIFY_TITLE: &str = "タスクの期限が近づいています";
 const START_NOTIFY_TITLE: &str = "タスクの開始が近づいています";
@@ -66,6 +68,18 @@ fn desktop_notifications_enabled() -> bool {
     DESKTOP_NOTIFICATIONS_ENABLED.load(Ordering::Relaxed)
 }
 
+fn sanitize_lead_minutes(minutes: i64) -> i64 {
+    if LEAD_CHOICES.contains(&minutes) {
+        minutes
+    } else {
+        DEFAULT_START_LEAD_MINUTES
+    }
+}
+
+fn start_lead_minutes() -> i64 {
+    sanitize_lead_minutes(START_LEAD_MINUTES.load(Ordering::Relaxed))
+}
+
 fn persist_desktop_notifications_pref(app: &AppHandle, enabled: bool) {
     if let Ok(store) = app.store("config.json") {
         store.set(DESKTOP_NOTIF_STORE_KEY, serde_json::Value::Bool(enabled));
@@ -74,19 +88,35 @@ fn persist_desktop_notifications_pref(app: &AppHandle, enabled: bool) {
 }
 
 pub fn load_desktop_notifications_pref(app: &AppHandle) {
-    let enabled = app
-        .store("config.json")
-        .ok()
+    let store = app.store("config.json").ok();
+    let enabled = store
+        .as_ref()
         .and_then(|store| store.get(DESKTOP_NOTIF_STORE_KEY))
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
     DESKTOP_NOTIFICATIONS_ENABLED.store(enabled, Ordering::Relaxed);
+    let minutes = store
+        .as_ref()
+        .and_then(|store| store.get(START_LEAD_STORE_KEY))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(DEFAULT_START_LEAD_MINUTES);
+    START_LEAD_MINUTES.store(sanitize_lead_minutes(minutes), Ordering::Relaxed);
 }
 
 #[tauri::command]
 pub fn set_desktop_notifications_enabled(app: AppHandle, enabled: bool) {
     DESKTOP_NOTIFICATIONS_ENABLED.store(enabled, Ordering::Relaxed);
     persist_desktop_notifications_pref(&app, enabled);
+}
+
+#[tauri::command]
+pub fn set_start_lead_minutes(app: AppHandle, minutes: i64) {
+    let minutes = sanitize_lead_minutes(minutes);
+    START_LEAD_MINUTES.store(minutes, Ordering::Relaxed);
+    if let Ok(store) = app.store("config.json") {
+        store.set(START_LEAD_STORE_KEY, serde_json::Value::from(minutes));
+        let _ = store.save();
+    }
 }
 
 pub fn scheduled_at(due: DateTime<Utc>, lead_minutes: i64) -> DateTime<Utc> {
@@ -134,9 +164,12 @@ fn start_instant(task: &StartReminderTask) -> Option<DateTime<Utc>> {
 
 pub fn show_main(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
-        let _ = win.show();
         let _ = win.unminimize();
+        let _ = win.show();
         let _ = win.set_focus();
+        // Toast callbacks often cannot steal foreground focus on Windows.
+        let _ = win.set_always_on_top(true);
+        let _ = win.set_always_on_top(false);
     }
 }
 
@@ -250,7 +283,7 @@ fn is_start_eligible(task: &StartReminderTask, now: DateTime<Utc>) -> bool {
     let Some(start) = start_instant(task) else {
         return false;
     };
-    let scheduled = scheduled_at(start, START_LEAD_MINUTES);
+    let scheduled = scheduled_at(start, start_lead_minutes());
     should_notify(now, scheduled, MISS_GRACE)
 }
 
@@ -350,13 +383,47 @@ fn next_notification_id(task_id: &str) -> String {
     format!("n_{}_{seq}_{task_id}", Utc::now().timestamp_millis())
 }
 
+#[cfg(windows)]
+fn apply_windows_app_id(app: &AppHandle, notification: &mut notify_rust::Notification) {
+    let Ok(exe) = tauri::utils::platform::current_exe() else {
+        return;
+    };
+    let Some(dir) = exe.parent().map(|p| p.display().to_string()) else {
+        return;
+    };
+    let sep = std::path::MAIN_SEPARATOR;
+    let debug = format!("{sep}target{sep}debug");
+    let release = format!("{sep}target{sep}release");
+    if dir.ends_with(&debug) || dir.ends_with(&release) {
+        return;
+    }
+    notification.app_id(app.config().identifier.as_ref());
+}
+
 fn show_notification(app: &AppHandle, task_id: &str, title: &str, body: &str) -> Result<(), String> {
-    app.notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .extra("task_id", task_id)
-        .show()
+    let mut notification = notify_rust::Notification::new();
+    notification.summary(title).body(body);
+    // Stay until dismissed so a body click is reported (Short toasts can expire first).
+    notification.timeout(notify_rust::Timeout::Never);
+    notification.urgency(notify_rust::Urgency::Critical);
+    #[cfg(windows)]
+    apply_windows_app_id(app, &mut notification);
+
+    let handle = notification.show().map_err(|e| e.to_string())?;
+    let app = app.clone();
+    let task_id = task_id.to_string();
+    std::thread::Builder::new()
+        .name("notification-click".into())
+        .spawn(move || {
+            // Windows body-click is Default. wait_for_action maps that to "__closed".
+            let _ = handle.wait_for_response(|response: &notify_rust::NotificationResponse| {
+                match response {
+                    notify_rust::NotificationResponse::Default
+                    | notify_rust::NotificationResponse::Action(_) => open_task(&app, &task_id),
+                    _ => {}
+                }
+            });
+        })
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -418,24 +485,6 @@ pub fn open_task(app: &AppHandle, task_id: &str) {
             task_id: task_id.to_string(),
         },
     );
-}
-
-fn extract_task_id(payload: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(payload).ok()?;
-    v.get("taskId")
-        .or_else(|| v.get("task_id"))
-        .or_else(|| v.get("extra").and_then(|e| e.get("task_id")))
-        .or_else(|| v.get("notification").and_then(|n| n.get("extra")).and_then(|e| e.get("task_id")))
-        .and_then(|x| x.as_str().map(|s| s.to_string()))
-}
-
-pub fn setup_notification_click(app: &AppHandle) {
-    let handle = app.clone();
-    let _id = app.listen("plugin:notification:actionPerformed", move |event| {
-        if let Some(id) = extract_task_id(event.payload()) {
-            open_task(&handle, &id);
-        }
-    });
 }
 
 async fn tick_due(
@@ -586,6 +635,14 @@ mod tests {
         let start = parse_local_start("2026-10-14", "10:30").expect("parse");
         let back = start.with_timezone(&Local);
         assert_eq!(back.format("%Y-%m-%d %H:%M").to_string(), "2026-10-14 10:30");
+    }
+
+    #[test]
+    fn sanitizes_unknown_lead() {
+        assert_eq!(sanitize_lead_minutes(15), 15);
+        assert_eq!(sanitize_lead_minutes(1440), 1440);
+        assert_eq!(sanitize_lead_minutes(0), DEFAULT_START_LEAD_MINUTES);
+        assert_eq!(sanitize_lead_minutes(7), DEFAULT_START_LEAD_MINUTES);
     }
 
     #[test]

@@ -535,6 +535,14 @@ select {
   flex: 0 0 var(--sidebar-rail);
   width: var(--sidebar-rail);
   min-width: var(--sidebar-rail);
+  transition:
+    flex-basis var(--sidebar-dur) var(--sidebar-ease),
+    width var(--sidebar-dur) var(--sidebar-ease);
+}
+
+.app-sidebar-spacer.is-expanded {
+  flex-basis: var(--sidebar-expanded);
+  width: var(--sidebar-expanded);
 }
 
 .app-sidebar {
@@ -1719,6 +1727,33 @@ select {
   background: var(--washi-raised);
   outline: none;
 }
+.subtask-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--sumi-faint);
+  white-space: nowrap;
+}
+.subtask-detail-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--rule);
+  background: var(--washi-raised);
+  color: var(--sumi-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.subtask-detail-btn:hover {
+  border-color: var(--sumi-soft);
+  color: var(--sumi);
+}
 .subtask-row .task-del {
   opacity: 0;
   transition: opacity 0.1s;
@@ -2309,14 +2344,22 @@ select {
   padding: 4px;
 }
 .menu-pop button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
+  white-space: nowrap;
   background: none;
   border: none;
   padding: 9px 12px;
   font-size: 14px;
   border-radius: 6px;
+  color: var(--sumi);
+  cursor: pointer;
+}
+.menu-pop button svg {
+  flex: 0 0 auto;
 }
 .menu-pop button:hover {
   background: var(--washi-sink);
@@ -2975,15 +3018,27 @@ select {
 }
 .date-picker-cal [data-selected-single="true"],
 .date-picker-cal [data-range-start="true"],
-.date-picker-cal [data-range-end="true"] {
+.date-picker-cal [data-range-end="true"],
+[data-slot="calendar"] [data-selected-single="true"],
+[data-slot="calendar"] [data-range-start="true"],
+[data-slot="calendar"] [data-range-end="true"] {
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-fg, #fff);
 }
 .date-picker-cal [data-selected-single="true"]:hover,
 .date-picker-cal [data-range-start="true"]:hover,
-.date-picker-cal [data-range-end="true"]:hover {
+.date-picker-cal [data-range-end="true"]:hover,
+.date-picker-cal [data-selected-single="true"]:focus,
+.date-picker-cal [data-range-start="true"]:focus,
+.date-picker-cal [data-range-end="true"]:focus,
+[data-slot="calendar"] [data-selected-single="true"]:hover,
+[data-slot="calendar"] [data-range-start="true"]:hover,
+[data-slot="calendar"] [data-range-end="true"]:hover,
+[data-slot="calendar"] [data-selected-single="true"]:focus,
+[data-slot="calendar"] [data-range-start="true"]:focus,
+[data-slot="calendar"] [data-range-end="true"]:focus {
   background: var(--primary-hover);
-  color: #fff;
+  color: var(--primary-fg, #fff);
 }
 .date-picker-cal [data-range-middle="true"] {
   background: color-mix(in srgb, var(--primary) 22%, transparent);
@@ -3803,7 +3858,57 @@ select {
 }
 .cal-day-allday-chip.done {
   color: var(--sumi-faint);
+}
+.cal-day-allday-chip.done .cal-day-allday-name {
   text-decoration: line-through;
+}
+.cal-day-allday-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cal-day-allday-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-day-allday-chip.has-children {
+  flex-direction: column;
+  align-items: stretch;
+  white-space: normal;
+  gap: 2px;
+  max-width: 240px;
+}
+.cal-day-allday-kids {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.cal-day-allday-kid {
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--sumi-soft);
+  cursor: pointer;
+  padding: 1px 2px 1px 10px;
+  border-radius: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-day-allday-kid:hover {
+  background: color-mix(in srgb, var(--sumi) 8%, transparent);
+  color: var(--sumi);
+}
+.cal-day-allday-kid.done {
+  text-decoration: line-through;
+  color: var(--sumi-faint);
 }
 .cal-day-allday-chip.dragging {
   opacity: 0.45;
@@ -4736,6 +4841,16 @@ textarea.dtd-title-input,
 .cal-day-block-children {
   color: var(--sumi-soft);
 }
+.cal-day-block-children li.is-openable {
+  cursor: pointer;
+  border-radius: 3px;
+  margin: 0 -2px;
+  padding: 0 2px;
+}
+.cal-day-block-children li.is-openable:hover {
+  background: color-mix(in srgb, var(--sumi) 8%, transparent);
+  color: var(--sumi);
+}
 .cal-day-block.dragging .cal-day-block-time,
 .cal-day-block.preview .cal-day-block-time {
   color: var(--primary-deep);
@@ -5025,6 +5140,67 @@ textarea.dtd-title-input,
 .modal.dtd-dialog {
   padding: 0;
 }
+.child-task-dialog {
+  max-width: 480px;
+}
+.child-edit-back {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0 0 2px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sumi-soft);
+  cursor: pointer;
+}
+.child-edit-back:hover {
+  color: var(--sumi);
+}
+.child-edit-context {
+  margin: 0;
+  font-size: 12px;
+  color: var(--sumi-faint);
+}
+.child-edit-memo .activity-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.child-task-dates {
+  margin: 0;
+}
+.child-edit-kids {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.child-edit-kids button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--rule);
+  background: var(--washi-sink);
+  color: var(--sumi);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.child-edit-kids button:hover {
+  border-color: var(--sumi-soft);
+}
+.child-edit-kids .is-done {
+  color: var(--sumi-faint);
+  text-decoration: line-through;
+}
 /* Settings / Master: vertical tabs + single panel (fixed size so tabs don't jump) */
 .modal.settings-modal.settings-shell {
   max-width: 760px;
@@ -5154,6 +5330,39 @@ textarea.dtd-title-input,
 }
 .settings-group .section-title {
   margin: 0 0 10px;
+}
+.settings-nested {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 12px 0 0;
+  padding: 2px 0 0 14px;
+  border: none;
+  border-left: 2px solid var(--rule-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-inline-size: 0;
+}
+.settings-nested:disabled {
+  opacity: 0.55;
+}
+.settings-nested-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+.settings-nested-row span {
+  white-space: nowrap;
+}
+.settings-nested-row select {
+  min-width: 7.5rem;
+}
+.settings-nested-note {
+  margin: 0;
 }
 @media (max-width: 640px) {
   .modal.settings-modal.settings-shell {
@@ -6683,7 +6892,7 @@ textarea.wbs-edit,
 .wbs-more-pop {
   position: fixed;
   z-index: 220;
-  min-width: 168px;
+  min-width: 188px;
   padding: 4px;
   background: var(--washi-raised);
   border: 1px solid var(--rule-strong);
@@ -6691,9 +6900,12 @@ textarea.wbs-edit,
   box-shadow: var(--shadow-pop);
 }
 .wbs-more-pop button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
+  white-space: nowrap;
   background: none;
   border: none;
   padding: 8px 12px;
@@ -6701,6 +6913,9 @@ textarea.wbs-edit,
   border-radius: 6px;
   color: var(--sumi);
   cursor: pointer;
+}
+.wbs-more-pop button svg {
+  flex: 0 0 auto;
 }
 .wbs-more-pop button:hover:not(:disabled) {
   background: var(--washi-sink);

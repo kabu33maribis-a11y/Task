@@ -7,12 +7,14 @@ import { applyGanttBarColor, getSavedGanttBarColor } from './lib/ganttBarColor.j
 import {
   bindNotificationActionsEarly,
   syncDesktopNotificationsPrefToBackend,
+  syncStartLeadToBackend,
 } from './lib/notifications.js'
 
 applyTheme(getSavedTheme())
 applyGanttBarColor(getSavedGanttBarColor())
 bindNotificationActionsEarly()
 syncDesktopNotificationsPrefToBackend()
+syncStartLeadToBackend()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

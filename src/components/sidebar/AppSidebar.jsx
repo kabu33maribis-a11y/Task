@@ -181,7 +181,7 @@ export default function AppSidebar({
   if (isDesktop) {
     return (
       <>
-        <div className="app-sidebar-spacer" aria-hidden />
+        <div className={`app-sidebar-spacer${expanded ? ' is-expanded' : ''}`} aria-hidden />
         {panel}
       </>
     )
