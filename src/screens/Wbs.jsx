@@ -7,6 +7,8 @@ import {
   ListIndentIncrease, ListIndentDecrease,
 } from 'lucide-react'
 import { useIconMode, useBarLabel } from '../lib/iconMode.js'
+import { useToolbarPins } from '../lib/wbsToolbarPins.js'
+import WbsOptionsMenu from '../components/WbsOptionsMenu.jsx'
 import ReloadDbButton from '../components/ReloadDbButton.jsx'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import {
@@ -62,8 +64,24 @@ const ROW_H = 38 // 行高（左ツリーとガント行で共有）
 const COMPACT_BAR_PX = 40
 const DEFAULT_LEFT_W = 340 // 固定タスク列の初期幅
 const MIN_LEFT_W = 220
-const MAX_LEFT_W = 760
+// ガント側に残す幅。これ以外はビュー幅いっぱいまでタスク列を広げられる
+const MIN_TRACK_W = 200
 const LEFT_W_KEY = 'taskmanager.wbs.leftw'
+
+function readStoredLeftW() {
+  const s = Number(localStorage.getItem(LEFT_W_KEY))
+  return Number.isFinite(s) && s >= MIN_LEFT_W ? s : DEFAULT_LEFT_W
+}
+
+/** ビュー幅から、タスク列を右へ伸ばせる上限を求める */
+function maxLeftW(containerW) {
+  if (!containerW || containerW <= MIN_LEFT_W) return MIN_LEFT_W
+  return Math.max(MIN_LEFT_W, containerW - MIN_TRACK_W)
+}
+
+function clampLeftW(w, containerW) {
+  return Math.min(maxLeftW(containerW), Math.max(MIN_LEFT_W, w))
+}
 const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
 const SHOW_WEEKDAYS_KEY = 'taskmanager.wbs.showWeekdays'
 const SHOW_COMPLETED_KEY = 'taskmanager.wbs.showCompleted'
@@ -193,6 +211,8 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
   const catMap = useCategoryMap()
   const visibleProjects = useVisibleProjects()
   const hiddenIds = useHiddenProjectIds()
+  const iconMode = useIconMode()
+  const toolbarPins = useToolbarPins()
   const today = todayStr()
   const [exporting, setExporting] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
@@ -227,6 +247,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
   const [linkPopover, setLinkPopover] = useState(null) // { taskId, x, y }
   const [tagPopover, setTagPopover] = useState(null) // { taskId, x, y }
   const [assigneePopover, setAssigneePopover] = useState(null) // { taskId, x, y }
+  const [bulkPopover, setBulkPopover] = useState(null) // 編集モードの一括設定 { kind: 'tag'|'assignee', x, y }
   const [detailId, setDetailId] = useState(null)
   const [zoom, setZoom] = useState('day')
   const [focusDate, setFocusDate] = useState(() => todayStr())
@@ -288,10 +309,9 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
   const [linkDrag, setLinkDrag] = useState(null) // { fromId, fromSide, x1, y1, x2, y2, overId, valid }
   const [treeDragId, setTreeDragId] = useState(null)
   const [treeOverId, setTreeOverId] = useState(null)
-  const [leftW, setLeftW] = useState(() => {
-    const s = Number(localStorage.getItem(LEFT_W_KEY))
-    return s >= MIN_LEFT_W && s <= MAX_LEFT_W ? s : DEFAULT_LEFT_W
-  })
+  const [leftW, setLeftW] = useState(readStoredLeftW)
+  // ウィンドウが狭いときの表示幅とは別に、ユーザーが選んだ幅を覚えておく
+  const preferredLeftWRef = useRef(leftW)
   const scrollRef = useRef(null)
   const matrixRef = useRef(null)
   const linkDragRef = useRef(null)
@@ -649,6 +669,15 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
   const nowLineX = showNowLine
     ? leftW + hourXOf(today, nowTimeStr, range.start, hourLayout)
     : 0
+  // 「現在」バッジが日付ラベルに重なる日は、ラベルをバッジの右へずらす
+  const hourDayLabelPad = (dayIdx) => {
+    if (!showNowLine) return undefined
+    const rel = nowLineX - leftW - dayIdx * hourLayout.dayWidth
+    const badgeL = rel - NOW_BADGE_HALF_W
+    const badgeR = rel + NOW_BADGE_HALF_W
+    if (badgeR <= 0 || badgeL >= HOUR_DAY_LABEL_W) return undefined
+    return badgeR + 6
+  }
 
   const colOf = useMemo(() => {
     const map = new Map()
@@ -788,6 +817,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     setEditMode(next)
     if (!next) {
       setSelectedIds(new Set())
+      setBulkPopover(null)
       return
     }
     if (selectedIds.size === 0 && selectedId) setSelectedIds(new Set([selectedId]))
@@ -930,7 +960,9 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     document.documentElement.style.userSelect = 'none'
     let last = startW
     function onMove(ev) {
-      last = Math.min(MAX_LEFT_W, Math.max(MIN_LEFT_W, startW + (ev.clientX - startX)))
+      const containerW = scrollRef.current?.clientWidth || 0
+      last = clampLeftW(startW + (ev.clientX - startX), containerW)
+      preferredLeftWRef.current = last
       setLeftW(last)
     }
     function onUp() {
@@ -938,7 +970,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
       document.removeEventListener('mouseup', onUp)
       document.documentElement.style.cursor = ''
       document.documentElement.style.userSelect = ''
-      localStorage.setItem(LEFT_W_KEY, String(last))
+      localStorage.setItem(LEFT_W_KEY, String(preferredLeftWRef.current))
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
@@ -1199,6 +1231,11 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     setTagPopover({ taskId, x: Math.max(8, rect.right - 220), y: rect.bottom + 4 })
   }
 
+  function openBulkPopover(kind, el) {
+    const rect = el.getBoundingClientRect()
+    setBulkPopover((cur) => (cur?.kind === kind ? null : { kind, x: Math.max(8, rect.left), y: rect.bottom + 4 }))
+  }
+
   function openAssigneePopover(taskId, rect) {
     setAssigneePopover({ taskId, x: Math.max(8, rect.right - 220), y: rect.bottom + 4 })
   }
@@ -1333,7 +1370,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
   useEffect(() => {
     if (!selectedId && !linkDrag) return
     function onKey(e) {
-      if (datePopover || linkPopover || tagPopover || assigneePopover || editingId) return
+      if (datePopover || linkPopover || tagPopover || assigneePopover || bulkPopover || editingId) return
       if (e.key === 'Escape') {
         if (linkDragRef.current) {
           setLinkDrag(null)
@@ -1364,7 +1401,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [selectedId, linkDrag, datePopover, linkPopover, tagPopover, assigneePopover, editingId, scopedTasks, actions])
+  }, [selectedId, linkDrag, datePopover, linkPopover, tagPopover, assigneePopover, bulkPopover, editingId, scopedTasks, actions])
 
   useEffect(() => {
     if (!selectedId) return
@@ -1520,7 +1557,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
   useEffect(() => {
     if (!editMode) return undefined
     function onKey(e) {
-      if (datePopover || linkPopover || tagPopover || assigneePopover || editingId || addDialogOpen) return
+      if (datePopover || linkPopover || tagPopover || assigneePopover || bulkPopover || editingId || addDialogOpen) return
       if (e.target?.closest?.('input, textarea, [contenteditable="true"]')) return
       const mod = e.ctrlKey || e.metaKey
       const key = e.key.toLowerCase()
@@ -1562,6 +1599,19 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
 
   const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
   const hasContent = multi ? visibleProjects.length > 0 : roots.length > 0
+
+  // ウィンドウ幅に合わせて表示だけ縮め、保存した希望幅は残す
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const apply = () => {
+      setLeftW(clampLeftW(preferredLeftWRef.current, el.clientWidth))
+    }
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hasContent])
   const selectionIds = currentSelectionIds()
   const selectionCount = editMode ? selectionIds.length : 0
   const clipCount = clipboardTask?.bundle?.items?.length ?? (clipboardTask ? 1 : 0)
@@ -1596,7 +1646,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     : focusTaskIds.size > 0
       ? '絞り込みに該当するタスクがありません。'
       : !showCompleted && overall.total > 0
-        ? '完了タスクのみです。「完了」ボタンで表示できます。'
+        ? '完了タスクのみです。「表示」メニューの「完了」をONにすると表示できます。'
         : 'タスクはまだありません。プロジェクト行の「＋子」または「タスクを追加」ボタンから追加してください。'
 
   const [hoverColDate, setHoverColDate] = useState(null)
@@ -1620,6 +1670,77 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     [state.tasks, state.projects],
   )
 
+  // 表示オプション。ピン留めした項目はツールバーにも出し、全項目は「表示」メニューから操作できる
+  const optionItems = [
+    {
+      id: 'weekends', group: 'view', kind: 'toggle', label: '土日', icon: Calendar,
+      hint: '土日の列を表示', on: showWeekends, onClick: toggleWeekends,
+      title: showWeekends ? '土日を非表示にする' : '土日を表示する',
+    },
+    {
+      id: 'weekdays', group: 'view', kind: 'toggle', label: '曜日', icon: CalendarDays,
+      hint: '日付の下に曜日を表示', on: showWeekdays, onClick: toggleWeekdays,
+      title: showWeekdays ? '曜日を非表示にする' : '曜日を表示する',
+    },
+    {
+      id: 'completed', group: 'view', kind: 'toggle', label: '完了', icon: CheckCircle2,
+      hint: '完了したタスクを表示', on: showCompleted, onClick: toggleCompleted,
+      title: showCompleted ? '完了タスクを非表示にする' : '完了タスクを表示する',
+    },
+    {
+      id: 'focus', group: 'mode', kind: 'toggle', label: '絞る', icon: Filter,
+      hint: '選択したタスクだけ表示', ariaLabel: '絞る',
+      on: focusTaskIds.size > 0,
+      disabled: focusTaskIds.size === 0 && selectionIds.length === 0,
+      onClick: () => {
+        if (selectionIds.length) focusTasks(selectionIds)
+        else clearTaskFocus()
+      },
+      title: sameSelectionFocused || (focusTaskIds.size > 0 && selectionIds.length === 0)
+        ? '絞り込みを解除'
+        : '選択したタスクだけ表示（親なら配下も表示）',
+    },
+    {
+      id: 'edit', group: 'mode', kind: 'toggle', label: '編集', icon: Pencil, ariaLabel: '編集モード',
+      hint: '複数選択してコピー・貼り付け・削除', on: editMode, onClick: toggleEditMode,
+      title: editMode ? '編集モードを終了する' : '編集モード（複数選択してコピー・貼り付け・削除）',
+    },
+    {
+      id: 'lock', group: 'mode', kind: 'toggle', label: '固定', icon: axisLocked ? Lock : Unlock,
+      hint: 'バーを押しても動かさない', on: axisLocked, onClick: toggleAxisLock,
+      title: axisLocked ? '時間軸の固定を解除する（タスクの移動・伸縮を許可）' : '時間軸を固定する（タスクを押しても移動しない）',
+    },
+    {
+      id: 'export', group: 'action', kind: 'action', label: exporting ? '出力中…' : 'Excel出力', ariaLabel: 'Excel出力',
+      icon: FileSpreadsheet, className: 'btn-export', runLabel: '出力',
+      hint: 'WBSとガントチャートをExcelに出力',
+      disabled: exporting || overall.total === 0,
+      onClick: () => setExportDialogOpen(true),
+      title: 'WBSとガントチャートをExcelに出力',
+    },
+    {
+      id: 'overview', group: 'action', kind: 'action', label: '全体表示', icon: Maximize2,
+      hint: isHourZoom ? '日/週/月ズームで使えます' : 'スケジュール全体を縮小して表示',
+      disabled: !hasContent || visible.length === 0 || isHourZoom,
+      onClick: () => setScheduleOverviewOpen(true),
+      title: isHourZoom ? '全体表示は日/週/月ズームで利用できます' : 'スケジュール全体を縮小して表示',
+    },
+    {
+      id: 'expandAll', group: 'tree', kind: 'action', label: '全て展開', icon: ChevronsUpDown, runLabel: '展開',
+      hint: multi ? 'すべてのプロジェクトと子タスクを開く' : 'すべての子タスクを開く',
+      disabled: collapseTargetIds.length === 0,
+      onClick: expandAllProjects,
+      title: multi ? '全プロジェクトを展開' : '全て展開',
+    },
+    {
+      id: 'collapseAll', group: 'tree', kind: 'action', label: '全て折りたたむ', icon: ChevronsDownUp, runLabel: '折りたたむ',
+      hint: multi ? 'プロジェクトと親タスクを閉じる' : '親タスクを閉じる',
+      disabled: collapseTargetIds.length === 0,
+      onClick: collapseAllProjects,
+      title: multi ? '全プロジェクトを折りたたむ' : '全て折りたたむ',
+    },
+  ]
+
   return (
     <div className="wbs-root">
       <div className="wbs-head">
@@ -1634,16 +1755,6 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
               </>
             )}
           </h1>
-          {collapseTargetIds.length > 0 && (
-            <div className="wbs-title-actions">
-              <button className="btn btn-sm" onClick={expandAllProjects} title={multi ? '全プロジェクトを展開' : '全て展開'} aria-label={multi ? '全プロジェクトを展開' : '全て展開'}>
-                <BtnLabel icon={ChevronsUpDown}>全て展開</BtnLabel>
-              </button>
-              <button className="btn btn-sm" onClick={collapseAllProjects} title={multi ? '全プロジェクトを折りたたむ' : '全て折りたたむ'} aria-label={multi ? '全プロジェクトを折りたたむ' : '全て折りたたむ'}>
-                <BtnLabel icon={ChevronsDownUp}>全て折りたたむ</BtnLabel>
-              </button>
-            </div>
-          )}
         </div>
         <div className="wbs-toolbar">
           <ReloadDbButton />
@@ -1687,23 +1798,6 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
             </div>
           )}
           <button
-            className={`btn btn-sm btn-toggle${focusTaskIds.size ? ' is-on' : ''}`}
-            aria-pressed={focusTaskIds.size > 0}
-            disabled={focusTaskIds.size === 0 && selectionIds.length === 0}
-            onClick={() => {
-              if (selectionIds.length) focusTasks(selectionIds)
-              else clearTaskFocus()
-            }}
-            title={
-              sameSelectionFocused || (focusTaskIds.size > 0 && selectionIds.length === 0)
-                ? '絞り込みを解除'
-                : '選択したタスクだけ表示（親なら配下も表示）'
-            }
-            aria-label="絞る"
-          >
-            <BtnLabel icon={Filter}>絞る</BtnLabel>
-          </button>
-          <button
             className="btn btn-sm btn-primary"
             onClick={() => setAddDialogOpen(true)}
             title={
@@ -1717,69 +1811,22 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
               {selectedId ? '＋ 子タスクを追加' : '＋ タスクを追加'}
             </BtnLabel>
           </button>
-          <button
-            className="btn btn-sm btn-export"
-            onClick={() => setExportDialogOpen(true)}
-            disabled={exporting || overall.total === 0}
-            title="WBSとガントチャートをExcelに出力"
-            aria-label="Excel出力"
-          >
-            <BtnLabel icon={FileSpreadsheet}>{exporting ? '出力中…' : 'Excel出力'}</BtnLabel>
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => setScheduleOverviewOpen(true)}
-            disabled={!hasContent || visible.length === 0 || isHourZoom}
-            title={isHourZoom ? '全体表示は日/週/月ズームで利用できます' : 'スケジュール全体を縮小して表示'}
-            aria-label="全体表示"
-          >
-            <BtnLabel icon={Maximize2}>全体表示</BtnLabel>
-          </button>
-          <button
-            className={`btn btn-sm btn-toggle${showWeekends ? ' is-on' : ''}`}
-            aria-pressed={showWeekends}
-            onClick={toggleWeekends}
-            title={showWeekends ? '土日を非表示にする' : '土日を表示する'}
-            aria-label="土日"
-          >
-            <BtnLabel icon={Calendar}>土日</BtnLabel>
-          </button>
-          <button
-            className={`btn btn-sm btn-toggle${showWeekdays ? ' is-on' : ''}`}
-            aria-pressed={showWeekdays}
-            onClick={toggleWeekdays}
-            title={showWeekdays ? '曜日を非表示にする' : '曜日を表示する'}
-            aria-label="曜日"
-          >
-            <BtnLabel icon={CalendarDays}>曜日</BtnLabel>
-          </button>
-          <button
-            className={`btn btn-sm btn-toggle${showCompleted ? ' is-on' : ''}`}
-            aria-pressed={showCompleted}
-            onClick={toggleCompleted}
-            title={showCompleted ? '完了タスクを非表示にする' : '完了タスクを表示する'}
-            aria-label="完了"
-          >
-            <BtnLabel icon={CheckCircle2}>完了</BtnLabel>
-          </button>
-          <button
-            className={`btn btn-sm btn-toggle${editMode ? ' is-on' : ''}`}
-            aria-pressed={editMode}
-            onClick={toggleEditMode}
-            title={editMode ? '編集モードを終了する' : '編集モード（複数選択してコピー・貼り付け・削除）'}
-            aria-label="編集モード"
-          >
-            <BtnLabel icon={Pencil}>編集</BtnLabel>
-          </button>
-          <button
-            className={`btn btn-sm btn-toggle${axisLocked ? ' is-on' : ''}`}
-            aria-pressed={axisLocked}
-            onClick={toggleAxisLock}
-            title={axisLocked ? '時間軸の固定を解除する（タスクの移動・伸縮を許可）' : '時間軸を固定する（タスクを押しても移動しない）'}
-            aria-label="固定"
-          >
-            <BtnLabel icon={axisLocked ? Lock : Unlock}>固定</BtnLabel>
-          </button>
+          {optionItems
+            .filter((item) => toolbarPins.has(item.id))
+            .map((item) => (
+              <button
+                key={item.id}
+                className={`btn btn-sm${item.kind === 'toggle' ? ` btn-toggle${item.on ? ' is-on' : ''}` : ''}${item.className ? ` ${item.className}` : ''}`}
+                aria-pressed={item.kind === 'toggle' ? !!item.on : undefined}
+                disabled={item.disabled}
+                onClick={item.onClick}
+                title={item.title}
+                aria-label={item.ariaLabel || item.label}
+              >
+                <BtnLabel icon={item.icon}>{item.label}</BtnLabel>
+              </button>
+            ))}
+          <WbsOptionsMenu items={optionItems} pins={toolbarPins} iconOnly={iconMode} />
           {isHourZoom && (
             <div className="wbs-focus-nav">
               <button
@@ -1884,6 +1931,25 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
           >
             <BtnLabel icon={Trash2}>削除</BtnLabel>
           </button>
+          <span className="wbs-editbar-sep" aria-hidden="true" />
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={selectionCount === 0}
+            onClick={(e) => openBulkPopover('tag', e.currentTarget)}
+            title="選択したタスクにまとめてタグを付ける"
+          >
+            <BtnLabel icon={Tag}>タグ</BtnLabel>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={selectionCount === 0}
+            onClick={(e) => openBulkPopover('assignee', e.currentTarget)}
+            title="選択したタスクにまとめて担当者を付ける・外す"
+          >
+            <BtnLabel icon={User}>担当</BtnLabel>
+          </button>
           <span className="wbs-editbar-hint">
             チェックかCtrl+クリックで追加、Shift+クリックで範囲、Ctrl+Aですべて
           </span>
@@ -1976,11 +2042,11 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
                 {isHourZoom ? (
                   <>
                     <div className="gantt-axis-hour-days">
-                      {axis.days.map((t) => (
+                      {axis.days.map((t, dayIdx) => (
                         <div
                           key={t.d}
                           className={`gantt-axis-hour-day${t.weekend ? ' weekend' : ''}${t.holiday ? ' holiday' : ''}${t.isToday ? ' today' : ''}${t.isFocus ? ' focus' : ''}${t.d === hoverColDate ? ' col-hover' : ''}`}
-                          style={{ width: hourLayout.dayWidth }}
+                          style={{ width: hourLayout.dayWidth, paddingLeft: hourDayLabelPad(dayIdx) }}
                           title={t.holiday || undefined}
                         >
                           <span className="gantt-axis-hour-day-label">
@@ -1997,8 +2063,10 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
                             key={`${t.d}-${seg.key}`}
                             className={`gantt-axis-hour${seg.biz ? ' biz' : ' night off-block'}`}
                             style={{ width: seg.width }}
+                            title={seg.biz ? undefined : `${seg.hour}時`}
                           >
-                            {seg.hour}
+                            {/* 時間外は1時間6pxで数字が入らないため、帯だけ見せる */}
+                            {seg.biz ? seg.hour : null}
                           </div>
                         )),
                       )}
@@ -2333,6 +2401,10 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
                             shiftKey: e.shiftKey,
                             fromBar: true,
                           })}
+                          onOpenDetail={node.isProject ? undefined : () => {
+                            setSelectedId(node.task.id)
+                            setDetailId(node.task.id)
+                          }}
                           tagColor={node.isProject ? null : rowTag?.color}
                           linking={!!linkDrag}
                           linkFromId={linkDrag?.fromId}
@@ -2493,6 +2565,21 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
           style={{ left: assigneePopover.x, top: assigneePopover.y }}
         />
       )}
+      {bulkPopover && selectionCount > 0 && (bulkPopover.kind === 'tag' ? (
+        <TagPicker
+          taskIds={selectionIds}
+          onClose={() => setBulkPopover(null)}
+          fixed
+          style={{ left: bulkPopover.x, top: bulkPopover.y }}
+        />
+      ) : (
+        <AssigneePicker
+          taskIds={selectionIds}
+          onClose={() => setBulkPopover(null)}
+          fixed
+          style={{ left: bulkPopover.x, top: bulkPopover.y }}
+        />
+      ))}
       {exportDialogOpen && (
         <ExportExcelDialog
           projects={visibleProjects}
@@ -2511,7 +2598,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
           node={findTreeNode(displayRoots, detailId)}
           wbsNo={taskIndex.get(detailId)?.wbsNo}
           today={today}
-          blockEscape={!!(datePopover || linkPopover || tagPopover || assigneePopover || editingId)}
+          blockEscape={!!(datePopover || linkPopover || tagPopover || assigneePopover || bulkPopover || editingId)}
           onClose={closeDetail}
           onSelectTask={(id) => {
             setSelectedId(id)
@@ -2549,6 +2636,11 @@ function findTreeNode(nodes, id) {
   }
   return null
 }
+
+// 「現在 00:00」バッジの半幅（ドラッグ中の拡大込み）と、時間ズームの日付ラベル（左余白込み）の幅。
+// 重なり判定用の概算で、実測はバッジ約61〜70px・ラベル約52px＋余白8px
+const NOW_BADGE_HALF_W = 36
+const HOUR_DAY_LABEL_W = 68
 
 /** 現在時刻 — 線はバー/行ボーダーの下、バッジだけ前面 */
 function GanttNowMarker({ left, time }) {
@@ -2725,6 +2817,7 @@ function GanttBar({
   onStartDrag,
   onStartLink,
   onSelect,
+  onOpenDetail,
   tagColor,
   linking,
   linkFromId,
@@ -2806,6 +2899,12 @@ function GanttBar({
       onClick={(e) => {
         if (linking) return
         e.stopPropagation()
+      }}
+      onDoubleClick={(e) => {
+        if (linking || isProject || !onOpenDetail) return
+        if (e.target.closest('.gantt-bar-handle, .gantt-bar-link, .gantt-bar-slop')) return
+        e.stopPropagation()
+        onOpenDetail()
       }}
     >
       <span className="gantt-bar-fill" style={fillStyle} />
@@ -3086,6 +3185,11 @@ function LeftRow({
     setMoreOpen(false)
     onOpenDetail?.()
   }
+  function openDetailOnDoubleClick(e) {
+    if (editing) return
+    if (e.target.closest('button, input, textarea, .wbs-grip, .wbs-select-check, .wbs-more-pop')) return
+    onOpenDetail?.()
+  }
   function focusFromMore() {
     setMoreOpen(false)
     onFocusTasks?.()
@@ -3116,7 +3220,7 @@ function LeftRow({
   }
 
   return (
-    <div className="gantt-name-inner" onContextMenu={openContextMenu}>
+    <div className="gantt-name-inner" onContextMenu={openContextMenu} onDoubleClick={openDetailOnDoubleClick}>
       <span
         className="grip wbs-grip"
         draggable={!editing}
@@ -3185,8 +3289,11 @@ function LeftRow({
         <>
           <span
             className="wbs-title wbs-title-focus"
+            onMouseDown={(e) => {
+              if (e.detail > 1) e.preventDefault()
+            }}
             onClick={focusTaskDate}
-            title={`${task.title || '(無題)'}（クリックで日付へ）`}
+            title={`${task.title || '(無題)'}（クリックで日付へ、ダブルクリックで詳細）`}
           >
             {task.title || '(無題)'}
           </span>

@@ -1,12 +1,19 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../store/StoreContext.jsx'
 
-export default function TagPicker({ taskId, onClose, style, fixed = false }) {
+/**
+ * タグ選択。taskId なら 1 件、taskIds を渡すと選択中のタスクへ一括で設定する。
+ */
+export default function TagPicker({ taskId, taskIds, onClose, style, fixed = false }) {
   const { state, actions } = useStore()
   const rootRef = useRef(null)
   const tags = [...(state.tags ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-  const task = state.tasks.find((t) => t.id === taskId)
-  const currentId = task?.tag_id ?? null
+  const bulk = Array.isArray(taskIds)
+  const ids = bulk ? taskIds : [taskId]
+  const idSet = new Set(ids)
+  const current = new Set(state.tasks.filter((t) => idSet.has(t.id)).map((t) => t.tag_id ?? null))
+  // 全件が同じタグのときだけ「現在」を示す
+  const currentId = current.size === 1 ? [...current][0] : undefined
 
   useEffect(() => {
     function onDoc(e) {
@@ -24,7 +31,8 @@ export default function TagPicker({ taskId, onClose, style, fixed = false }) {
   }, [onClose])
 
   function pick(tagId) {
-    actions.updateTask(taskId, { tag_id: tagId })
+    if (bulk) actions.setTasksTag(ids, tagId)
+    else actions.updateTask(taskId, { tag_id: tagId })
     onClose()
   }
 
@@ -34,11 +42,12 @@ export default function TagPicker({ taskId, onClose, style, fixed = false }) {
       className={`task-picker${fixed ? ' is-fixed' : ''}`}
       style={style}
       role="dialog"
-      aria-label="タグを設定"
+      aria-label={bulk ? `${ids.length}件のタグを設定` : 'タグを設定'}
     >
+      {bulk && <div className="task-picker-head-title">{ids.length}件のタグを設定</div>}
       <button
         type="button"
-        className={`task-picker-item${currentId == null ? ' is-current' : ''}`}
+        className={`task-picker-item${currentId === null ? ' is-current' : ''}`}
         onClick={() => pick(null)}
       >
         なし

@@ -7,10 +7,13 @@ import {
   useDefaultReminderLeadMinutes,
 } from '../lib/notifications.js'
 import DueDateTimePicker from './DueDateTimePicker.jsx'
+import { Switch } from './ui/controls.jsx'
 
 export const REMINDER_LEAD_OPTIONS = NOTIFICATION_LEAD_OPTIONS
 
-export default function ReminderFields({ task, onChange, compact = false }) {
+// inline: 外側でラベル「期限」を付ける編集フォーム用。期限・スイッチ・通知を 1 行に並べ、
+// リマインダがオフのときは通知タイミングを出さない。
+export default function ReminderFields({ task, onChange, compact = false, inline = false }) {
   const dueLocal = isoToDatetimeLocal(task.due_at)
   const hasDue = !!task.due_at
   const enabled = !!task.reminder_enabled && hasDue
@@ -32,21 +35,42 @@ export default function ReminderFields({ task, onChange, compact = false }) {
     })
   }
 
+  const toggle = (
+    <label className="reminder-toggle" title={hasDue ? undefined : '先に期限を設定してください'}>
+      <Switch checked={enabled} disabled={!hasDue} onChange={setEnabled} label="リマインダ" />
+      リマインダ
+    </label>
+  )
+
+  if (inline) {
+    return (
+      <div className="reminder-fields reminder-fields--inline">
+        <DueDateTimePicker value={dueLocal} onChange={setDue} />
+        {toggle}
+        {enabled && (
+          <select
+            aria-label="通知タイミング"
+            value={lead}
+            onChange={(e) => onChange({ reminder_lead_minutes: Number(e.target.value) })}
+          >
+            {NOTIFICATION_LEAD_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className={`reminder-fields${compact ? ' reminder-fields--compact' : ''}`}>
       <label>
         期限
         <DueDateTimePicker value={dueLocal} onChange={setDue} />
       </label>
-      <label className="reminder-toggle" title={hasDue ? undefined : '先に期限を設定してください'}>
-        <input
-          type="checkbox"
-          checked={enabled}
-          disabled={!hasDue}
-          onChange={(e) => setEnabled(e.target.checked)}
-        />
-        リマインダ
-      </label>
+      {toggle}
       <label>
         通知
         <select

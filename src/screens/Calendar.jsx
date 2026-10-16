@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { CalendarCheck, LayoutGrid, List, Trash2 } from 'lucide-react'
 import { useStore, useCategoryMap, useProjectMap, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import {
   currentMonth,
@@ -20,6 +20,12 @@ import TaskList from '../components/TaskList.jsx'
 import DayTimeline from '../components/DayTimeline.jsx'
 import { CALENDAR_VIEWS, setCalendarDefaultView, useCalendarDefaultView } from '../lib/calendarView.js'
 import ReloadDbButton from '../components/ReloadDbButton.jsx'
+import { EmptyState, Segmented } from '../components/ui/controls.jsx'
+
+const LAYOUT_OPTIONS = [
+  { id: 'grid', icon: LayoutGrid, title: 'グリッド表示' },
+  { id: 'list', icon: List, title: 'リスト表示' },
+]
 
 const DOW = ['月', '火', '水', '木', '金']
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
@@ -412,35 +418,37 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
   return (
     <div className={`cal-root${viewMode === 'day' ? ' cal-root--day' : ''}`}>
       <div className="cal-head">
-        <button className="btn btn-sm" onClick={navPrev}>‹</button>
-        <div className="m">
-          {headLabel()}
-          {viewMode === 'day' && holidayMap.get(selected) && (
-            <span className="cal-day-holiday">{holidayMap.get(selected)}</span>
-          )}
+        <div className="cal-nav">
+          <button className="btn btn-sm" onClick={navPrev}>‹</button>
+          <div className="m">
+            {headLabel()}
+            {viewMode === 'day' && holidayMap.get(selected) && (
+              <span className="cal-day-holiday">{holidayMap.get(selected)}</span>
+            )}
+          </div>
+          <button className="btn btn-sm" onClick={navNext}>›</button>
+          <button type="button" className="btn btn-sm" onClick={goToday} title="今日へ移動">本日へ</button>
+          <ReloadDbButton />
         </div>
-        <button className="btn btn-sm" onClick={navNext}>›</button>
-        <button type="button" className="btn btn-sm" onClick={goToday}>今日へ移動</button>
-        <ReloadDbButton />
         <div className="cal-view-toggle">
-          {CALENDAR_VIEWS.map((v) => (
-            <button
-              key={v.id}
-              className={`btn btn-sm${viewMode === v.id ? ' btn-primary' : ''}`}
-              onClick={() => {
-                if (v.id === 'day') enterDayView(selected || today)
-                else setCalendarDefaultView(v.id)
-              }}
-            >
-              {v.label}
-            </button>
-          ))}
+          <Segmented
+            size="sm"
+            ariaLabel="表示期間"
+            value={viewMode}
+            options={CALENDAR_VIEWS}
+            onChange={(id) => {
+              if (id === 'day') enterDayView(selected || today)
+              else setCalendarDefaultView(id)
+            }}
+          />
           {viewMode !== 'day' && (
-            <>
-              <div className="cal-layout-divider" />
-              <button className={`btn btn-sm${layoutMode === 'grid' ? ' btn-primary' : ''}`} title="グリッド表示" onClick={() => setLayoutMode('grid')}>⊞</button>
-              <button className={`btn btn-sm${layoutMode === 'list' ? ' btn-primary' : ''}`} title="リスト表示" onClick={() => setLayoutMode('list')}>☰</button>
-            </>
+            <Segmented
+              size="sm"
+              ariaLabel="レイアウト"
+              value={layoutMode}
+              options={LAYOUT_OPTIONS}
+              onChange={setLayoutMode}
+            />
           )}
         </div>
       </div>
@@ -556,7 +564,8 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
                             showEnd={isBarEnd}
                             onStartResize={startResize}
                           />
-                          {isBarStart ? t.title : ''}
+                          {/* 前の週から続く帯も、行頭ではタイトルを出す（空の帯に見えないように） */}
+                          {isBarStart || startCol === 0 ? t.title : ''}
                           {isBarEnd && <CalDeleteButton task={t} onDelete={actions.deleteTask} />}
                         </div>
                       )
@@ -629,7 +638,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
           </h3>
           {selectedTasks.length > 0
             ? <TaskList tasks={selectedTasks} focusTaskId={focusTaskId} focusNonce={focusNonce} />
-            : <p className="empty">この日のタスクはありません</p>
+            : <EmptyState compact icon={CalendarCheck} title="この日のタスクはありません" />
           }
         </div>
       )}

@@ -1220,6 +1220,35 @@ function reducer(state, action) {
       }
     }
 
+    // 複数タスクのタグを一括で設定（tagId=null で外す）
+    case 'SET_TASKS_TAG': {
+      const ids = new Set(action.ids)
+      const now = stamp()
+      let changed = false
+      const tasks = state.tasks.map((t) => {
+        if (!ids.has(t.id) || (t.tag_id ?? null) === action.tagId) return t
+        changed = true
+        return { ...t, tag_id: action.tagId, updated_at: now }
+      })
+      return changed ? { ...state, tasks } : state
+    }
+
+    // 複数タスクに担当者を一括で付ける（on=true）／外す（on=false）
+    case 'SET_TASKS_ASSIGNEE': {
+      const ids = new Set(action.ids)
+      const list = state.taskAssignees ?? []
+      if (!action.on) {
+        const next = list.filter((a) => !(a.member_id === action.memberId && ids.has(a.task_id)))
+        return next.length === list.length ? state : { ...state, taskAssignees: next }
+      }
+      const has = new Set(list.filter((a) => a.member_id === action.memberId).map((a) => a.task_id))
+      const now = stamp()
+      const added = action.ids
+        .filter((id) => !has.has(id))
+        .map((id) => ({ id: uid('a'), task_id: id, member_id: action.memberId, created_at: now }))
+      return added.length ? { ...state, taskAssignees: [...list, ...added] } : state
+    }
+
     case 'ADD_TASK_WITH_CHILDREN': {
       const parent = makeTask(action.parentInput, state.tasks)
       let tasks = [...state.tasks, parent]
@@ -1359,7 +1388,8 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const t of changed) await dbUpsertTask(db, t)
           break
         }
-        case 'APPLY_TAG_TO_DESCENDANTS': {
+        case 'APPLY_TAG_TO_DESCENDANTS':
+        case 'SET_TASKS_TAG': {
           const changed = nextState.tasks.filter((t) => {
             const prev = prevState.tasks.find((p) => p.id === t.id)
             return prev && prev.tag_id !== t.tag_id
@@ -1613,7 +1643,8 @@ async function doSyncToDb(prevState, nextState, action) {
           break
         }
         case 'REMOVE_PROJECT_MEMBER':
-        case 'TOGGLE_TASK_ASSIGNEE': {
+        case 'TOGGLE_TASK_ASSIGNEE':
+        case 'SET_TASKS_ASSIGNEE': {
           const nextPm = new Set((nextState.projectMembers ?? []).map((x) => x.id))
           for (const pm of prevState.projectMembers ?? []) {
             if (!nextPm.has(pm.id)) await db.execute('DELETE FROM project_members WHERE id = ?', [pm.id])
@@ -1975,6 +2006,43 @@ export function StoreProvider({ children }) {
       dispatchWithSync({ type: 'REMOVE_PROJECT_MEMBER', projectId, memberId }),
     toggleTaskAssignee: (taskId, memberId) =>
       dispatchWithSync({ type: 'TOGGLE_TASK_ASSIGNEE', taskId, memberId }),
+    setTasksTag: (ids, tagId) => {
+      const cur = prevStateRef.current
+      const idSet = new Set(ids ?? [])
+      const targets = cur.tasks.filter((t) => idSet.has(t.id) && (t.tag_id ?? null) !== tagId)
+      if (targets.length === 0) return
+      dispatchWithSync({ type: 'SET_TASKS_TAG', ids: targets.map((t) => t.id), tagId })
+      const tag = tagId ? (cur.tags ?? []).find((g) => g.id === tagId) : null
+      // 取り消しは元のタグごとにまとめて戻す
+      const byPrev = new Map()
+      for (const t of targets) {
+        const k = t.tag_id ?? null
+        if (!byPrev.has(k)) byPrev.set(k, [])
+        byPrev.get(k).push(t.id)
+      }
+      showToast(
+        tag ? `${targets.length}件にタグ「${tag.name}」を付けました` : `${targets.length}件のタグを外しました`,
+        () => {
+          for (const [prevTagId, prevIds] of byPrev) {
+            dispatchWithSync({ type: 'SET_TASKS_TAG', ids: prevIds, tagId: prevTagId })
+          }
+        },
+      )
+    },
+    setTasksAssignee: (ids, memberId, on) => {
+      const cur = prevStateRef.current
+      const assigned = new Set(
+        (cur.taskAssignees ?? []).filter((a) => a.member_id === memberId).map((a) => a.task_id),
+      )
+      const targets = (ids ?? []).filter((id) => (on ? !assigned.has(id) : assigned.has(id)))
+      if (targets.length === 0) return
+      dispatchWithSync({ type: 'SET_TASKS_ASSIGNEE', ids: targets, memberId, on })
+      const name = (cur.members ?? []).find((m) => m.id === memberId)?.name ?? '担当者'
+      showToast(
+        on ? `${targets.length}件に「${name}」を担当に付けました` : `${targets.length}件から「${name}」を外しました`,
+        () => dispatchWithSync({ type: 'SET_TASKS_ASSIGNEE', ids: targets, memberId, on: !on }),
+      )
+    },
     importState: (s) => dispatchWithSync({ type: 'IMPORT', state: s }),
     resetAllData: () => dispatchWithSync({ type: 'RESET' }),
     reloadFromDb,

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Bell } from 'lucide-react'
 import ConfirmDialog from './ConfirmDialog.jsx'
+import { EmptyState } from './ui/controls.jsx'
 import { requestOpenTask } from '../lib/notifications.js'
 import {
   clearNotificationInbox,
@@ -128,7 +130,7 @@ export default function NotificationBox({ items, onClearAll, onOpen, embedded = 
       </div>
 
       {empty ? (
-        <p className="empty">通知はまだありません</p>
+        <EmptyState compact icon={Bell} title="通知はまだありません" />
       ) : (
         <ul className="notif-list">
           {items.map((item) => {

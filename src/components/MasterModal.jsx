@@ -1,166 +1,130 @@
 import { useState } from 'react'
-import { FolderKanban, Trash2, Users } from 'lucide-react'
+import { Database, Eye, EyeOff, FolderKanban, Trash2, UserRound, Users } from 'lucide-react'
 import { useStore } from '../store/StoreContext.jsx'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { projectMembersOf, sortedMembers } from '../lib/members.js'
-import { ColorPickerSwatch, SettingsShell } from './settingsShared.jsx'
+import {
+  AddEntityBar,
+  ChipToggle,
+  EmptyState,
+  EntityList,
+  EntityRow,
+  IconButton,
+  MetaChip,
+  SettingsShell,
+} from './settingsShared.jsx'
 
 // マスタ: プロジェクト・メンバーは設定と切り離して独立管理する。
 export default function MasterModal({ onClose }) {
   const { state, actions } = useStore()
-  const [newProj, setNewProj] = useState('')
-  const [newMember, setNewMember] = useState('')
-  const [confirm, setConfirm] = useState(null)
   const [tab, setTab] = useState('projects')
 
   const sortedProjs = [...state.projects].sort((a, b) => a.sort_order - b.sort_order)
   const allMembers = sortedMembers(state.members)
 
-  function submitProject() {
-    if (newProj.trim()) {
-      actions.addProject(newProj)
-      setNewProj('')
-    }
-  }
-
-  function submitMember() {
-    if (newMember.trim()) {
-      actions.addMember(newMember)
-      setNewMember('')
-    }
-  }
-
   const tabs = [
-    { id: 'projects', label: 'プロジェクト', icon: FolderKanban, meta: sortedProjs.length },
-    { id: 'members', label: 'メンバー', icon: Users, meta: allMembers.length },
+    {
+      id: 'projects',
+      label: 'プロジェクト',
+      icon: FolderKanban,
+      meta: sortedProjs.length,
+      description:
+        'タスクをまとめる大枠。カレンダーではプロジェクトの色でラベルを見分けられます。非表示にするとカレンダー・WBSから隠れます。',
+    },
+    {
+      id: 'members',
+      label: 'メンバー',
+      icon: Users,
+      meta: allMembers.length,
+      description:
+        'タスクの担当者として割り当てる人。プロジェクトに所属させると、そのプロジェクトのタスクで担当者候補に出ます（プロジェクト未設定のタスクでは全員が候補）。',
+    },
   ]
 
   return (
-    <>
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <SettingsShell title="マスタ" tabs={tabs} activeId={tab} onChange={setTab} onClose={onClose}>
-          {tab === 'projects' && (
+      <SettingsShell title="マスタ" icon={Database} tabs={tabs} activeId={tab} onChange={setTab} onClose={onClose}>
+        {tab === 'projects' && (
           <>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              タスクをまとめる大枠。カレンダーではプロジェクトの色でラベルを見分けられます。非表示にするとカレンダー・WBSから隠れます。「メンバー」で担当者の候補になる所属メンバーを選べます。
-            </p>
-            <div className="settings-list">
+            <EntityList
+              empty={
+                <EmptyState
+                  icon={FolderKanban}
+                  title="プロジェクトはまだありません"
+                  hint="下の入力欄から追加すると、タスクをプロジェクトごとに色分けできます。"
+                />
+              }
+            >
               {sortedProjs.map((p) => (
                 <ProjectRow key={p.id} project={p} />
               ))}
-            </div>
-            <div className="cat-edit-row">
-              <input
-                type="text"
-                value={newProj}
-                placeholder="新しいプロジェクト"
-                onChange={(e) => setNewProj(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitProject()
-                }}
-              />
-              <button className="btn btn-sm btn-primary" onClick={submitProject}>
-                追加
-              </button>
-            </div>
+            </EntityList>
+            <AddEntityBar placeholder="新しいプロジェクト名を入力して Enter" onAdd={(n) => actions.addProject(n)} />
           </>
-          )}
+        )}
 
-          {tab === 'members' && (
+        {tab === 'members' && (
           <>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              タスクの担当者として割り当てる人。プロジェクト設定で所属させると、そのプロジェクトのタスクで担当者候補に出ます（プロジェクト未設定のタスクでは全員が候補）。
-            </p>
-            <div className="settings-list">
+            <EntityList
+              empty={
+                <EmptyState
+                  icon={Users}
+                  title="メンバーはまだいません"
+                  hint="追加すると、タスクの担当者として割り当てられるようになります。"
+                />
+              }
+            >
               {allMembers.map((m) => (
                 <MemberRow key={m.id} member={m} />
               ))}
-            </div>
-            <div className="cat-edit-row">
-              <input
-                type="text"
-                value={newMember}
-                placeholder="新しいメンバー（例: 山田）"
-                onChange={(e) => setNewMember(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitMember()
-                }}
-              />
-              <button className="btn btn-sm btn-primary" onClick={submitMember}>
-                追加
-              </button>
-            </div>
+            </EntityList>
+            <AddEntityBar placeholder="新しいメンバー名（例: 山田）を入力して Enter" onAdd={(n) => actions.addMember(n)} />
           </>
-          )}
+        )}
       </SettingsShell>
     </div>
-    {confirm && (
-      <ConfirmDialog
-        message={confirm.message}
-        detail={confirm.detail}
-        okLabel={confirm.okLabel}
-        danger={confirm.danger}
-        onOk={confirm.onOk}
-        onCancel={() => setConfirm(null)}
-      />
-    )}
-    </>
   )
 }
 
 function MemberRow({ member }) {
   const { state, actions } = useStore()
-  const [name, setName] = useState(member.name)
   const [confirm, setConfirm] = useState(null)
-  const color = member.color || ''
   const assignedCount = (state.taskAssignees ?? []).filter((a) => a.member_id === member.id).length
+  const projectCount = (state.projectMembers ?? []).filter((pm) => pm.member_id === member.id).length
 
   return (
     <>
-    <div className="cat-edit-row">
-      <ColorPickerSwatch
-        color={color}
-        onChange={(c) => actions.updateMember(member.id, { color: c })}
-      />
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => {
-          const n = name.trim()
-          if (n && n !== member.name) actions.updateMember(member.id, { name: n })
-          else setName(member.name)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            const n = name.trim()
-            if (n && n !== member.name) actions.updateMember(member.id, { name: n })
-            e.target.blur()
-          }
-        }}
-      />
-      <button
-        className="btn btn-sm btn-icon-del"
-        onClick={() =>
-          setConfirm({
-            message: `「${member.name}」を削除しますか？`,
-            detail: assignedCount
-              ? `担当中の ${assignedCount} 件のタスクから外れ、全プロジェクトの所属からも外れます。`
-              : '全プロジェクトの所属からも外れます。',
-            okLabel: '削除する',
-            danger: true,
-            onOk: () => { setConfirm(null); actions.deleteMember(member.id) },
-          })
+      <EntityRow
+        color={member.color || ''}
+        onColorChange={(c) => actions.updateMember(member.id, { color: c })}
+        name={member.name}
+        onRename={(n) => actions.updateMember(member.id, { name: n })}
+        meta={
+          <>
+            <MetaChip>担当 {assignedCount} 件</MetaChip>
+            <MetaChip>所属 {projectCount} プロジェクト</MetaChip>
+          </>
         }
-        title="削除"
-        aria-label="削除"
-      >
-        <Trash2 size={14} strokeWidth={2} aria-hidden />
-      </button>
-    </div>
-    {confirm && (
-      <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />
-    )}
+        actions={
+          <IconButton
+            icon={Trash2}
+            label="削除"
+            danger
+            onClick={() =>
+              setConfirm({
+                message: `「${member.name}」を削除しますか？`,
+                detail: assignedCount
+                  ? `担当中の ${assignedCount} 件のタスクから外れ、全プロジェクトの所属からも外れます。`
+                  : '全プロジェクトの所属からも外れます。',
+                okLabel: '削除する',
+                danger: true,
+                onOk: () => { setConfirm(null); actions.deleteMember(member.id) },
+              })
+            }
+          />
+        }
+      />
+      {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />}
     </>
   )
 }
@@ -192,96 +156,96 @@ function ProjectMembersEditor({ project, onConfirm }) {
     })
   }
 
-  if (all.length === 0) {
-    return <p className="help project-members-empty">先に「メンバー」でメンバーを追加してください。</p>
-  }
   return (
-    <div className="project-members" role="group" aria-label={`${project.name} の所属メンバー`}>
-      {all.map((m) => (
-        <label key={m.id} className="project-member-check">
-          <input type="checkbox" checked={inProject.has(m.id)} onChange={() => toggle(m)} />
-          <span className="tag-dot" style={{ background: m.color || 'var(--rule-strong)' }} />
-          {m.name}
-        </label>
-      ))}
+    <div className="entity-sub" role="group" aria-label={`${project.name} の所属メンバー`}>
+      <div className="entity-sub-head">
+        <UserRound size={13} strokeWidth={2} aria-hidden />
+        <span>所属メンバー</span>
+        <span className="entity-sub-count">
+          {inProject.size} / {all.length}
+        </span>
+      </div>
+      {all.length === 0 ? (
+        <p className="entity-sub-empty">先に「メンバー」タブでメンバーを追加してください。</p>
+      ) : (
+        <div className="chip-group">
+          {all.map((m) => (
+            <ChipToggle key={m.id} on={inProject.has(m.id)} color={m.color || undefined} onClick={() => toggle(m)}>
+              {m.name}
+            </ChipToggle>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
 function ProjectRow({ project }) {
   const { state, actions } = useStore()
-  const [name, setName] = useState(project.name)
   const [confirm, setConfirm] = useState(null)
   const [membersOpen, setMembersOpen] = useState(false)
-  const color = project.color || ''
   const hidden = Boolean(project.hidden)
   const memberCount = projectMembersOf(project.id, state).length
+  const taskCount = state.tasks.filter((t) => t.project_id === project.id).length
 
   return (
     <>
-    <div className={`cat-edit-row${hidden ? ' is-hidden' : ''}`}>
-      <ColorPickerSwatch
-        color={color}
-        onChange={(c) => actions.updateProject(project.id, { color: c })}
-      />
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => {
-          const n = name.trim()
-          if (n && n !== project.name) actions.updateProject(project.id, { name: n })
-          else setName(project.name)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            const n = name.trim()
-            if (n && n !== project.name) actions.updateProject(project.id, { name: n })
-            e.target.blur()
-          }
-        }}
-      />
-      <button
-        className="btn btn-sm"
-        onClick={() => actions.updateProject(project.id, { hidden: !hidden })}
-        title={hidden ? '表示する' : '非表示にする'}
-      >
-        {hidden ? '表示' : '非表示'}
-      </button>
-      <button
-        className={`btn btn-sm${membersOpen ? ' active' : ''}`}
-        onClick={() => setMembersOpen((v) => !v)}
-        aria-expanded={membersOpen}
-        title="所属メンバーを編集"
-      >
-        メンバー {memberCount}
-      </button>
-      <button
-        className="btn btn-sm btn-icon-del"
-        onClick={() =>
-          setConfirm({
-            message: `「${project.name}」を削除しますか？`,
-            detail: 'このプロジェクトのタスクはプロジェクトなしになります。',
-            okLabel: '削除する',
-            danger: true,
-            onOk: () => { setConfirm(null); actions.deleteProject(project.id) },
-          })
+      <EntityRow
+        color={project.color || ''}
+        onColorChange={(c) => actions.updateProject(project.id, { color: c })}
+        name={project.name}
+        onRename={(n) => actions.updateProject(project.id, { name: n })}
+        dimmed={hidden}
+        meta={
+          <>
+            <MetaChip>タスク {taskCount} 件</MetaChip>
+            {hidden && <MetaChip tone="muted">非表示</MetaChip>}
+          </>
         }
-        title="削除"
-        aria-label="削除"
+        actions={
+          <>
+            <IconButton
+              icon={hidden ? EyeOff : Eye}
+              label={hidden ? '非表示中（クリックで表示）' : '表示中（クリックで非表示）'}
+              aria-pressed={hidden}
+              onClick={() => actions.updateProject(project.id, { hidden: !hidden })}
+            />
+            <IconButton
+              icon={Users}
+              label="所属メンバーを編集"
+              active={membersOpen}
+              aria-expanded={membersOpen}
+              onClick={() => setMembersOpen((v) => !v)}
+            >
+              {memberCount}
+            </IconButton>
+            <IconButton
+              icon={Trash2}
+              label="削除"
+              danger
+              onClick={() =>
+                setConfirm({
+                  message: `「${project.name}」を削除しますか？`,
+                  detail: taskCount
+                    ? `${taskCount} 件のタスクはプロジェクトなしになります。`
+                    : 'このプロジェクトのタスクはプロジェクトなしになります。',
+                  okLabel: '削除する',
+                  danger: true,
+                  onOk: () => { setConfirm(null); actions.deleteProject(project.id) },
+                })
+              }
+            />
+          </>
+        }
       >
-        <Trash2 size={14} strokeWidth={2} aria-hidden />
-      </button>
-    </div>
-    {membersOpen && (
-      <ProjectMembersEditor
-        project={project}
-        onConfirm={(c) => setConfirm({ ...c, onOk: () => { setConfirm(null); c.onOk() } })}
-      />
-    )}
-    {confirm && (
-      <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />
-    )}
+        {membersOpen && (
+          <ProjectMembersEditor
+            project={project}
+            onConfirm={(c) => setConfirm({ ...c, onOk: () => { setConfirm(null); c.onOk() } })}
+          />
+        )}
+      </EntityRow>
+      {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />}
     </>
   )
 }

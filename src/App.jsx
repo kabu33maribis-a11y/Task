@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { check } from '@tauri-apps/plugin-updater'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
+import { Bell, History, Inbox as InboxIcon } from 'lucide-react'
 import { todayStr } from './lib/date.js'
-import { isInboxTask, parentIdSet } from './lib/wbs.js'
+import { filterVisibleInboxTasks } from './lib/wbs.js'
 import { listenOpenTask } from './lib/notifications.js'
-import { StoreProvider, useStore } from './store/StoreContext.jsx'
+import { StoreProvider, useStore, useHiddenProjectIds } from './store/StoreContext.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import SettingsModal from './components/SettingsModal.jsx'
 import MasterModal from './components/MasterModal.jsx'
@@ -131,8 +132,8 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter, notificatio
     return s ? parseFloat(s) : 57.5
   })
   const dashRef = useRef(null)
-  const parentIds = parentIdSet(state.tasks)
-  const inboxCount = state.tasks.filter((t) => isInboxTask(t, parentIds)).length
+  const hiddenIds = useHiddenProjectIds()
+  const inboxCount = filterVisibleInboxTasks(state.tasks, { hiddenIds, projectFilter }).length
   const close = () => setOverlay(null)
   const setFocus = useCallback((id) => {
     setFocusTaskId(id)
@@ -228,7 +229,6 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter, notificatio
             </section>
             <div className="resize-handle" onMouseDown={startResize} />
             <section className="pane pane-cal" style={{ flex: '1 1 0', minWidth: '300px' }}>
-              <div className="pane-label">Calendar</div>
               <div className="pane-scroll">
                 <Calendar selected={calDate} onSelect={setCalDate} resetKey={calResetKey} projectFilter={projectFilter} focusTaskId={focusTaskId} focusNonce={focusNonce} />
               </div>
@@ -238,17 +238,17 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter, notificatio
       </div>
 
       {overlay === 'inbox' && (
-        <SlideOver title="Inbox" onClose={close}>
+        <SlideOver title="Inbox" icon={InboxIcon} onClose={close}>
           <Inbox embedded projectFilter={projectFilter} focusTaskId={focusTaskId} focusNonce={focusNonce} />
         </SlideOver>
       )}
       {overlay === 'log' && (
-        <SlideOver title="Log" size={660} onClose={close}>
+        <SlideOver title="Log" icon={History} size={660} onClose={close}>
           <Log embedded />
         </SlideOver>
       )}
       {overlay === 'notifications' && (
-        <SlideOver title="通知" size={420} onClose={close}>
+        <SlideOver title="通知" icon={Bell} size={420} onClose={close}>
           <NotificationBox
             embedded
             items={notifications.items}
@@ -265,7 +265,7 @@ function Dashboard({ view, setView, projectFilter, setProjectFilter, notificatio
   )
 }
 
-function SlideOver({ title, size = 440, onClose, children }) {
+function SlideOver({ title, icon: Icon, size = 440, onClose, children }) {
   useEffect(() => {
     function onKey(e) {
       if (e.key === 'Escape') onClose()
@@ -278,8 +278,13 @@ function SlideOver({ title, size = 440, onClose, children }) {
     <div className="slideover-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <aside className="slideover" style={{ width: size }} role="dialog" aria-label={title}>
         <div className="slideover-head">
+          {Icon && (
+            <span className="slideover-head-icon" aria-hidden>
+              <Icon size={16} strokeWidth={2} />
+            </span>
+          )}
           <span className="slideover-title">{title}</span>
-          <button className="close-x" onClick={onClose} aria-label="閉じる">
+          <button className="close-x" onClick={onClose} aria-label="閉じる" title="閉じる (Esc)">
             ×
           </button>
         </div>
@@ -312,8 +317,8 @@ function Tabbed({ view, setView, projectFilter, setProjectFilter, notifications 
     else if (kind === 'console' || kind === 'missing') setTab('today')
   }, [])
   useReminderDeepLink({ setView, onRoute, setCalDate, setFocus })
-  const parentIds = parentIdSet(state.tasks)
-  const inboxCount = state.tasks.filter((t) => isInboxTask(t, parentIds)).length
+  const hiddenIds = useHiddenProjectIds()
+  const inboxCount = filterVisibleInboxTasks(state.tasks, { hiddenIds, projectFilter }).length
 
   const activeId = settingsOpen
     ? 'settings'

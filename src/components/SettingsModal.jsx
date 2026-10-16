@@ -1,5 +1,18 @@
 import { useEffect, useState } from 'react'
-import { HardDrive, Palette, Shapes, Tag, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  Bell,
+  BellOff,
+  Check,
+  FolderOpen,
+  HardDrive,
+  Palette,
+  RotateCcw,
+  Settings as SettingsIcon,
+  Shapes,
+  Tag,
+  Trash2,
+} from 'lucide-react'
 import { useStore, flushSync } from '../store/StoreContext.jsx'
 import { reconnectDb, resetDbConnection } from '../lib/db.js'
 import { getDbPath, pickDbFile, setDbPath } from '../lib/appConfig.js'
@@ -24,7 +37,20 @@ import {
 } from '../lib/notifications.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
-import { ColorPickerSwatch, SettingsShell } from './settingsShared.jsx'
+import {
+  AddEntityBar,
+  ColorPickerSwatch,
+  EmptyState,
+  EntityList,
+  EntityRow,
+  IconButton,
+  MetaChip,
+  Segmented,
+  SettingRow,
+  SettingSection,
+  SettingsShell,
+  Switch,
+} from './settingsShared.jsx'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.jsx'
 
 /** 旧設定（フォルダパス）は表示時に tasks.db を付与する */
@@ -34,15 +60,21 @@ function formatDbPathDisplay(path) {
   return path.replace(/[\\/]+$/, '') + '\\tasks.db'
 }
 
-// Settings: project / category management, DB path, data reset.
+// Theme cards show a tiny mock of each palette so users can pick visually.
+const THEME_OPTIONS = [
+  { id: THEMES.light, label: 'ライト', bg: '#F3F5F7', surface: '#FFFFFF', text: '#0F172A', soft: '#CBD5E1', accent: '#2FBFAD' },
+  { id: THEMES.dark, label: 'ダーク', bg: '#1C1F28', surface: '#242833', text: '#E4E7F0', soft: '#404A60', accent: '#2FBFAD' },
+  { id: THEMES.wabi, label: '和紙', bg: '#fbfaf6', surface: '#ffffff', text: '#21201b', soft: '#d3cec0', accent: '#c0402e' },
+  { id: THEMES.wabiDark, label: '夜紙', bg: '#1a1916', surface: '#24221e', text: '#ece8df', soft: '#4a4640', accent: '#d0503c' },
+]
+
+// Settings: appearance, notifications, tag / category management, DB path, data reset.
 // This is one of the few places a modal is used, per spec (avoid modals for
 // everyday actions, but settings are infrequent).
 export default function SettingsModal({ onClose }) {
   const { state, actions } = useStore()
-  const [newCat, setNewCat] = useState('')
-  const [newTag, setNewTag] = useState('')
   const [dbPath, setDbPathState] = useState(null)
-  const [dbMsg, setDbMsg] = useState('')
+  const [dbMsg, setDbMsg] = useState(null) // { text, tone: 'ok' | 'error' }
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
   const [theme, setTheme] = useState(getSavedTheme)
   const [ganttBarColor, setGanttBarColor] = useState(getSavedGanttBarColor)
@@ -120,9 +152,9 @@ export default function SettingsModal({ onClose }) {
       await reconnectDb(file)
       await actions.reloadFromDb()
       setDbPathState(file)
-      setDbMsg('選択したデータファイルを開きました。')
+      setDbMsg({ text: '選択したデータファイルを開きました。', tone: 'ok' })
     } catch (e) {
-      setDbMsg('エラー: ' + String(e))
+      setDbMsg({ text: 'エラー: ' + String(e), tone: 'error' })
     }
   }
 
@@ -135,9 +167,9 @@ export default function SettingsModal({ onClose }) {
       actions.importState(snapshot)
       await flushSync()
       setDbPathState(null)
-      setDbMsg('デフォルトの保存先に戻し、データを移行しました。')
+      setDbMsg({ text: 'デフォルトの保存先に戻し、データを移行しました。', tone: 'ok' })
     } catch (e) {
-      setDbMsg('エラー: ' + String(e))
+      setDbMsg({ text: 'エラー: ' + String(e), tone: 'error' })
     }
   }
 
@@ -145,17 +177,28 @@ export default function SettingsModal({ onClose }) {
   const sortedTags = [...(state.tags ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
   const tabs = [
-    { id: 'appearance', label: '表示', icon: Palette },
-    { id: 'tags', label: 'タグ', icon: Tag, meta: sortedTags.length },
-    { id: 'categories', label: 'カテゴリ', icon: Shapes, meta: sortedCats.length },
-    { id: 'data', label: 'データ', icon: HardDrive },
+    { id: 'appearance', label: '表示', icon: Palette, group: '一般', description: 'テーマやカレンダー・WBS の見た目を調整します。変更はすぐに反映されます。' },
+    { id: 'notifications', label: '通知', icon: Bell, group: '一般', description: 'タスクの開始やリマインダをデスクトップ通知で受け取るかどうかを設定します。' },
+    { id: 'tags', label: 'タグ', icon: Tag, group: '分類', meta: sortedTags.length, description: 'WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。⋯メニューの「子にタグを付ける」で配下へ一括適用できます。' },
+    { id: 'categories', label: 'カテゴリ', icon: Shapes, group: '分類', meta: sortedCats.length, description: 'タスクの種類を分ける軸。コンソールやログの集計に使います。' },
+    { id: 'data', label: 'データ', icon: HardDrive, group: '保存', description: 'データファイルの保存先と、初期化に関する操作です。' },
   ]
+
+  const notifStatus =
+    notifGranted == null
+      ? { tone: 'off', text: 'この環境では確認できません' }
+      : !notifOn
+        ? { tone: 'off', text: 'オフ' }
+        : notifGranted
+          ? { tone: 'ok', text: '有効' }
+          : { tone: 'warn', text: 'OS 側でブロックされています' }
 
   return (
     <>
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <SettingsShell
         title="設定"
+        icon={SettingsIcon}
         tabs={tabs}
         activeId={tab}
         onChange={setTab}
@@ -167,46 +210,126 @@ export default function SettingsModal({ onClose }) {
           </div>
         }
       >
-          {tab === 'appearance' && (
-          <div className="settings-groups">
-            <section className="settings-group">
-              <div className="section-title">通知の許可</div>
-              {notifOn && notifGranted === false && (
-                <p className="help settings-notif-warn" style={{ marginTop: 0, marginBottom: 8 }}>
-                  Windows の通知が無効です。OS の通知設定から許可してください。
-                </p>
-              )}
-              {notifOn && notifGranted === true && (
-                <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                  開始時刻の前と、期限リマインダの指定時刻に通知します。
-                </p>
-              )}
-              {!notifOn && notifGranted != null && (
-                <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                  オフです。デスクトップ通知と通知ボックスへの追加は行いません。
-                </p>
-              )}
-              {notifGranted == null && (
-                <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                  この環境ではデスクトップ通知を確認できません（ブラウザ開発時など）。
-                </p>
-              )}
-              <Select
-                value={notifOn ? 'on' : 'off'}
-                disabled={notifGranted == null}
-                onValueChange={(value) => handleNotifPrefChange(value === 'on')}
+        {tab === 'appearance' && (
+          <div className="settings-stack">
+            <SettingSection title="テーマ" description="アプリ全体の配色です。">
+              <div className="theme-grid" role="radiogroup" aria-label="テーマ">
+                {THEME_OPTIONS.map((t) => {
+                  const on = theme === t.id
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      className={'theme-card' + (on ? ' is-on' : '')}
+                      onClick={() => applyTheme(t.id)}
+                    >
+                      <span className="theme-card-preview" style={{ background: t.bg }} aria-hidden>
+                        <span className="theme-card-surface" style={{ background: t.surface }}>
+                          <i style={{ background: t.text, width: '55%' }} />
+                          <i style={{ background: t.soft, width: '80%' }} />
+                          <i style={{ background: t.soft, width: '40%' }} />
+                        </span>
+                        <span className="theme-card-accent" style={{ background: t.accent }} />
+                      </span>
+                      <span className="theme-card-label">
+                        {t.label}
+                        {on && (
+                          <span className="theme-card-check" aria-hidden>
+                            <Check size={10} strokeWidth={3} />
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </SettingSection>
+
+            <SettingSection title="カレンダー">
+              <SettingRow label="開いたときの表示" hint="カレンダー上の切り替えとも同じ設定を使います。">
+                <Segmented
+                  ariaLabel="カレンダーの表示"
+                  value={calendarView}
+                  onChange={setCalendarDefaultView}
+                  options={CALENDAR_VIEWS}
+                />
+              </SettingRow>
+            </SettingSection>
+
+            <SettingSection title="WBS">
+              <SettingRow label="ボタン表示" hint="アイコンのみにすると、ホバーで名称を表示します。">
+                <Segmented
+                  ariaLabel="WBSボタン表示"
+                  value={iconMode ? 'icon' : 'text'}
+                  onChange={(v) => setIconMode(v === 'icon')}
+                  options={[
+                    { id: 'text', label: 'テキスト' },
+                    { id: 'icon', label: 'アイコンのみ' },
+                  ]}
+                />
+              </SettingRow>
+              <SettingRow label="ガントバーのタスク名" hint="バーの幅を超える分は折り返さず切り詰めます。">
+                <Segmented
+                  ariaLabel="ガントバーのタスク名"
+                  value={barLabel ? 'show' : 'hide'}
+                  onChange={(v) => setBarLabel(v === 'show')}
+                  options={[
+                    { id: 'hide', label: '非表示' },
+                    { id: 'show', label: '表示' },
+                  ]}
+                />
+              </SettingRow>
+              <SettingRow label="ガントバーの色" hint="未設定のときはテーマのアクセント色を使います。">
+                <ColorPickerSwatch
+                  color={ganttBarColor || DEFAULT_GANTT_BAR_SWATCH}
+                  onChange={(c) => applyGanttBarColor(c)}
+                />
+                <span className="setting-value-mono">{ganttBarColor || 'デフォルト'}</span>
+                {ganttBarColor && (
+                  <IconButton icon={RotateCcw} label="デフォルトに戻す" onClick={() => applyGanttBarColor(null)} />
+                )}
+              </SettingRow>
+            </SettingSection>
+          </div>
+        )}
+
+        {tab === 'notifications' && (
+          <div className="settings-stack">
+            <SettingSection>
+              <SettingRow
+                label={
+                  <span className="setting-label-with-status">
+                    デスクトップ通知
+                    <span className={`notif-status is-${notifStatus.tone}`}>{notifStatus.text}</span>
+                  </span>
+                }
+                hint={
+                  notifGranted == null
+                    ? 'ブラウザ開発時など、デスクトップ通知を確認できない環境です。'
+                    : notifOn && notifGranted === false
+                      ? 'Windows の通知が無効です。OS の通知設定からこのアプリを許可してください。'
+                      : notifOn
+                        ? '開始時刻の前と、期限リマインダの指定時刻に通知します。'
+                        : 'デスクトップ通知と通知ボックスへの追加を行いません。'
+                }
               >
-                <SelectTrigger aria-label="通知の許可">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="on">ON</SelectItem>
-                  <SelectItem value="off">OFF</SelectItem>
-                </SelectContent>
-              </Select>
-              <fieldset className="settings-nested" disabled={!notifOn}>
-                <div className="settings-nested-row">
-                  <span>タスクの開始通知</span>
+                <Switch
+                  checked={notifOn}
+                  disabled={notifGranted == null}
+                  onChange={handleNotifPrefChange}
+                  label="デスクトップ通知"
+                />
+              </SettingRow>
+            </SettingSection>
+
+            <SettingSection
+              title="タイミング"
+              description="開始通知はすべてのタスクに共通です。リマインダはオンにしたときの初期値で、タスクごとに変更できます。"
+            >
+              <fieldset className="setting-fieldset" disabled={!notifOn}>
+                <SettingRow label="タスクの開始通知" hint="開始時刻の何分前に知らせるか。">
                   <Select
                     value={String(startLead)}
                     disabled={!notifOn}
@@ -221,9 +344,8 @@ export default function SettingsModal({ onClose }) {
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="settings-nested-row">
-                  <span>リマインダー通知</span>
+                </SettingRow>
+                <SettingRow label="リマインダ通知の初期値" hint="期限の何分前に知らせるか。">
                   <Select
                     value={String(reminderLeadDefault)}
                     disabled={!notifOn}
@@ -238,191 +360,114 @@ export default function SettingsModal({ onClose }) {
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <p className="help settings-nested-note">
-                  開始通知はすべてのタスクに共通です。リマインダーは、オンにしたときの初期値で、タスクごとに変更できます。
-                </p>
+                </SettingRow>
               </fieldset>
-            </section>
-            <section className="settings-group">
-              <div className="section-title">表示モード</div>
-              <div className="view-toggle" style={{ marginLeft: 0 }}>
-                <button className={theme === THEMES.light ? 'active' : ''} onClick={() => applyTheme(THEMES.light)}>ライト</button>
-                <button className={theme === THEMES.dark ? 'active' : ''} onClick={() => applyTheme(THEMES.dark)}>ダーク</button>
-                <button className={theme === THEMES.wabi ? 'active' : ''} onClick={() => applyTheme(THEMES.wabi)}>和紙</button>
-                <button className={theme === THEMES.wabiDark ? 'active' : ''} onClick={() => applyTheme(THEMES.wabiDark)}>夜紙</button>
-              </div>
-            </section>
-            <section className="settings-group">
-              <div className="section-title">カレンダーの表示</div>
-              <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                カレンダーを開いたときの表示です。未設定のときは1日です。カレンダー上の切り替えとも同じ設定を使います。
-              </p>
-              <div className="view-toggle" style={{ marginLeft: 0 }}>
-                {CALENDAR_VIEWS.map((v) => (
-                  <button
-                    key={v.id}
-                    className={calendarView === v.id ? 'active' : ''}
-                    onClick={() => setCalendarDefaultView(v.id)}
-                  >
-                    {v.label}
-                  </button>
-                ))}
-              </div>
-            </section>
-            <section className="settings-group">
-              <div className="section-title">WBSボタン表示</div>
-              <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                ONにすると、WBSのボタンをテキストなしのアイコンのみで表示します（ホバーで名称を表示）。
-              </p>
-              <div className="view-toggle" style={{ marginLeft: 0 }}>
-                <button className={!iconMode ? 'active' : ''} onClick={() => setIconMode(false)}>テキスト</button>
-                <button className={iconMode ? 'active' : ''} onClick={() => setIconMode(true)}>アイコンのみ</button>
-              </div>
-            </section>
-            <section className="settings-group">
-              <div className="section-title">WBSガントバー</div>
-              <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                ONにすると、バー内にタスク名を表示します（バーの幅を超える分は折り返さず切り詰めます）。
-              </p>
-              <div className="view-toggle" style={{ marginLeft: 0, marginBottom: 8 }}>
-                <button className={!barLabel ? 'active' : ''} onClick={() => setBarLabel(false)}>タスク名なし</button>
-                <button className={barLabel ? 'active' : ''} onClick={() => setBarLabel(true)}>タスク名を表示</button>
-              </div>
-              <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-                日付上のタスクバーの色です。未設定時はテーマのアクセント色を使います。
-              </p>
-              <div className="cat-edit-row" style={{ alignItems: 'center' }}>
-                <ColorPickerSwatch
-                  color={ganttBarColor || DEFAULT_GANTT_BAR_SWATCH}
-                  onChange={(c) => applyGanttBarColor(c)}
-                />
-                <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-soft)' }}>
-                  {ganttBarColor || 'デフォルト'}
-                </span>
-                {ganttBarColor && (
-                  <button className="btn btn-sm" type="button" onClick={() => applyGanttBarColor(null)}>
-                    リセット
-                  </button>
-                )}
-              </div>
-            </section>
+              {!notifOn && (
+                <p className="setting-footnote">
+                  <BellOff size={13} strokeWidth={2} aria-hidden />
+                  デスクトップ通知をオンにすると設定できます。
+                </p>
+              )}
+            </SettingSection>
           </div>
-          )}
+        )}
 
-          {tab === 'tags' && (
+        {tab === 'tags' && (
           <>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。子に別のタグを付けるとその配下だけ色が変わります。⋯メニューの「子にタグを付ける」で、親のタグを配下のタスクへ一括で付けられます。
-            </p>
-            <div className="settings-list">
+            <EntityList
+              empty={
+                <EmptyState icon={Tag} title="タグはまだありません" hint="追加すると WBS のタスクに色付きの淵を付けられます。" />
+              }
+            >
               {sortedTags.map((t) => (
                 <TagRow key={t.id} tag={t} />
               ))}
-            </div>
-            <div className="cat-edit-row">
-              <input
-                type="text"
-                value={newTag}
-                placeholder="新しいタグ（例: 本番）"
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newTag.trim()) {
-                    actions.addTag(newTag)
-                    setNewTag('')
-                  }
-                }}
-              />
-              <button
-                className="btn btn-sm btn-primary"
-                onClick={() => {
-                  if (newTag.trim()) {
-                    actions.addTag(newTag)
-                    setNewTag('')
-                  }
-                }}
-              >
-                追加
-              </button>
-            </div>
+            </EntityList>
+            <AddEntityBar placeholder="新しいタグ名（例: 本番）を入力して Enter" onAdd={(n) => actions.addTag(n)} />
           </>
-          )}
+        )}
 
-          {tab === 'categories' && (
+        {tab === 'categories' && (
           <>
-            <div className="settings-list">
+            <EntityList
+              empty={
+                <EmptyState icon={Shapes} title="カテゴリはまだありません" hint="追加するとタスクを種類ごとに分けられます。" />
+              }
+            >
               {sortedCats.map((c) => (
                 <CategoryRow key={c.id} category={c} />
               ))}
-            </div>
-            <div className="cat-edit-row">
-              <input
-                type="text"
-                value={newCat}
-                placeholder="新しいカテゴリ"
-                onChange={(e) => setNewCat(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newCat.trim()) {
-                    actions.addCategory(newCat)
-                    setNewCat('')
-                  }
-                }}
-              />
-              <button
-                className="btn btn-sm btn-primary"
-                onClick={() => {
-                  if (newCat.trim()) {
-                    actions.addCategory(newCat)
-                    setNewCat('')
-                  }
-                }}
-              >
-                追加
-              </button>
-            </div>
+            </EntityList>
+            <AddEntityBar placeholder="新しいカテゴリ名を入力して Enter" onAdd={(n) => actions.addCategory(n)} />
           </>
-          )}
+        )}
 
-          {tab === 'data' && (
-          <>
-            <div className="section-title" style={{ marginTop: 0 }}>データファイルの場所</div>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              既存の .db ファイルを選択します。OneDrive や Dropbox 上のファイルを指定すると複数PCで同期できます。
-              共有ファイルの更新は、WBS とカレンダーの再取得ボタンから取り込みます。
-            </p>
-            <div className="editor-row settings-db-row">
-              <code className="settings-db-path">
-                {formatDbPathDisplay(dbPath) || 'デフォルト（%APPDATA%\\task-manager\\tasks.db）'}
-              </code>
-              <button className="btn btn-sm" onClick={handlePickDbFile}>変更</button>
-              {dbPath && <button className="btn btn-sm" onClick={resetDbPath}>リセット</button>}
-            </div>
-            {dbMsg && <p className="help" style={{ marginTop: 6 }}>{dbMsg}</p>}
-
-            <div className="section-title">データのリセット</div>
-            <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
-              すべてのタスク・プロジェクト・アクティビティを削除し、初期状態に戻します。この操作は元に戻せません。
-            </p>
-            <button
-              className="btn btn-danger"
-              onClick={() =>
-                setConfirm({
-                  message: '全データをリセットします',
-                  detail: 'すべてのタスク・プロジェクト・アクティビティを削除します。\nこの操作は元に戻せません。',
-                  okLabel: 'リセットする',
-                  danger: true,
-                  onOk: () => {
-                    setConfirm(null)
-                    actions.resetAllData()
-                    onClose()
-                  },
-                })
-              }
+        {tab === 'data' && (
+          <div className="settings-stack">
+            <SettingSection
+              title="データファイルの場所"
+              description="既存の .db ファイルを選ぶと、そのファイルを開きます。OneDrive や Dropbox 上のファイルを指定すると複数PCで同期できます。共有ファイルの更新は WBS とカレンダーの再取得ボタンから取り込みます。"
             >
-              全データをリセット
-            </button>
-          </>
-          )}
+              <div className="db-card">
+                <span className="db-card-icon" aria-hidden>
+                  <HardDrive size={18} strokeWidth={1.8} />
+                </span>
+                <div className="db-card-main">
+                  <div className="db-card-label">{dbPath ? 'カスタム' : 'デフォルト'}</div>
+                  <code className="db-card-path">
+                    {formatDbPathDisplay(dbPath) || '%APPDATA%\\task-manager\\tasks.db'}
+                  </code>
+                </div>
+                <div className="db-card-actions">
+                  <button className="btn btn-sm" type="button" onClick={handlePickDbFile}>
+                    <FolderOpen size={14} strokeWidth={2} aria-hidden />
+                    変更
+                  </button>
+                  {dbPath && (
+                    <button className="btn btn-sm" type="button" onClick={resetDbPath}>
+                      <RotateCcw size={14} strokeWidth={2} aria-hidden />
+                      デフォルトに戻す
+                    </button>
+                  )}
+                </div>
+              </div>
+              {dbMsg && (
+                <p className={`db-msg is-${dbMsg.tone}`} role="status">
+                  {dbMsg.text}
+                </p>
+              )}
+            </SettingSection>
+
+            <SettingSection
+              tone="danger"
+              title="危険な操作"
+              description="すべてのタスク・プロジェクト・アクティビティを削除し、初期状態に戻します。この操作は元に戻せません。"
+            >
+              <SettingRow label="全データをリセット" hint="実行前に確認ダイアログを表示します。">
+                <button
+                  className="btn btn-sm btn-danger"
+                  type="button"
+                  onClick={() =>
+                    setConfirm({
+                      message: '全データをリセットします',
+                      detail: 'すべてのタスク・プロジェクト・アクティビティを削除します。\nこの操作は元に戻せません。',
+                      okLabel: 'リセットする',
+                      danger: true,
+                      onOk: () => {
+                        setConfirm(null)
+                        actions.resetAllData()
+                        onClose()
+                      },
+                    })
+                  }
+                >
+                  <AlertTriangle size={14} strokeWidth={2} aria-hidden />
+                  リセット…
+                </button>
+              </SettingRow>
+            </SettingSection>
+          </div>
+        )}
       </SettingsShell>
     </div>
     {confirm && (
@@ -440,110 +485,73 @@ export default function SettingsModal({ onClose }) {
 }
 
 function TagRow({ tag }) {
-  const { actions } = useStore()
-  const [name, setName] = useState(tag.name)
+  const { state, actions } = useStore()
   const [confirm, setConfirm] = useState(null)
-  const color = tag.color || ''
+  const useCount = state.tasks.filter((t) => t.tag_id === tag.id).length
 
   return (
     <>
-    <div className="cat-edit-row">
-      <ColorPickerSwatch
-        color={color}
-        onChange={(c) => actions.updateTag(tag.id, { color: c })}
-      />
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => {
-          const n = name.trim()
-          if (n && n !== tag.name) actions.updateTag(tag.id, { name: n })
-          else setName(tag.name)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            const n = name.trim()
-            if (n && n !== tag.name) actions.updateTag(tag.id, { name: n })
-            e.target.blur()
-          }
-        }}
-      />
-      <button
-        className="btn btn-sm btn-icon-del"
-        onClick={() =>
-          setConfirm({
-            message: `「${tag.name}」を削除しますか？`,
-            detail: 'このタグのタスクはタグなしになります。',
-            okLabel: '削除する',
-            danger: true,
-            onOk: () => { setConfirm(null); actions.deleteTag(tag.id) },
-          })
+      <EntityRow
+        color={tag.color || ''}
+        onColorChange={(c) => actions.updateTag(tag.id, { color: c })}
+        name={tag.name}
+        onRename={(n) => actions.updateTag(tag.id, { name: n })}
+        meta={<MetaChip>タスク {useCount} 件</MetaChip>}
+        actions={
+          <IconButton
+            icon={Trash2}
+            label="削除"
+            danger
+            onClick={() =>
+              setConfirm({
+                message: `「${tag.name}」を削除しますか？`,
+                detail: useCount ? `${useCount} 件のタスクはタグなしになります。` : 'このタグのタスクはタグなしになります。',
+                okLabel: '削除する',
+                danger: true,
+                onOk: () => { setConfirm(null); actions.deleteTag(tag.id) },
+              })
+            }
+          />
         }
-        title="削除"
-        aria-label="削除"
-      >
-        <Trash2 size={14} strokeWidth={2} aria-hidden />
-      </button>
-    </div>
-    {confirm && (
-      <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />
-    )}
+      />
+      {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />}
     </>
   )
 }
 
 function CategoryRow({ category }) {
-  const { actions } = useStore()
-  const [name, setName] = useState(category.name)
+  const { state, actions } = useStore()
   const [confirm, setConfirm] = useState(null)
-  const color = category.color || ''
+  const useCount = state.tasks.filter((t) => t.category_id === category.id).length
 
   return (
     <>
-    <div className="cat-edit-row">
-      <ColorPickerSwatch
-        color={color}
-        onChange={(c) => actions.updateCategory(category.id, { color: c })}
-      />
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => {
-          const n = name.trim()
-          if (n && n !== category.name) actions.updateCategory(category.id, { name: n })
-          else setName(category.name)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            const n = name.trim()
-            if (n && n !== category.name) actions.updateCategory(category.id, { name: n })
-            e.target.blur()
-          }
-        }}
-      />
-      <button
-        className="btn btn-sm btn-icon-del"
-        onClick={() =>
-          setConfirm({
-            message: `「${category.name}」を削除しますか？`,
-            detail: 'このカテゴリのタスクはカテゴリなしになります。',
-            okLabel: '削除する',
-            danger: true,
-            onOk: () => { setConfirm(null); actions.deleteCategory(category.id) },
-          })
+      <EntityRow
+        color={category.color || ''}
+        onColorChange={(c) => actions.updateCategory(category.id, { color: c })}
+        name={category.name}
+        onRename={(n) => actions.updateCategory(category.id, { name: n })}
+        meta={<MetaChip>タスク {useCount} 件</MetaChip>}
+        actions={
+          <IconButton
+            icon={Trash2}
+            label="削除"
+            danger
+            onClick={() =>
+              setConfirm({
+                message: `「${category.name}」を削除しますか？`,
+                detail: useCount
+                  ? `${useCount} 件のタスクはカテゴリなしになります。`
+                  : 'このカテゴリのタスクはカテゴリなしになります。',
+                okLabel: '削除する',
+                danger: true,
+                onOk: () => { setConfirm(null); actions.deleteCategory(category.id) },
+              })
+            }
+          />
         }
-        title="削除"
-        aria-label="削除"
-      >
-        <Trash2 size={14} strokeWidth={2} aria-hidden />
-      </button>
-    </div>
-    {confirm && (
-      <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />
-    )}
+      />
+      {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />}
     </>
   )
 }
-

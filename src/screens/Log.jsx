@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { save } from '@tauri-apps/plugin-dialog'
 import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { useStore, useCategoryMap } from '../store/StoreContext.jsx'
+import { History } from 'lucide-react'
+import { EmptyState } from '../components/ui/controls.jsx'
 import {
   currentMonth,
   monthLabel,
@@ -271,7 +273,7 @@ export default function Log({ embedded = false }) {
           </div>
         ))
       ) : (
-        <p className="empty">この月に完了したタスクはありません</p>
+        <EmptyState compact icon={History} title="この月に完了したタスクはありません" />
       )}
     </div>
   )

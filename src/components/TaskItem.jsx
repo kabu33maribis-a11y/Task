@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   PenLine, Trash2, Pencil, Copy, ClipboardPaste, CornerDownRight,
   ListChecks, Link2, ArrowRight, Inbox,
@@ -11,6 +11,7 @@ import { assigneesOf, candidateMembersFor } from '../lib/members.js'
 import ActivityPanel from './ActivityPanel.jsx'
 import ChildTaskDialog from './ChildTaskDialog.jsx'
 import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
+import DatePicker from './DatePicker.jsx'
 import ReminderFields from './ReminderFields.jsx'
 import TaskPicker from './TaskPicker.jsx'
 import { TASK_DND_TYPE, setActiveDragTaskId, clearActiveDragTaskId } from '../lib/taskDnd.js'
@@ -812,6 +813,7 @@ function InlineEditor({ task, categories, rootRef, onClose }) {
   )
   const inputRef = useRef(null)
   const commitRef = useRef(() => {})
+  const fieldId = useId()
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -889,6 +891,9 @@ function InlineEditor({ task, categories, rootRef, onClose }) {
     reminder_enabled: draft.reminder_enabled,
     reminder_lead_minutes: draft.reminder_lead_minutes,
   }
+  const editedTask = { ...task, project_id: draft.project_id }
+  const assigneeCandidates = candidateMembersFor(editedTask, state)
+  const tags = [...(state.tags ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
   return (
     <div
@@ -902,6 +907,8 @@ function InlineEditor({ task, categories, rootRef, onClose }) {
       <input
         ref={inputRef}
         type="text"
+        className="editor-title"
+        aria-label="タスク名"
         value={draft.title}
         onChange={(e) => patchDraft({ title: e.target.value })}
         onKeyDown={(e) => {
@@ -911,33 +918,45 @@ function InlineEditor({ task, categories, rootRef, onClose }) {
           }
         }}
       />
-      <div className="editor-row">
-        <ConsoleDateRangeFields
-          start={draft.scheduled_date}
-          end={draft.console_end_date}
-          onChange={({ scheduled_date, console_end_date }) =>
-            patchDraft({ scheduled_date, console_end_date })
-          }
-        />
+      <div className="editor-fields">
+        <span className="editor-label">期間</span>
+        <div className="editor-control">
+          <DatePicker
+            value={draft.scheduled_date ?? ''}
+            endValue={
+              draft.console_end_date && draft.console_end_date !== draft.scheduled_date
+                ? draft.console_end_date
+                : ''
+            }
+            onRangeChange={(start, end) => patchDraft(normalizeConsoleDateRange(start || null, end || null))}
+            placeholder="開始〜終了"
+          />
+        </div>
+
         {projects.length > 0 && (
-          <label>
-            プロジェクト
-            <select
-              value={draft.project_id ?? ''}
-              onChange={(e) => patchDraft({ project_id: e.target.value || null })}
-            >
-              <option value="">なし</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <>
+            <label className="editor-label" htmlFor={`${fieldId}-project`}>プロジェクト</label>
+            <div className="editor-control">
+              <select
+                id={`${fieldId}-project`}
+                value={draft.project_id ?? ''}
+                onChange={(e) => patchDraft({ project_id: e.target.value || null })}
+              >
+                <option value="">なし</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
         )}
-        <label>
-          カテゴリ
+
+        <label className="editor-label" htmlFor={`${fieldId}-category`}>カテゴリ</label>
+        <div className="editor-control">
           <select
+            id={`${fieldId}-category`}
             value={draft.category_id ?? ''}
             onChange={(e) => patchDraft({ category_id: e.target.value || null })}
           >
@@ -948,33 +967,50 @@ function InlineEditor({ task, categories, rootRef, onClose }) {
               </option>
             ))}
           </select>
-        </label>
-        {(state.tags ?? []).length > 0 && (
-          <label>
-            タグ
-            <select
-              value={draft.tag_id ?? ''}
-              onChange={(e) => patchDraft({ tag_id: e.target.value || null })}
-            >
-              <option value="">なし</option>
-              {[...(state.tags ?? [])]
-                .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-                .map((t) => (
+        </div>
+
+        {tags.length > 0 && (
+          <>
+            <label className="editor-label" htmlFor={`${fieldId}-tag`}>タグ</label>
+            <div className="editor-control">
+              <select
+                id={`${fieldId}-tag`}
+                value={draft.tag_id ?? ''}
+                onChange={(e) => patchDraft({ tag_id: e.target.value || null })}
+              >
+                <option value="">なし</option>
+                {tags.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
                   </option>
                 ))}
-            </select>
-          </label>
+              </select>
+            </div>
+          </>
+        )}
+
+        <span className="editor-label">期限</span>
+        <div className="editor-control">
+          <ReminderFields task={reminderTask} onChange={patchDraft} inline />
+        </div>
+
+        {assigneeCandidates.length > 0 && (
+          <>
+            <span className="editor-label">担当</span>
+            <div className="editor-control">
+              <AssigneeToggles
+                task={editedTask}
+                assignedIds={assigneeIds}
+                onToggle={toggleAssignee}
+              />
+            </div>
+          </>
         )}
       </div>
-      <ReminderFields task={reminderTask} onChange={patchDraft} compact />
-      <AssigneeToggles
-        task={{ ...task, project_id: draft.project_id }}
-        assignedIds={assigneeIds}
-        onToggle={toggleAssignee}
-      />
       <div className="editor-footer">
+        <button type="button" className="btn btn-sm" onClick={onClose}>
+          キャンセル
+        </button>
         <button
           type="button"
           className="btn btn-sm btn-date-commit"
@@ -993,8 +1029,7 @@ function AssigneeToggles({ task, assignedIds, onToggle }) {
   if (candidates.length === 0) return null
   const assigned = assignedIds ?? new Set(assigneesOf(task.id, state).map((m) => m.id))
   return (
-    <div className="editor-row assignee-toggles" role="group" aria-label="担当者">
-      <span className="assignee-toggles-label">担当</span>
+    <div className="assignee-toggles" role="group" aria-label="担当者">
       {candidates.map((m) => {
         const on = assigned.has(m.id)
         return (
@@ -1003,7 +1038,7 @@ function AssigneeToggles({ task, assignedIds, onToggle }) {
             type="button"
             className={`chip chip-assignee assignee-toggle${on ? ' is-on' : ''}`}
             aria-pressed={on}
-            style={m.color ? { borderColor: m.color } : undefined}
+            style={m.color ? { '--member': m.color } : undefined}
             onClick={() => (onToggle ? onToggle(m.id) : actions.toggleTaskAssignee(task.id, m.id))}
           >
             {m.name}

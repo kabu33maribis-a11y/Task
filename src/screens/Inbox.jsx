@@ -3,7 +3,9 @@ import { useStore, useVisibleProjects, useHiddenProjectIds } from '../store/Stor
 import AddTaskBar from '../components/AddTaskBar.jsx'
 import TaskList from '../components/TaskList.jsx'
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
-import { isInboxTask, parentIdSet } from '../lib/wbs.js'
+import { filterVisibleInboxTasks } from '../lib/wbs.js'
+import { Inbox as InboxIcon } from 'lucide-react'
+import { EmptyState } from '../components/ui/controls.jsx'
 
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
 
@@ -13,14 +15,10 @@ export default function Inbox({ embedded = false, projectFilter = 'all', focusTa
   const hiddenIds = useHiddenProjectIds()
   const [dragOver, setDragOver] = useState(false)
 
-  const inboxTasks = useMemo(() => {
-    const parentIds = parentIdSet(state.tasks)
-    return state.tasks
-      .filter((t) => isInboxTask(t, parentIds))
-      .filter((t) => !(t.project_id && hiddenIds.has(t.project_id)))
-      .filter((t) => projectFilter === 'all' || t.project_id === projectFilter)
-      .sort(bySort)
-  }, [state.tasks, projectFilter, hiddenIds])
+  const inboxTasks = useMemo(
+    () => filterVisibleInboxTasks(state.tasks, { hiddenIds, projectFilter }).sort(bySort),
+    [state.tasks, projectFilter, hiddenIds],
+  )
 
   function handleDrop(e) {
     e.preventDefault()
@@ -60,7 +58,12 @@ export default function Inbox({ embedded = false, projectFilter = 'all', focusTa
           />
         </div>
       ) : (
-          <p className="empty">Inboxは空です。思いつきを置いて、あとから日付を付けられます</p>
+          <EmptyState
+            compact
+            icon={InboxIcon}
+            title="Inboxは空です"
+            hint="思いつきを置いて、あとから日付を付けられます"
+          />
       )}
 
       <div className="inbox-drop-spacer" aria-hidden>

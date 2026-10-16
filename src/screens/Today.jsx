@@ -4,7 +4,9 @@ import { todayStr, formatFullJP, formatConsoleDateRange, taskCoversDate, taskCon
 import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 import AddTaskBar from '../components/AddTaskBar.jsx'
 import TaskList from '../components/TaskList.jsx'
-import { isInboxTask, parentIdSet } from '../lib/wbs.js'
+import { filterVisibleInboxTasks } from '../lib/wbs.js'
+import { Inbox as InboxIcon } from 'lucide-react'
+import { EmptyState } from '../components/ui/controls.jsx'
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 }
 const byPriority = (a, b) => {
@@ -103,9 +105,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
     const overdue = scoped
       .filter((t) => t.status === 'TODO' && t.scheduled_date && taskConsoleEndDate(t) < today)
       .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
-    const parentIds = parentIdSet(state.tasks)
-    const inbox = scoped
-      .filter((t) => isInboxTask(t, parentIds))
+    const inbox = filterVisibleInboxTasks(state.tasks, { hiddenIds, projectFilter })
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
     return {
@@ -427,7 +427,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
         {inbox.length > 0 ? (
           <TaskList tasks={inbox} showDateActions focusTaskId={focusTaskId} focusNonce={focusNonce} />
         ) : (
-          <p className="empty">Inboxは空です。日付未定のメモ置き場です</p>
+          <EmptyState compact icon={InboxIcon} title="Inboxは空です" hint="日付未定のメモ置き場です" />
         )}
       </div>
     </div>

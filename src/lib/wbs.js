@@ -39,6 +39,20 @@ export function isInboxTask(task, parentIds) {
   return task.status === 'TODO' && !task.scheduled_date && !parentIds.has(task.id)
 }
 
+/**
+ * Inbox the user can see: undated TODO leaves, minus hidden projects and the
+ * active project filter. Badge counts and the Inbox list both use this.
+ */
+export function filterVisibleInboxTasks(tasks, { hiddenIds, projectFilter = 'all' } = {}) {
+  const parentIds = parentIdSet(tasks)
+  return tasks.filter((t) => {
+    if (!isInboxTask(t, parentIds)) return false
+    if (t.project_id && hiddenIds?.has(t.project_id)) return false
+    if (projectFilter !== 'all' && t.project_id !== projectFilter) return false
+    return true
+  })
+}
+
 const byTitle = (a, b) => {
   const cmp = (a.title || '').localeCompare(b.title || '', 'ja')
   return cmp !== 0 ? cmp : bySort(a, b)
