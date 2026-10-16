@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import {
   Trash2, Plus, FileSpreadsheet, Maximize2, Calendar, CalendarDays, CheckCircle2,
-  Lock, Unlock, ChevronsUpDown, ChevronsDownUp, CornerDownRight, X,
+  Lock, Unlock, ChevronsUpDown, ChevronsDownUp, CornerDownRight, X, Filter,
   Pencil, Copy, ClipboardPaste, FileText, ListPlus, Tag, Tags, User, Link2,
   ListIndentIncrease, ListIndentDecrease,
 } from 'lucide-react'
@@ -19,6 +19,7 @@ import {
   flattenVisible,
   filterTreeToRange,
   filterCompletedTree,
+  filterTreeToTasks,
   filterTreeByQuery,
   isSelfOrDescendant,
   descendantIds,
@@ -243,11 +244,26 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
   })
   const [taskQueryInput, setTaskQueryInput] = useState('')
   const [taskQuery, setTaskQuery] = useState('')
+  const [focusTaskIds, setFocusTaskIds] = useState(() => new Set())
   // 入力中は少し待ってから絞り込み（キーストロークごとの再計算を抑える）
   useEffect(() => {
     const t = setTimeout(() => setTaskQuery(taskQueryInput), 250)
     return () => clearTimeout(t)
   }, [taskQueryInput])
+
+  useEffect(() => {
+    setFocusTaskIds((prev) => {
+      if (prev.size === 0) return prev
+      const live = new Set(state.tasks.map((t) => t.id))
+      let changed = false
+      const next = new Set()
+      for (const id of prev) {
+        if (live.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [state.tasks])
   const [axisLocked, setAxisLocked] = useState(() => localStorage.getItem(AXIS_LOCKED_KEY) === '1')
   const [editMode, setEditMode] = useState(() => localStorage.getItem(EDIT_MODE_KEY) === '1')
   const [hourRangeDays, setHourRangeDays] = useState(() => {
@@ -385,10 +401,15 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     [roots, showCompleted],
   )
 
+  const focusedRoots = useMemo(
+    () => (focusTaskIds.size ? filterTreeToTasks(baseDisplayRoots, focusTaskIds) : baseDisplayRoots),
+    [baseDisplayRoots, focusTaskIds],
+  )
+
   const displayRoots = useMemo(() => {
     const q = taskQuery.trim()
-    return q ? filterTreeByQuery(baseDisplayRoots, q) : baseDisplayRoots
-  }, [baseDisplayRoots, taskQuery])
+    return q ? filterTreeByQuery(focusedRoots, q) : focusedRoots
+  }, [focusedRoots, taskQuery])
 
   // 検索中は折りたたみを無視し、ヒットしたタスクが必ず見えるようにする
   const visible = useMemo(
@@ -396,10 +417,10 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     [displayRoots, collapsed, taskQuery],
   )
 
-  // 日付軸の幅は検索で変わらないよう、絞り込み前の全タスクから算出
+  // 日付軸は検索では動かさない。タスク絞り込み中だけ、その範囲に合わせる
   const rangeBasis = useMemo(
-    () => flattenVisible(baseDisplayRoots, new Set()),
-    [baseDisplayRoots],
+    () => flattenVisible(focusTaskIds.size ? focusedRoots : baseDisplayRoots, new Set()),
+    [baseDisplayRoots, focusedRoots, focusTaskIds],
   )
 
   // 該当なし時も縦・横の目盛り行数を維持（検索前の行数、最低12行）
@@ -776,6 +797,45 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     const next = Math.max(HOUR_RANGE_DAYS_MIN, Math.min(HOUR_RANGE_DAYS_MAX, n))
     setHourRangeDays(next)
     localStorage.setItem(HOUR_RANGE_DAYS_KEY, String(next))
+  }
+
+  function clearTaskFocus() {
+    setFocusTaskIds(new Set())
+  }
+
+  /** 指定タスクだけ表示する。同じ対象をもう一度指定したら解除。親なら配下も残す。 */
+  function focusTasks(ids) {
+    const unique = []
+    const seen = new Set()
+    for (const id of ids) {
+      if (!id || seen.has(id)) continue
+      if (!state.tasks.some((t) => t.id === id)) continue
+      seen.add(id)
+      unique.push(id)
+    }
+    const rootsOnly = unique.filter(
+      (id) => !unique.some((other) => other !== id && isSelfOrDescendant(id, other, state.tasks)),
+    )
+    if (!rootsOnly.length) {
+      clearTaskFocus()
+      return
+    }
+    const same = rootsOnly.length === focusTaskIds.size && rootsOnly.every((id) => focusTaskIds.has(id))
+    if (same) {
+      clearTaskFocus()
+      return
+    }
+    setFocusTaskIds(new Set(rootsOnly))
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      for (const id of rootsOnly) {
+        next.delete(id)
+        for (const childId of descendantIds(id, state.tasks)) next.delete(childId)
+        const task = state.tasks.find((t) => t.id === id)
+        if (task) next.delete(`proj:${task.project_id ?? 'unassigned'}`)
+      }
+      return next
+    })
   }
 
   async function handleExport({ kind = 'gantt', projectIds, showWeekends: exportWeekends, showHolidays, range = null }) {
@@ -1385,7 +1445,9 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
         return
       }
       const range = rangeSelectIds(anchor, id)
-      const next = withCtrl ? new Set([...selectedIds, ...range]) : range
+      const next = new Set(selectedIds)
+      if (selectedId) next.add(selectedId)
+      for (const rid of range) next.add(rid)
       setSelectedId(id)
       setSelectedIds(next)
       dragSeedRef.current = next
@@ -1500,13 +1562,42 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
 
   const popTask = datePopover && scopedTasks.find((t) => t.id === datePopover.taskId)
   const hasContent = multi ? visibleProjects.length > 0 : roots.length > 0
-  const selectionCount = editMode ? currentSelectionIds().length : 0
+  const selectionIds = currentSelectionIds()
+  const selectionCount = editMode ? selectionIds.length : 0
   const clipCount = clipboardTask?.bundle?.items?.length ?? (clipboardTask ? 1 : 0)
+  const focusChipTasks = []
+  if (focusTaskIds.size > 0) {
+    const byId = new Map(state.tasks.map((t) => [t.id, t]))
+    for (const id of focusTaskIds) {
+      const task = byId.get(id)
+      if (task) focusChipTasks.push(task)
+    }
+  }
+  const focusChipText = focusChipTasks.length <= 1
+    ? (focusChipTasks[0]?.title || 'タスク')
+    : `${focusChipTasks.length}件`
+  const focusChipTitle = focusChipTasks.map((t) => t.title || '(無題)').join('、')
+  const sameSelectionFocused = selectionIds.length > 0
+    && selectionIds.length === focusTaskIds.size
+    && selectionIds.every((id) => focusTaskIds.has(id))
+  function focusIdsFor(taskId) {
+    const inSelection = selectedIds.has(taskId) || selectedId === taskId
+    if (editMode && inSelection && selectionIds.length > 1) return selectionIds
+    return [taskId]
+  }
+  function focusMenuLabelFor(taskId) {
+    const ids = focusIdsFor(taskId)
+    const same = ids.length === focusTaskIds.size && ids.every((id) => focusTaskIds.has(id))
+    if (same) return '絞り込みを解除'
+    return ids.length > 1 ? `選択に絞る（${ids.length}件）` : 'このタスクに絞る'
+  }
   const emptyRowsMessage = taskQuery.trim()
     ? '該当するタスクがありません。'
-    : !showCompleted && overall.total > 0
-      ? '完了タスクのみです。「完了」ボタンで表示できます。'
-      : 'タスクはまだありません。プロジェクト行の「＋子」または「タスクを追加」ボタンから追加してください。'
+    : focusTaskIds.size > 0
+      ? '絞り込みに該当するタスクがありません。'
+      : !showCompleted && overall.total > 0
+        ? '完了タスクのみです。「完了」ボタンで表示できます。'
+        : 'タスクはまだありません。プロジェクト行の「＋子」または「タスクを追加」ボタンから追加してください。'
 
   const [hoverColDate, setHoverColDate] = useState(null)
   function onMatrixMouseMove(e) {
@@ -1581,6 +1672,37 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
               <X size={14} strokeWidth={2} aria-hidden />
             </button>
           </div>
+          {focusChipTasks.length > 0 && (
+            <div className="wbs-task-focus" title={focusChipTitle}>
+              <span className="wbs-task-focus-label">{focusChipText}</span>
+              <button
+                type="button"
+                className="wbs-task-focus-clear"
+                onClick={clearTaskFocus}
+                title="絞り込みを解除"
+                aria-label="絞り込みを解除"
+              >
+                <X size={12} strokeWidth={2} aria-hidden />
+              </button>
+            </div>
+          )}
+          <button
+            className={`btn btn-sm btn-toggle${focusTaskIds.size ? ' is-on' : ''}`}
+            aria-pressed={focusTaskIds.size > 0}
+            disabled={focusTaskIds.size === 0 && selectionIds.length === 0}
+            onClick={() => {
+              if (selectionIds.length) focusTasks(selectionIds)
+              else clearTaskFocus()
+            }}
+            title={
+              sameSelectionFocused || (focusTaskIds.size > 0 && selectionIds.length === 0)
+                ? '絞り込みを解除'
+                : '選択したタスクだけ表示（親なら配下も表示）'
+            }
+            aria-label="絞る"
+          >
+            <BtnLabel icon={Filter}>絞る</BtnLabel>
+          </button>
           <button
             className="btn btn-sm btn-primary"
             onClick={() => setAddDialogOpen(true)}
@@ -2129,6 +2251,8 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
                           }}
                           onAddChild={() => openAddChild(node)}
                           onInsertBelow={() => openInsertBelow(node.task.id)}
+                          onFocusTasks={() => focusTasks(focusIdsFor(node.task.id))}
+                          focusMenuLabel={focusMenuLabelFor(node.task.id)}
                           onTreeDragStart={(id) => {
                             setTreeDragId(id)
                             setTreeOverId(null)
@@ -2807,6 +2931,8 @@ function LeftRow({
   onOpenDetail,
   onAddChild,
   onInsertBelow,
+  onFocusTasks,
+  focusMenuLabel = 'このタスクに絞る',
   onTreeDragStart,
   onTreeDragEnd,
 }) {
@@ -2960,6 +3086,10 @@ function LeftRow({
     setMoreOpen(false)
     onOpenDetail?.()
   }
+  function focusFromMore() {
+    setMoreOpen(false)
+    onFocusTasks?.()
+  }
   const copyingMany = editMode && selected && selectionSize > 1
   const clipCount = clipboardTask?.bundle?.items?.length ?? (clipboardTask ? 1 : 0)
   function copyTaskFromMore() {
@@ -3009,7 +3139,7 @@ function LeftRow({
           role="checkbox"
           aria-checked={selected}
           aria-label={selected ? '選択を解除' : '選択'}
-          title="選択（Shiftで範囲）"
+          title="選択（Shiftで範囲を追加）"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation()
@@ -3127,6 +3257,15 @@ function LeftRow({
                 <button type="button" role="menuitem" onClick={openDetailFromMore}>
                   <MenuIcon icon={FileText} />
                   詳細
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={focusFromMore}
+                  title="このタスクだけ表示。親なら配下も表示します"
+                >
+                  <MenuIcon icon={Filter} />
+                  {focusMenuLabel}
                 </button>
                 <button type="button" role="menuitem" onClick={startEditFromMore}>
                   <MenuIcon icon={Pencil} />

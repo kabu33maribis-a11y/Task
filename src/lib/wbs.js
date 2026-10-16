@@ -462,6 +462,44 @@ export function filterCompletedTree(roots) {
   return prune(roots)
 }
 
+/**
+ * Keep only tasks in `focusIds`. A focused parent keeps its whole subtree.
+ * Ancestors that were not specified are removed, and the matching branch is
+ * hoisted. WBS numbers stay as they were in the full tree.
+ */
+export function filterTreeToTasks(roots, focusIds) {
+  if (!focusIds || focusIds.size === 0) return roots
+
+  function rebase(node, depth) {
+    if (node.depth === depth) return node
+    return {
+      ...node,
+      depth,
+      children: node.children.map((child) => rebase(child, depth + 1)),
+    }
+  }
+
+  function walk(nodes, depth) {
+    const out = []
+    for (const node of nodes) {
+      if (node.isProject) {
+        const children = walk(node.children, 0)
+        if (children.length === 0) continue
+        out.push({ ...node, children, ...aggregateChildren(children) })
+        continue
+      }
+      if (focusIds.has(node.task.id)) {
+        out.push(rebase(node, depth))
+        continue
+      }
+      if (node.children.length) out.push(...walk(node.children, depth))
+    }
+    return out
+  }
+
+  return walk(roots, 0)
+}
+
 /** Keep nodes whose title/wbsNo (or project name) matches query, plus ancestors. */
 export function filterTreeByQuery(roots, query) {
   const q = (query || '').trim().toLowerCase()
