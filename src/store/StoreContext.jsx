@@ -1285,6 +1285,7 @@ function reducer(state, action) {
 // ---- DB sync (state diff → SQL) ----------------------------------------
 
 let syncChain = Promise.resolve()
+let syncEpoch = 0
 
 async function doSyncToDb(prevState, nextState, action) {
   const db = await getDb()
@@ -1667,13 +1668,23 @@ async function doSyncToDb(prevState, nextState, action) {
 }
 
 function syncToDb(prevState, nextState, action) {
+  const epoch = syncEpoch
   syncChain = syncChain
-    .then(() => doSyncToDb(prevState, nextState, action))
+    .then(() => {
+      if (epoch !== syncEpoch) return
+      return doSyncToDb(prevState, nextState, action)
+    })
     .catch((e) => console.error('syncToDb error', action.type, e))
 }
 
 export function flushSync() {
   return syncChain
+}
+
+/** Drop queued DB writes so a reload can take the file contents as source of truth. */
+export function discardPendingDbSync() {
+  syncEpoch += 1
+  syncChain = Promise.resolve()
 }
 
 const CLOSE_FLUSH_TIMEOUT_MS = 3000

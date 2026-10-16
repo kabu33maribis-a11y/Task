@@ -16,7 +16,7 @@ static START_LEAD_MINUTES: AtomicI64 = AtomicI64::new(DEFAULT_START_LEAD_MINUTES
 const DESKTOP_NOTIF_STORE_KEY: &str = "desktopNotifications";
 const START_LEAD_STORE_KEY: &str = "startLeadMinutes";
 
-pub const POLL_INTERVAL_SECS: u64 = 10;
+pub const POLL_INTERVAL_SECS: u64 = 60;
 pub const MISS_GRACE: Duration = Duration::minutes(2);
 /// Default lead for start-time notifications (separate from due-at reminders).
 pub const DEFAULT_START_LEAD_MINUTES: i64 = 30;

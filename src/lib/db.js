@@ -54,3 +54,14 @@ export async function resetDbConnection() {
   _db = createDbInterface()
   return _db
 }
+
+/** Close and reopen the current DB path so cloud-synced file changes are visible. */
+export async function reopenDb() {
+  if (_db) {
+    await _db.close().catch(() => {})
+    _db = null
+  }
+  await connectDb()
+  _db = createDbInterface()
+  return _db
+}

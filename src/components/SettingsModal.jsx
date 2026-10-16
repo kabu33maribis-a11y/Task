@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { HardDrive, Palette, Shapes, Tag, Trash2 } from 'lucide-react'
-import { useStore, flushSync } from '../store/StoreContext.jsx'
-import { reconnectDb, resetDbConnection } from '../lib/db.js'
+import { useStore, flushSync, discardPendingDbSync } from '../store/StoreContext.jsx'
+import { reconnectDb, reopenDb, resetDbConnection } from '../lib/db.js'
 import { getDbPath, pickDbFile, setDbPath } from '../lib/appConfig.js'
 import { applyTheme as setThemeOnDocument, getSavedTheme, THEMES } from '../lib/theme.js'
 import {
@@ -42,6 +42,7 @@ export default function SettingsModal({ onClose }) {
   const [newTag, setNewTag] = useState('')
   const [dbPath, setDbPathState] = useState(null)
   const [dbMsg, setDbMsg] = useState('')
+  const [dbBusy, setDbBusy] = useState(false)
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
   const [theme, setTheme] = useState(getSavedTheme)
   const [ganttBarColor, setGanttBarColor] = useState(getSavedGanttBarColor)
@@ -137,6 +138,22 @@ export default function SettingsModal({ onClose }) {
       setDbMsg('デフォルトの保存先に戻し、データを移行しました。')
     } catch (e) {
       setDbMsg('エラー: ' + String(e))
+    }
+  }
+
+  async function handleReloadDb() {
+    if (dbBusy) return
+    setDbBusy(true)
+    setDbMsg('')
+    try {
+      discardPendingDbSync()
+      await reopenDb()
+      await actions.reloadFromDb()
+      setDbMsg('ファイルの内容を再取得しました。')
+    } catch (e) {
+      setDbMsg('エラー: ' + String(e))
+    } finally {
+      setDbBusy(false)
     }
   }
 
@@ -374,13 +391,17 @@ export default function SettingsModal({ onClose }) {
             <div className="section-title" style={{ marginTop: 0 }}>データファイルの場所</div>
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
               既存の .db ファイルを選択します。OneDrive や Dropbox 上のファイルを指定すると複数PCで同期できます。
+              共有ファイルの更新を取り込むときは「再取得」を押してください（このPCの未保存の変更は破棄されます）。
             </p>
             <div className="editor-row settings-db-row">
               <code className="settings-db-path">
                 {formatDbPathDisplay(dbPath) || 'デフォルト（%APPDATA%\\task-manager\\tasks.db）'}
               </code>
-              <button className="btn btn-sm" onClick={handlePickDbFile}>変更</button>
-              {dbPath && <button className="btn btn-sm" onClick={resetDbPath}>リセット</button>}
+              <button className="btn btn-sm" onClick={handlePickDbFile} disabled={dbBusy}>変更</button>
+              <button className="btn btn-sm" onClick={handleReloadDb} disabled={dbBusy}>
+                {dbBusy ? '再取得中…' : '再取得'}
+              </button>
+              {dbPath && <button className="btn btn-sm" onClick={resetDbPath} disabled={dbBusy}>リセット</button>}
             </div>
             {dbMsg && <p className="help" style={{ marginTop: 6 }}>{dbMsg}</p>}
 
