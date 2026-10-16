@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { getDbPath, setDbPath } from './appConfig.js'
-import { waitForTauri } from './tauri.js'
+import { isTauri, waitForTauri } from './tauri.js'
 
 let _db = null
 
@@ -34,13 +34,35 @@ export async function getDb() {
   return _db
 }
 
+/** First launch has no saved path and the default tasks.db does not exist yet. */
+export async function needsDbSetup() {
+  if (!isTauri()) return { needed: false, defaultPath: '' }
+  await waitForTauri()
+  const status = await invoke('app_db_setup_status')
+  return {
+    needed: !!status?.needed,
+    defaultPath: status?.defaultPath || status?.default_path || '',
+  }
+}
+
+/** Create and open the default tasks.db without writing a custom path. */
+export async function prepareDefaultDb() {
+  if (_db) {
+    await _db.close().catch(() => {})
+    _db = null
+  }
+  await connectDb(null)
+  _db = createDbInterface()
+  return _db
+}
+
 export async function reconnectDb(newFilePath) {
   if (_db) {
     await _db.close().catch(() => {})
     _db = null
   }
-  await setDbPath(newFilePath)
   await connectDb(newFilePath)
+  await setDbPath(newFilePath)
   _db = createDbInterface()
   return _db
 }

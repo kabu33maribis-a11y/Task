@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react'
 import { uid } from '../lib/id.js'
 import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, syncDatePatch } from '../lib/date.js'
-import { getDb } from '../lib/db.js'
+import { getDb, needsDbSetup, prepareDefaultDb, reconnectDb } from '../lib/db.js'
+import { pickDbFile } from '../lib/appConfig.js'
+import { isTauri } from '../lib/tauri.js'
+import DbSetupScreen from '../components/DbSetupScreen.jsx'
 import { hasLink, wouldCreateCycle } from '../lib/dependencies.js'
 import { seedSortOrderFromStartDate, isSelfOrDescendant, descendantIds, orderWithInsert } from '../lib/wbs.js'
 import { coerceLeadMinutes } from '../lib/notifications.js'
@@ -1704,6 +1707,10 @@ export function StoreProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, { version: 1, tasks: [], categories: [], projects: [], activities: [], checklistItems: [], dependencies: [], tags: [] })
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState(null)
+  const [gate, setGate] = useState('check') // 'check' | 'setup' | 'app'
+  const [defaultDbPath, setDefaultDbPath] = useState('')
+  const [setupBusy, setSetupBusy] = useState(false)
+  const [setupError, setSetupError] = useState('')
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
   const prevStateRef = useRef(state)
@@ -1720,8 +1727,10 @@ export function StoreProvider({ children }) {
     prevStateRef.current = s
   }, [])
 
-  // 初回: DB からロード
-  useEffect(() => {
+  const startLoad = useCallback(() => {
+    setGate('app')
+    setReady(false)
+    setLoadError(null)
     loadState()
       .then((s) => {
         dispatch({ type: 'INIT', state: s })
@@ -1734,6 +1743,83 @@ export function StoreProvider({ children }) {
         setReady(true)
       })
   }, [])
+
+  // 初回: 保存先が未定ならセットアップ。決まっていれば DB からロード
+  useEffect(() => {
+    let cancelled = false
+    needsDbSetup()
+      .then((status) => {
+        if (cancelled) return
+        if (status.needed) {
+          setDefaultDbPath(status.defaultPath)
+          setGate('setup')
+          return
+        }
+        startLoad()
+      })
+      .catch(() => {
+        if (!cancelled) startLoad()
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [startLoad])
+
+  async function handleSetupDefault() {
+    setSetupBusy(true)
+    setSetupError('')
+    try {
+      await prepareDefaultDb()
+      startLoad()
+    } catch (e) {
+      setSetupError(e?.message || String(e))
+      setSetupBusy(false)
+    }
+  }
+
+  async function handleSetupPick() {
+    let file
+    try {
+      file = await pickDbFile()
+    } catch (e) {
+      setSetupError(e?.message || String(e))
+      return
+    }
+    if (!file) return
+    setSetupBusy(true)
+    setSetupError('')
+    try {
+      await reconnectDb(file)
+      startLoad()
+    } catch (e) {
+      setSetupError(e?.message || String(e))
+      setSetupBusy(false)
+    }
+  }
+
+  async function handlePickOnError() {
+    let file
+    try {
+      file = await pickDbFile()
+    } catch (e) {
+      setLoadError(e?.message || String(e))
+      return
+    }
+    if (!file) return
+    setReady(false)
+    setLoadError(null)
+    try {
+      await reconnectDb(file)
+      const s = await loadState()
+      dispatch({ type: 'INIT', state: s })
+      prevStateRef.current = s
+      setLoadError(null)
+      setReady(true)
+    } catch (e) {
+      setLoadError(e?.message || String(e))
+      setReady(true)
+    }
+  }
 
   // × はウィンドウを隠すだけ。トレイの「終了」で flush してプロセス終了する。
   useEffect(() => {
@@ -2004,6 +2090,20 @@ export function StoreProvider({ children }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  if (gate === 'check') return null
+
+  if (gate === 'setup') {
+    return (
+      <DbSetupScreen
+        defaultPath={defaultDbPath}
+        busy={setupBusy}
+        error={setupError}
+        onUseDefault={handleSetupDefault}
+        onPickFile={handleSetupPick}
+      />
+    )
+  }
+
   if (!ready) return null
 
   if (loadError) {
@@ -2018,25 +2118,16 @@ export function StoreProvider({ children }) {
             表示されるアプリウィンドウから開いてください（ブラウザの localhost タブでは動作しません）。
           </p>
         )}
-        <button
-          type="button"
-          onClick={() => {
-            setReady(false)
-            setLoadError(null)
-            loadState()
-              .then((s) => {
-                dispatch({ type: 'INIT', state: s })
-                prevStateRef.current = s
-                setReady(true)
-              })
-              .catch((e) => {
-                setLoadError(String(e))
-                setReady(true)
-              })
-          }}
-        >
-          再試行
-        </button>
+        <div className="db-setup-actions">
+          <button type="button" className="btn btn-primary" onClick={startLoad}>
+            再試行
+          </button>
+          {isTauri() && (
+            <button type="button" className="btn" onClick={handlePickOnError}>
+              別のファイルを開く
+            </button>
+          )}
+        </div>
       </div>
     )
   }

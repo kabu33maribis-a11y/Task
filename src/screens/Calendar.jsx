@@ -19,6 +19,7 @@ import { TASK_DND_TYPE } from '../components/TaskItem.jsx'
 import TaskList from '../components/TaskList.jsx'
 import DayTimeline from '../components/DayTimeline.jsx'
 import { CALENDAR_VIEWS, setCalendarDefaultView, useCalendarDefaultView } from '../lib/calendarView.js'
+import ReloadDbButton from '../components/ReloadDbButton.jsx'
 
 const DOW = ['月', '火', '水', '木', '金']
 const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
@@ -420,6 +421,7 @@ export default function Calendar({ selected: selectedProp, onSelect, resetKey = 
         </div>
         <button className="btn btn-sm" onClick={navNext}>›</button>
         <button type="button" className="btn btn-sm" onClick={goToday}>今日へ移動</button>
+        <ReloadDbButton />
         <div className="cal-view-toggle">
           {CALENDAR_VIEWS.map((v) => (
             <button

@@ -50,13 +50,15 @@ fn normalize_custom_db_path(path: PathBuf) -> PathBuf {
     path.join("tasks.db")
 }
 
+fn default_db_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let config = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(config.join("tasks.db"))
+}
+
 fn resolve_db_path(app: &AppHandle, custom_path: Option<String>) -> Result<PathBuf, String> {
     let db_path = match custom_path {
         Some(path) if !path.trim().is_empty() => normalize_custom_db_path(PathBuf::from(path)),
-        _ => {
-            let config = app.path().app_config_dir().map_err(|e| e.to_string())?;
-            config.join("tasks.db")
-        }
+        _ => default_db_path(app)?,
     };
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)
@@ -175,13 +177,36 @@ fn read_custom_db_path(app: &AppHandle) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbSetupStatus {
+    pub needed: bool,
+    pub default_path: String,
+}
+
+/// First launch: no saved path and the default file has not been created yet.
+#[tauri::command]
+pub fn app_db_setup_status(app: AppHandle) -> Result<DbSetupStatus, String> {
+    let default_path = default_db_path(&app)?;
+    let needed = read_custom_db_path(&app).is_none() && !default_path.is_file();
+    Ok(DbSetupStatus {
+        needed,
+        default_path: default_path.to_string_lossy().to_string(),
+    })
+}
+
 /// Open the app DB if it is not already connected (used by reminder polling).
+/// Does not create the default file before the first-run setup chooses a location.
 pub async fn ensure_connected(app: &AppHandle) -> Result<String, String> {
     let db = app.state::<AppDb>();
     if db.pool().await.is_some() {
         return Ok(String::new());
     }
-    open_pool(app, &db, read_custom_db_path(app)).await
+    let custom = read_custom_db_path(app);
+    if custom.is_none() && !default_db_path(app)?.is_file() {
+        return Ok(String::new());
+    }
+    open_pool(app, &db, custom).await
 }
 
 async fn open_pool(

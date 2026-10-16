@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { HardDrive, Palette, Shapes, Tag, Trash2 } from 'lucide-react'
-import { useStore, flushSync, discardPendingDbSync } from '../store/StoreContext.jsx'
-import { reconnectDb, reopenDb, resetDbConnection } from '../lib/db.js'
+import { useStore, flushSync } from '../store/StoreContext.jsx'
+import { reconnectDb, resetDbConnection } from '../lib/db.js'
 import { getDbPath, pickDbFile, setDbPath } from '../lib/appConfig.js'
 import { applyTheme as setThemeOnDocument, getSavedTheme, THEMES } from '../lib/theme.js'
 import {
@@ -25,6 +25,7 @@ import {
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { ColorPickerSwatch, SettingsShell } from './settingsShared.jsx'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.jsx'
 
 /** 旧設定（フォルダパス）は表示時に tasks.db を付与する */
 function formatDbPathDisplay(path) {
@@ -42,7 +43,6 @@ export default function SettingsModal({ onClose }) {
   const [newTag, setNewTag] = useState('')
   const [dbPath, setDbPathState] = useState(null)
   const [dbMsg, setDbMsg] = useState('')
-  const [dbBusy, setDbBusy] = useState(false)
   const [confirm, setConfirm] = useState(null) // { message, detail?, okLabel?, danger?, onOk }
   const [theme, setTheme] = useState(getSavedTheme)
   const [ganttBarColor, setGanttBarColor] = useState(getSavedGanttBarColor)
@@ -141,23 +141,6 @@ export default function SettingsModal({ onClose }) {
     }
   }
 
-  async function handleReloadDb() {
-    if (dbBusy) return
-    setDbBusy(true)
-    setDbMsg('')
-    try {
-      discardPendingDbSync()
-      await reopenDb()
-      await actions.reloadFromDb()
-      setDbMsg('ファイルの内容を再取得しました。')
-    } catch (e) {
-      setDbMsg('エラー: ' + String(e))
-    } finally {
-      setDbBusy(false)
-    }
-  }
-
-
   const sortedCats = [...state.categories].sort((a, b) => a.sort_order - b.sort_order)
   const sortedTags = [...(state.tags ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
@@ -208,40 +191,54 @@ export default function SettingsModal({ onClose }) {
                   この環境ではデスクトップ通知を確認できません（ブラウザ開発時など）。
                 </p>
               )}
-              <select
+              <Select
                 value={notifOn ? 'on' : 'off'}
                 disabled={notifGranted == null}
-                onChange={(e) => handleNotifPrefChange(e.target.value === 'on')}
-                aria-label="通知の許可"
+                onValueChange={(value) => handleNotifPrefChange(value === 'on')}
               >
-                <option value="on">ON</option>
-                <option value="off">OFF</option>
-              </select>
+                <SelectTrigger aria-label="通知の許可">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on">ON</SelectItem>
+                  <SelectItem value="off">OFF</SelectItem>
+                </SelectContent>
+              </Select>
               <fieldset className="settings-nested" disabled={!notifOn}>
-                <label className="settings-nested-row">
+                <div className="settings-nested-row">
                   <span>タスクの開始通知</span>
-                  <select
-                    value={startLead}
-                    onChange={(e) => setStartLeadMinutes(Number(e.target.value))}
-                    aria-label="タスクの開始通知"
+                  <Select
+                    value={String(startLead)}
+                    disabled={!notifOn}
+                    onValueChange={(value) => setStartLeadMinutes(Number(value))}
                   >
-                    {NOTIFICATION_LEAD_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="settings-nested-row">
+                    <SelectTrigger aria-label="タスクの開始通知">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NOTIFICATION_LEAD_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="settings-nested-row">
                   <span>リマインダー通知</span>
-                  <select
-                    value={reminderLeadDefault}
-                    onChange={(e) => setDefaultReminderLeadMinutes(Number(e.target.value))}
-                    aria-label="リマインダー通知の初期値"
+                  <Select
+                    value={String(reminderLeadDefault)}
+                    disabled={!notifOn}
+                    onValueChange={(value) => setDefaultReminderLeadMinutes(Number(value))}
                   >
-                    {NOTIFICATION_LEAD_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </label>
+                    <SelectTrigger aria-label="リマインダー通知の初期値">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NOTIFICATION_LEAD_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <p className="help settings-nested-note">
                   開始通知はすべてのタスクに共通です。リマインダーは、オンにしたときの初期値で、タスクごとに変更できます。
                 </p>
@@ -391,17 +388,14 @@ export default function SettingsModal({ onClose }) {
             <div className="section-title" style={{ marginTop: 0 }}>データファイルの場所</div>
             <p className="help" style={{ marginTop: 0, marginBottom: 8 }}>
               既存の .db ファイルを選択します。OneDrive や Dropbox 上のファイルを指定すると複数PCで同期できます。
-              共有ファイルの更新を取り込むときは「再取得」を押してください（このPCの未保存の変更は破棄されます）。
+              共有ファイルの更新は、WBS とカレンダーの再取得ボタンから取り込みます。
             </p>
             <div className="editor-row settings-db-row">
               <code className="settings-db-path">
                 {formatDbPathDisplay(dbPath) || 'デフォルト（%APPDATA%\\task-manager\\tasks.db）'}
               </code>
-              <button className="btn btn-sm" onClick={handlePickDbFile} disabled={dbBusy}>変更</button>
-              <button className="btn btn-sm" onClick={handleReloadDb} disabled={dbBusy}>
-                {dbBusy ? '再取得中…' : '再取得'}
-              </button>
-              {dbPath && <button className="btn btn-sm" onClick={resetDbPath} disabled={dbBusy}>リセット</button>}
+              <button className="btn btn-sm" onClick={handlePickDbFile}>変更</button>
+              {dbPath && <button className="btn btn-sm" onClick={resetDbPath}>リセット</button>}
             </div>
             {dbMsg && <p className="help" style={{ marginTop: 6 }}>{dbMsg}</p>}
 

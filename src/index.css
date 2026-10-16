@@ -44,6 +44,101 @@
   }
 }
 
+/* Select — design-system dropdown (settings and elsewhere) */
+.app-select-trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 7.5rem;
+  height: 32px;
+  margin: 0;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--washi-raised);
+  color: var(--sumi);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: none;
+}
+.app-select-trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--rule-strong));
+}
+.app-select-trigger:focus-visible,
+.app-select-trigger[data-state="open"] {
+  outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  outline-offset: 1px;
+  border-color: var(--primary-deep);
+}
+.app-select-trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.settings-nested:disabled .app-select-trigger:disabled {
+  opacity: 1;
+}
+.app-select-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--sumi-soft);
+  transition: transform 0.12s ease;
+}
+.app-select-trigger[data-state="open"] .app-select-icon {
+  transform: rotate(180deg);
+}
+.app-select-content {
+  z-index: 400;
+  min-width: var(--radix-select-trigger-width);
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  background: var(--washi-raised);
+  color: var(--sumi);
+  box-shadow: var(--shadow-pop);
+}
+.app-select-viewport {
+  padding: 4px;
+}
+.app-select-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 28px 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--sumi);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+.app-select-item[data-highlighted] {
+  background: color-mix(in srgb, var(--primary) 16%, var(--washi-raised));
+  color: var(--primary-deep);
+}
+.app-select-item[data-state="checked"] {
+  color: var(--primary-deep);
+}
+.app-select-item-indicator {
+  position: absolute;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--primary);
+}
+.app-select-item-indicator svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* =====================================================================
    タスク管理ツール — デザインシステム v2
    Brand: Celeste (#2FBFAD) × White × Cool Gray
@@ -3107,6 +3202,21 @@ select {
   padding: 5px 11px;
   font-size: 12px;
 }
+.btn.btn-sm.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.btn-icon .is-spin {
+  animation: btn-icon-spin 0.7s linear infinite;
+}
+@keyframes btn-icon-spin {
+  to { transform: rotate(360deg); }
+}
 .btn-icon-del {
   display: inline-flex;
   align-items: center;
@@ -5358,7 +5468,7 @@ textarea.dtd-title-input,
 .settings-nested-row span {
   white-space: nowrap;
 }
-.settings-nested-row select {
+.settings-nested-row [data-slot="select-trigger"] {
   min-width: 7.5rem;
 }
 .settings-nested-note {
@@ -5407,6 +5517,38 @@ textarea.dtd-title-input,
   font-size: 0.78rem;
   word-break: break-all;
   line-height: 1.45;
+}
+.db-setup-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: var(--washi);
+}
+.db-setup {
+  max-width: 440px;
+}
+.db-setup-where {
+  margin-top: 12px;
+}
+.db-setup-path {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-all;
+  color: var(--sumi-soft);
+}
+.db-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.help.db-setup-error {
+  color: var(--shu);
 }
 .modal h2 {
   margin: 0 0 16px;

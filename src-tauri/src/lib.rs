@@ -36,6 +36,7 @@ pub fn run() {
       db::app_db_execute,
       db::app_db_select,
       db::app_db_close,
+      db::app_db_setup_status,
       reminder::set_desktop_notifications_enabled,
       reminder::set_start_lead_minutes,
     ])

@@ -7,6 +7,7 @@ import {
   ListIndentIncrease, ListIndentDecrease,
 } from 'lucide-react'
 import { useIconMode, useBarLabel } from '../lib/iconMode.js'
+import ReloadDbButton from '../components/ReloadDbButton.jsx'
 import { useStore, useProjectMap, useCategoryMap, useVisibleProjects, useHiddenProjectIds } from '../store/StoreContext.jsx'
 import {
   buildTree,
@@ -1554,6 +1555,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
           )}
         </div>
         <div className="wbs-toolbar">
+          <ReloadDbButton />
           <div className={`wbs-search${taskQueryInput ? ' has-value' : ''}`}>
             <input
               type="text"
