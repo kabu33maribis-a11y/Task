@@ -4,7 +4,7 @@ import {
   Trash2, Plus, FileSpreadsheet, Maximize2, Calendar, CalendarDays, CheckCircle2,
   Lock, Unlock, ChevronsUpDown, ChevronsDownUp, CornerDownRight, X, Filter,
   Pencil, Copy, ClipboardPaste, FileText, ListPlus, Tag, Tags, User, Link2,
-  ListIndentIncrease, ListIndentDecrease,
+  ListIndentIncrease, ListIndentDecrease, Clock,
 } from 'lucide-react'
 import { useIconMode, useBarLabel } from '../lib/iconMode.js'
 import { useToolbarPins } from '../lib/wbsToolbarPins.js'
@@ -49,6 +49,7 @@ import { exportWbsToExcel, exportAllWbsToExcel } from '../lib/exportExcel.js'
 import { exportWorkPlanToExcel, exportAllWorkPlanToExcel } from '../lib/exportWorkPlan.js'
 import WbsAddTaskDialog from '../components/WbsAddTaskDialog.jsx'
 import DatePicker from '../components/DatePicker.jsx'
+import TimeInput from '../components/TimeInput.jsx'
 import TaskPicker from '../components/TaskPicker.jsx'
 import TagPicker from '../components/TagPicker.jsx'
 import AssigneePicker from '../components/AssigneePicker.jsx'
@@ -85,6 +86,7 @@ function clampLeftW(w, containerW) {
 const SHOW_WEEKENDS_KEY = 'taskmanager.wbs.showWeekends'
 const SHOW_WEEKDAYS_KEY = 'taskmanager.wbs.showWeekdays'
 const SHOW_COMPLETED_KEY = 'taskmanager.wbs.showCompleted'
+const SHOW_DURATION_KEY = 'taskmanager.wbs.showDuration'
 const AXIS_LOCKED_KEY = 'taskmanager.wbs.axisLocked'
 const EDIT_MODE_KEY = 'taskmanager.wbs.editMode'
 const HOUR_RANGE_DAYS_KEY = 'taskmanager.wbs.hourRangeDays'
@@ -263,6 +265,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     const s = localStorage.getItem(SHOW_COMPLETED_KEY)
     return s === null ? true : s === '1'
   })
+  const [showDuration, setShowDuration] = useState(() => localStorage.getItem(SHOW_DURATION_KEY) === '1')
   const [taskQueryInput, setTaskQueryInput] = useState('')
   const [taskQuery, setTaskQuery] = useState('')
   const [focusTaskIds, setFocusTaskIds] = useState(() => new Set())
@@ -799,6 +802,14 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
     setShowCompleted((prev) => {
       const next = !prev
       localStorage.setItem(SHOW_COMPLETED_KEY, next ? '1' : '0')
+      return next
+    })
+  }
+
+  function toggleDuration() {
+    setShowDuration((prev) => {
+      const next = !prev
+      localStorage.setItem(SHOW_DURATION_KEY, next ? '1' : '0')
       return next
     })
   }
@@ -1688,6 +1699,11 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
       title: showCompleted ? '完了タスクを非表示にする' : '完了タスクを表示する',
     },
     {
+      id: 'duration', group: 'view', kind: 'toggle', label: '時間', icon: Clock,
+      hint: 'バーの右に所要時間を表示', on: showDuration, onClick: toggleDuration,
+      title: showDuration ? '所要時間を非表示にする' : '所要時間を表示する',
+    },
+    {
       id: 'focus', group: 'mode', kind: 'toggle', label: '絞る', icon: Filter,
       hint: '選択したタスクだけ表示', ariaLabel: '絞る',
       on: focusTaskIds.size > 0,
@@ -2406,6 +2422,7 @@ function WbsGantt({ project, multi, focusTaskId = null, focusNonce = 0 }) {
                             setDetailId(node.task.id)
                           }}
                           tagColor={node.isProject ? null : rowTag?.color}
+                          showDuration={showDuration}
                           linking={!!linkDrag}
                           linkFromId={linkDrag?.fromId}
                           linkOverId={linkDrag?.overId}
@@ -2690,6 +2707,14 @@ function formatDurationJP(totalMinutes) {
   return s
 }
 
+/** バー右側の所要時間表示（日に繰り上げない。例: "57時間0分", "30分"） */
+function formatHoursMinutesJP(totalMinutes) {
+  const total = Math.max(0, Math.round(totalMinutes))
+  const hours = Math.floor(total / 60)
+  const minutes = total % 60
+  return hours > 0 ? `${hours}時間${minutes}分` : `${minutes}分`
+}
+
 /** ドラッグ中の開始〜終了の所要時間バッジ。range 指定時は開始〜終了時刻も併記する */
 function GanttDurationBadge({ left, minutes, range }) {
   return (
@@ -2823,6 +2848,7 @@ function GanttBar({
   linkFromId,
   linkOverId,
   linkValid,
+  showDuration,
 }) {
   const showBarLabel = useBarLabel()
   const { rollup, isLeaf, isProject, project } = node
@@ -2910,6 +2936,13 @@ function GanttBar({
       <span className="gantt-bar-fill" style={fillStyle} />
       {showBarLabel && isLeaf && !isProject && (
         <span className="gantt-bar-label">{node.task.title}</span>
+      )}
+      {showDuration && (
+        <span className="gantt-bar-duration" aria-hidden>
+          {formatHoursMinutesJP(
+            toAbsoluteMinutes(span.end, span.endTime) - toAbsoluteMinutes(span.start, span.startTime),
+          )}
+        </span>
       )}
       {isLeaf && !isCompact && (
         <>
@@ -3517,12 +3550,12 @@ function DatePopover({ task, x, y, onClose }) {
     actions.setTaskDates(task.id, s, e)
   }
 
-  function applyTimes() {
+  function applyTimes(nextStartTime = startTime, nextEndTime = endTime) {
     if (!start) return
     const s = start
     const e = end || start
-    let st = normalizeTimeStr(startTime) ?? DEFAULT_START_TIME
-    let et = normalizeTimeStr(endTime) ?? DEFAULT_END_TIME
+    let st = normalizeTimeStr(nextStartTime) ?? DEFAULT_START_TIME
+    let et = normalizeTimeStr(nextEndTime) ?? DEFAULT_END_TIME
     if (s === e && et <= st) {
       const next = addMinutesToDateTime(s, st, TIME_SNAP_MINUTES)
       et = next.time
@@ -3555,31 +3588,29 @@ function DatePopover({ task, x, y, onClose }) {
       <div className="wbs-date-times">
         <label className="wbs-date-time-field">
           <span>開始時刻</span>
-          <input
-            type="time"
-            step={TIME_SNAP_MINUTES * 60}
+          <TimeInput
+            ariaLabel="開始時刻"
+            step={TIME_SNAP_MINUTES}
+            allowEmpty={false}
             value={startTime}
-            onChange={(e) => {
-              setStartTime(e.target.value)
+            onChange={(v) => {
+              setStartTime(v)
               markTimesDirty()
-            }}
-            onBlur={() => {
-              if (shouldPersistTimes()) applyTimes()
+              applyTimes(v, endTime)
             }}
           />
         </label>
         <label className="wbs-date-time-field">
           <span>終了時刻</span>
-          <input
-            type="time"
-            step={TIME_SNAP_MINUTES * 60}
+          <TimeInput
+            ariaLabel="終了時刻"
+            step={TIME_SNAP_MINUTES}
+            allowEmpty={false}
             value={endTime}
-            onChange={(e) => {
-              setEndTime(e.target.value)
+            onChange={(v) => {
+              setEndTime(v)
               markTimesDirty()
-            }}
-            onBlur={() => {
-              if (shouldPersistTimes()) applyTimes()
+              applyTimes(startTime, v)
             }}
           />
         </label>

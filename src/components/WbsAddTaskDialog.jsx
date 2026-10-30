@@ -6,6 +6,7 @@ import { candidateMembersFor } from '../lib/members.js'
 import { formatConsoleDateRange, formatMonthDayJP, formatWeekdayJP, normalizeTimeStr } from '../lib/date.js'
 import { buildTaskIndex } from '../lib/wbs.js'
 import DatePicker from './DatePicker.jsx'
+import TimeInput from './TimeInput.jsx'
 
 function parseTitleLines(text) {
   return text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
@@ -429,12 +430,11 @@ export default function WbsAddTaskDialog({
               <div className={`dtd-time-pair${timesDisabled ? ' is-disabled' : ''}`}>
                 <label>
                   <span className="sr-only">開始</span>
-                  <input
-                    type="time"
-                    step={900}
+                  <TimeInput
+                    ariaLabel="開始時刻"
                     value={timesDisabled ? '' : startTime}
                     disabled={timesDisabled}
-                    onChange={(e) => onStartTimeChange(e.target.value)}
+                    onChange={onStartTimeChange}
                   />
                 </label>
                 <span className="dtd-time-sep" aria-hidden>
@@ -442,12 +442,11 @@ export default function WbsAddTaskDialog({
                 </span>
                 <label>
                   <span className="sr-only">終了</span>
-                  <input
-                    type="time"
-                    step={900}
+                  <TimeInput
+                    ariaLabel="終了時刻"
                     value={timesDisabled ? '' : endTime}
                     disabled={timesDisabled}
-                    onChange={(e) => onEndTimeChange(e.target.value)}
+                    onChange={onEndTimeChange}
                   />
                 </label>
               </div>

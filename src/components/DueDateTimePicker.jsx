@@ -1,20 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Clock, CalendarDays } from 'lucide-react'
 import { ja } from 'react-day-picker/locale'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatFullJP, formatMonthDayJP, formatWeekdayJP, fromDateStr, toDateStr, todayStr } from '@/lib/date.js'
+import { TimeGrid, TimeTextField } from './TimeInput.jsx'
 
-const HOURS = Array.from({ length: 24 }, (_, i) => i)
-const MINUTES = Array.from({ length: 60 }, (_, i) => i)
-const PRESETS = [
-  [9, 0],
-  [12, 0],
-  [15, 0],
-  [18, 0],
-]
+const PRESETS = ['09:00', '12:00', '15:00', '18:00']
 const DEFAULT_HOUR = 18
 const DEFAULT_MINUTE = 0
+const MINUTE_STEP = 5
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -33,45 +28,6 @@ function compose(date, hour, minute) {
   return `${date}T${pad(hour)}:${pad(minute)}`
 }
 
-function scrollOptionIntoView(list) {
-  const selected = list?.querySelector('[aria-selected="true"]')
-  if (!list || !selected) return
-  list.scrollTop = selected.offsetTop - list.clientHeight / 2 + selected.clientHeight / 2
-}
-
-function TimeColumn({ label, unit, values, selected, active, onSelect }) {
-  const listRef = useRef(null)
-  useEffect(() => {
-    if (!active) return
-    scrollOptionIntoView(listRef.current)
-  }, [selected, active])
-
-  return (
-    <div className="due-dt-col">
-      <span className="due-dt-col-unit">{unit}</span>
-      <div ref={listRef} className="due-dt-list" role="listbox" aria-label={label}>
-        {values.map((v) => {
-          const on = v === selected
-          return (
-            <button
-              key={v}
-              type="button"
-              role="option"
-              tabIndex={-1}
-              aria-selected={on}
-              className={`due-dt-option${on ? ' is-selected' : ''}`}
-              onClick={() => onSelect(v)}
-            >
-              {pad(v)}
-              <span className="due-dt-option-unit">{unit}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 export default function DueDateTimePicker({ value = '', onChange }) {
   const parsed = parseDueLocal(value)
   const [open, setOpen] = useState(false)
@@ -83,6 +39,12 @@ export default function DueDateTimePicker({ value = '', onChange }) {
     const nextMinute = minute ?? DEFAULT_MINUTE
     if (!date) setMonth(fromDateStr(nextDate))
     onChange?.(compose(nextDate, nextHour, nextMinute))
+  }
+
+  function commitTime(hhmm) {
+    if (!hhmm) return
+    const [h, m] = hhmm.split(':').map(Number)
+    commit(parsed.date, h, m)
   }
 
   function handleSelect(date) {
@@ -109,8 +71,6 @@ export default function DueDateTimePicker({ value = '', onChange }) {
 
   const dateLabel = parsed.date ? `${formatMonthDayJP(parsed.date)}（${formatWeekdayJP(parsed.date)}）` : ''
   const timeLabel = parsed.date ? `${pad(parsed.hour)}:${pad(parsed.minute)}` : ''
-  const hourText = parsed.hour == null ? '--' : pad(parsed.hour)
-  const minuteText = parsed.minute == null ? '--' : pad(parsed.minute)
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -122,11 +82,20 @@ export default function DueDateTimePicker({ value = '', onChange }) {
       >
         {parsed.date ? (
           <>
-            <span className="due-dt-trigger-date">{dateLabel}</span>
-            <span className="due-dt-trigger-time">{timeLabel}</span>
+            <span className="due-dt-trigger-date">
+              <CalendarDays size={13} strokeWidth={2} aria-hidden />
+              {dateLabel}
+            </span>
+            <span className="due-dt-trigger-time">
+              <Clock size={13} strokeWidth={2} aria-hidden />
+              {timeLabel}
+            </span>
           </>
         ) : (
-          <span className="due-dt-trigger-placeholder">期限を設定</span>
+          <span className="due-dt-trigger-placeholder">
+            <CalendarDays size={13} strokeWidth={2} aria-hidden />
+            期限を設定
+          </span>
         )}
       </PopoverTrigger>
       <PopoverContent className="date-picker-pop due-dt-pop w-auto p-0" align="start">
@@ -154,44 +123,33 @@ export default function DueDateTimePicker({ value = '', onChange }) {
               <Clock size={13} strokeWidth={2} aria-hidden />
               時刻
             </div>
-            <div className={`due-dt-clock${parsed.date ? '' : ' is-empty'}`} aria-hidden="true">
-              <span className="due-dt-clock-num">{hourText}</span>
-              <span className="due-dt-clock-unit">時</span>
-              <span className="due-dt-clock-colon">:</span>
-              <span className="due-dt-clock-num">{minuteText}</span>
-              <span className="due-dt-clock-unit">分</span>
-            </div>
-            <div className="due-dt-presets" role="group" aria-label="よく使う時刻">
-              {PRESETS.map(([h, m]) => {
-                const on = parsed.hour === h && parsed.minute === m
-                return (
-                  <button
-                    key={`${h}:${m}`}
-                    type="button"
-                    className={`due-dt-preset${on ? ' is-selected' : ''}`}
-                    onClick={() => commit(parsed.date, h, m)}
-                  >
-                    {h}:{pad(m)}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="due-dt-cols">
-              <TimeColumn
-                label="時"
-                unit="時"
-                values={HOURS}
-                selected={parsed.hour}
-                active={open}
-                onSelect={(h) => commit(parsed.date, h, parsed.minute)}
+            <div className="due-dt-time-body">
+              <TimeTextField
+                className="due-dt-time-field"
+                value={timeLabel}
+                onChange={commitTime}
+                step={MINUTE_STEP}
+                allowEmpty={false}
+                ariaLabel="時刻を入力"
               />
-              <TimeColumn
-                label="分"
-                unit="分"
-                values={MINUTES}
-                selected={parsed.minute}
-                active={open}
-                onSelect={(m) => commit(parsed.date, parsed.hour, m)}
+              <p className="due-dt-time-hint">数字で入力（930 → 9:30）・↑↓で5分ずつ</p>
+              <div className="due-dt-presets" role="group" aria-label="よく使う時刻">
+                {PRESETS.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`due-dt-preset${t === timeLabel ? ' is-selected' : ''}`}
+                    onClick={() => commitTime(t)}
+                  >
+                    {Number(t.slice(0, 2))}:{t.slice(3)}
+                  </button>
+                ))}
+              </div>
+              <TimeGrid
+                value={timeLabel}
+                minuteStep={MINUTE_STEP}
+                defaultHour={DEFAULT_HOUR}
+                onChange={commitTime}
               />
             </div>
           </section>
@@ -226,6 +184,9 @@ export default function DueDateTimePicker({ value = '', onChange }) {
                 クリア
               </button>
             ) : null}
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => setOpen(false)}>
+              決定
+            </button>
           </div>
         </div>
       </PopoverContent>

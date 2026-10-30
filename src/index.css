@@ -2866,7 +2866,7 @@ select {
   margin-top: 6px;
 }
 
-/* 期限: 日付パネルと時刻パネルを分けて境目を見せる */
+/* 期限: 日付｜時刻の 2 区画トリガー。色は墨系で落ち着かせ、フォーカス時だけ主色 */
 .due-dt-trigger {
   appearance: none;
   display: inline-flex;
@@ -2881,20 +2881,25 @@ select {
   color: var(--sumi);
   overflow: hidden;
   cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 .due-dt-trigger-date,
 .due-dt-trigger-time,
 .due-dt-trigger-placeholder {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   padding: 8px 10px;
   white-space: nowrap;
 }
+.due-dt-trigger svg {
+  flex: none;
+  color: var(--sumi-faint);
+}
 .due-dt-trigger-time {
-  border-left: 2px solid var(--primary);
-  background: color-mix(in srgb, var(--primary) 14%, var(--washi-raised));
-  color: var(--primary);
-  font-weight: 700;
+  border-left: 1px solid var(--rule);
+  background: var(--washi-sink);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 .due-dt-trigger.is-empty {
@@ -2919,14 +2924,12 @@ select {
   background: var(--washi-raised);
 }
 .due-dt-time {
-  width: 196px;
+  width: 236px;
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-bottom: 10px;
-  background: color-mix(in srgb, var(--primary) 16%, var(--washi-sink));
-  border-left: 3px solid var(--primary);
+  background: var(--washi-raised);
+  border-left: 1px solid var(--rule);
 }
 .due-dt-head {
   display: flex;
@@ -2940,142 +2943,67 @@ select {
   color: var(--sumi-soft);
   border-bottom: 1px solid var(--rule);
 }
-.due-dt-time .due-dt-head {
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 16%, var(--washi-sink));
-  border-bottom-color: color-mix(in srgb, var(--primary) 40%, var(--rule));
-}
 .due-dt-cal {
   padding-top: 8px;
 }
-.due-dt-clock {
+.due-dt-time-body {
   display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 2px;
-  margin: 0 10px;
-  padding: 8px 6px 7px;
-  background: var(--washi-raised);
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+/* 大きめの時刻欄。直接打てる */
+.due-dt-time-field.time-field {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
   border: 1px solid var(--rule-strong);
   border-radius: 10px;
-  font-variant-numeric: tabular-nums;
-  box-shadow: var(--shadow-xs);
-}
-.due-dt-clock-num {
+  background: var(--washi-raised);
   font-size: 22px;
   font-weight: 700;
-  line-height: 1;
-  color: var(--sumi);
-  min-width: 1.35em;
+  letter-spacing: 0.04em;
   text-align: center;
 }
-.due-dt-clock-unit {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--primary);
-  margin-right: 2px;
+.due-dt-time-field.time-field:hover {
+  border-color: var(--sumi-faint);
 }
-.due-dt-clock-colon {
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--sumi-faint);
-  margin: 0 1px;
+.due-dt-time-field.time-field:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
 }
-.due-dt-clock.is-empty .due-dt-clock-num,
-.due-dt-clock.is-empty .due-dt-clock-unit {
+.due-dt-time-hint {
+  margin: -4px 0 0;
+  font-size: 10.5px;
   color: var(--sumi-faint);
+  text-align: center;
 }
 .due-dt-presets {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
-  padding: 0 10px;
 }
 .due-dt-preset {
+  height: 28px;
   border: 1px solid var(--rule-strong);
-  border-radius: 7px;
+  border-radius: 999px;
   background: var(--washi-raised);
   color: var(--sumi-soft);
   font: inherit;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  padding: 4px 0;
   cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
 .due-dt-preset:hover {
-  border-color: var(--primary);
+  border-color: var(--sumi-faint);
   color: var(--sumi);
 }
 .due-dt-preset.is-selected {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-fg);
+  background: var(--sumi);
+  border-color: var(--sumi);
+  color: var(--washi-raised);
   font-weight: 700;
-}
-.due-dt-cols {
-  flex: 1;
-  display: flex;
-  gap: 6px;
-  min-height: 0;
-  padding: 0 10px;
-}
-.due-dt-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-.due-dt-col-unit {
-  text-align: center;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--primary);
-  padding-bottom: 4px;
-}
-.due-dt-list {
-  flex: 1;
-  min-height: 148px;
-  max-height: 196px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  background: var(--washi-raised);
-  border: 1px solid var(--rule-strong);
-  border-radius: 8px;
-  scrollbar-width: thin;
-}
-.due-dt-option {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 1px;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--sumi);
-  font: inherit;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  padding: 5px 0;
-  cursor: pointer;
-}
-.due-dt-option-unit {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--sumi-faint);
-}
-.due-dt-option:hover {
-  background: var(--washi-sink);
-}
-.due-dt-option.is-selected {
-  background: var(--primary);
-  color: var(--primary-fg);
-  font-weight: 700;
-}
-.due-dt-option.is-selected .due-dt-option-unit {
-  color: var(--primary-fg);
 }
 .due-dt-footer {
   display: flex;
@@ -3104,9 +3032,8 @@ select {
   flex: none;
   padding: 2px 7px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--primary) 14%, var(--washi-raised));
-  border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--rule));
-  color: var(--primary);
+  background: var(--washi-sink);
+  border: 1px solid var(--rule);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -3129,11 +3056,117 @@ select {
   .due-dt-time {
     width: auto;
     border-left: none;
-    border-top: 3px solid var(--primary);
+    border-top: 1px solid var(--rule);
   }
-  .due-dt-list {
-    max-height: 132px;
-  }
+}
+
+/* 時刻入力（TimeInput）: アイコン + 直接入力欄 + 時刻グリッドのポップオーバー */
+.time-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--washi-raised);
+  cursor: text;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.time-input:hover {
+  border-color: var(--sumi-faint);
+}
+.time-input:focus-within,
+.time-input.is-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+.time-input.is-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.time-input-icon {
+  flex: none;
+  color: var(--sumi-faint);
+}
+.time-field {
+  width: 100%;
+  min-width: 3.6em;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--sumi);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.time-field:focus-visible {
+  outline: none;
+}
+.time-field::placeholder {
+  color: var(--sumi-faint);
+  font-weight: 400;
+}
+.time-pop {
+  padding: 10px;
+  background: var(--washi-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  color: var(--sumi);
+}
+.time-pop .time-grid {
+  width: 212px;
+}
+.time-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.time-grid-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.time-grid-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--sumi-faint);
+}
+.time-grid-cells {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr));
+  gap: 3px;
+}
+.time-grid-cell {
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--washi-sink);
+  color: var(--sumi);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+/* 早朝・深夜は薄く、よく使う時間帯を目立たせる */
+.time-grid-cell.is-off {
+  color: var(--sumi-faint);
+}
+.time-grid-cell:hover {
+  border-color: var(--rule-strong);
+  background: var(--washi-raised);
+}
+.time-grid-cell.is-on {
+  background: var(--sumi);
+  border-color: var(--sumi);
+  color: var(--washi-raised);
+  font-weight: 700;
 }
 
 .date-range-inline {
@@ -4478,23 +4511,13 @@ textarea.dtd-title-input,
   opacity: 0.38;
   pointer-events: none;
 }
-.dtd-time-pair input[type='time'] {
-  width: 100%;
+.dtd-time-pair label {
+  flex: 1 1 0;
   min-width: 0;
-  height: 34px;
-  border: 1px solid var(--rule);
-  border-radius: 8px;
-  background: var(--washi-raised);
-  color: var(--sumi);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  padding: 0 8px;
+  display: flex;
 }
-.dtd-time-pair input[type='time']:focus {
-  outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
-  outline-offset: 1px;
-  border-color: var(--primary-deep);
+.dtd-time-pair .time-input {
+  width: 100%;
 }
 .dtd-time-sep {
   flex: 0 0 auto;
@@ -4774,6 +4797,24 @@ textarea.dtd-title-input,
   padding: 10px 12px;
   resize: vertical;
   min-height: 72px;
+}
+.dtd-note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.dtd-note-row .dtd-memo {
+  min-height: 48px;
+}
+.dtd-date-input {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--washi-raised);
+  color: var(--sumi);
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
 }
 .dtd-memo:focus {
   outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
@@ -8604,14 +8645,9 @@ textarea.wbs-edit,
   font-size: 11px;
   color: var(--sumi-soft);
 }
-.wbs-date-time-field input[type="time"] {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  padding: 4px 6px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r);
-  background: var(--washi);
-  color: var(--text);
+.wbs-date-time-field .time-input {
+  width: 100%;
+  height: 32px;
 }
 .wbs-date-summary {
   display: flex;
@@ -9760,6 +9796,19 @@ button.wbs-detail-field:focus-visible {
   color: var(--sumi);
   pointer-events: none;
   z-index: 1;
+}
+/* バー右外側の所要時間。右の依存リンクハンドル（right:-15px）を避けて置く */
+.gantt-bar-duration {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 20px);
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--sumi-soft);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 .gantt-bar.summary .gantt-bar-label {
   line-height: 12px;

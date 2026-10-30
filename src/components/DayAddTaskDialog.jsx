@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CalendarDays, Clock, Plus, Trash2, X } from 'lucide-react'
+import TimeInput from './TimeInput.jsx'
 import { useStore } from '../store/StoreContext.jsx'
 import { assigneesOf, candidateMembersFor } from '../lib/members.js'
-import { formatMonthDayJP, formatWeekdayJP, normalizeTimeStr } from '../lib/date.js'
+import {
+  addDays,
+  diffDays,
+  formatMonthDayJP,
+  formatWeekdayJP,
+  normalizeTimeStr,
+} from '../lib/date.js'
 import ConfirmDialog from './ConfirmDialog.jsx'
 
 const PRIORITIES = [
@@ -97,13 +104,23 @@ export default function DayAddTaskDialog({
   })
   const [checkDraft, setCheckDraft] = useState('')
   const [memo, setMemo] = useState('')
+  const [dateVal, setDateVal] = useState(date)
+  const [notes, setNotes] = useState(() => {
+    if (!task) return []
+    return (state.activities ?? [])
+      .filter((a) => a.task_id === task.id)
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+      .map((a) => ({ id: a.id, body: a.body }))
+  })
+  const initialNotesRef = useRef(notes.map((n) => ({ ...n })))
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(() => {
     if (!task) return false
     const hasCat = !!task.category_id
     const hasTag = !!task.tag_id
     const hasCheck = (state.checklistItems ?? []).some((i) => i.task_id === task.id)
-    return hasCat || hasTag || hasCheck
+    const hasNote = (state.activities ?? []).some((a) => a.task_id === task.id)
+    return hasCat || hasTag || hasCheck || hasNote
   })
   const inputRef = useRef(null)
   const dialogRef = useRef(null)
@@ -196,7 +213,8 @@ export default function DayAddTaskDialog({
   }, [editing, task, onClose])
 
   const canSubmit = title.trim().length > 0
-  const dateLabel = `${formatMonthDayJP(date)}（${formatWeekdayJP(date)}）`
+  const effectiveDate = dateVal || date
+  const dateLabel = `${formatMonthDayJP(effectiveDate)}（${formatWeekdayJP(effectiveDate)}）`
   const duration = !allDay ? formatDuration(start, end) : null
   const timeSummary = allDay
     ? '終日'
@@ -301,6 +319,23 @@ export default function DayAddTaskDialog({
     }
   }
 
+  function syncNotes(id) {
+    const initial = initialNotesRef.current
+    const keepIds = new Set(notes.map((n) => n.id))
+    for (const prev of initial) {
+      if (!keepIds.has(prev.id)) actions.deleteActivity(prev.id)
+    }
+    for (const n of notes) {
+      const before = initial.find((p) => p.id === n.id)
+      if (!before) continue
+      const body = n.body.trim()
+      if (!body) actions.deleteActivity(n.id)
+      else if (body !== before.body) actions.updateActivity(n.id, body)
+    }
+    const added = memo.trim()
+    if (added) actions.addActivity(id, added)
+  }
+
   function submit() {
     if (!canSubmit) {
       inputRef.current?.focus()
@@ -317,21 +352,25 @@ export default function DayAddTaskDialog({
         ...times,
       }
       if (times.start_time && times.end_time) {
-        patch.scheduled_date = date
+        patch.scheduled_date = effectiveDate
         patch.console_end_date = null
+      } else if (effectiveDate !== date) {
+        patch.scheduled_date = effectiveDate
+        if (task.console_end_date) {
+          patch.console_end_date = addDays(task.console_end_date, diffDays(date, effectiveDate))
+        }
       }
       actions.updateTask(task.id, patch)
       syncAssignees(task.id)
       syncChecklist(task.id)
-      const note = memo.trim()
-      if (note) actions.addActivity(task.id, note)
+      syncNotes(task.id)
       onClose()
       return
     }
 
     actions.addTask({
       title: title.trim(),
-      scheduled_date: date,
+      scheduled_date: effectiveDate,
       console_end_date: null,
       ...times,
       project_id: projectId || null,
@@ -413,6 +452,13 @@ export default function DayAddTaskDialog({
               </span>
             </div>
             <div className="dtd-schedule-controls">
+              <input
+                type="date"
+                className="dtd-date-input"
+                aria-label="日付"
+                value={dateVal}
+                onChange={(e) => setDateVal(e.target.value)}
+              />
               <button
                 type="button"
                 className={`dtd-allday${allDay ? ' is-on' : ''}`}
@@ -424,12 +470,11 @@ export default function DayAddTaskDialog({
               <div className={`dtd-time-pair${allDay ? ' is-disabled' : ''}`}>
                 <label>
                   <span className="sr-only">開始</span>
-                  <input
-                    type="time"
-                    step={900}
+                  <TimeInput
+                    ariaLabel="開始時刻"
                     value={allDay ? '' : start}
                     disabled={allDay}
-                    onChange={(e) => onStartChange(e.target.value)}
+                    onChange={onStartChange}
                   />
                 </label>
                 <span className="dtd-time-sep" aria-hidden>
@@ -437,12 +482,11 @@ export default function DayAddTaskDialog({
                 </span>
                 <label>
                   <span className="sr-only">終了</span>
-                  <input
-                    type="time"
-                    step={900}
+                  <TimeInput
+                    ariaLabel="終了時刻"
                     value={allDay ? '' : end}
                     disabled={allDay}
-                    onChange={(e) => onEndChange(e.target.value)}
+                    onChange={onEndChange}
                   />
                 </label>
               </div>
@@ -668,7 +712,29 @@ export default function DayAddTaskDialog({
                 </div>
 
                 <div className="dtd-section" style={{ marginBottom: 0 }}>
-                  <FieldLabel hint={editing ? '保存時に追記' : null}>メモ</FieldLabel>
+                  <FieldLabel hint={editing ? '新規分は保存時に追記' : null}>メモ</FieldLabel>
+                  {notes.map((n) => (
+                    <div key={n.id} className="dtd-note-row">
+                      <textarea
+                        className="dtd-memo"
+                        rows={2}
+                        value={n.body}
+                        onChange={(e) =>
+                          setNotes((list) =>
+                            list.map((x) => (x.id === n.id ? { ...x, body: e.target.value } : x)),
+                          )
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="dtd-icon-btn dtd-icon-btn-sm"
+                        aria-label="メモを削除"
+                        onClick={() => setNotes((list) => list.filter((x) => x.id !== n.id))}
+                      >
+                        <X size={14} strokeWidth={2} />
+                      </button>
+                    </div>
+                  ))}
                   <textarea
                     className="dtd-memo"
                     rows={3}
