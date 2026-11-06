@@ -70,6 +70,8 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
   const localAddRef = useRef(null)
   const ref = addBarRef ?? localAddRef
   const addDate = calendarDate ?? today
+  const viewDate = addDate
+  const isViewToday = viewDate === today
   const [dropZone, setDropZone] = useState(null)
   const [selectedOverdue, setSelectedOverdue] = useState(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
@@ -88,7 +90,10 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
       return projectFilter === 'all' || t.project_id === projectFilter
     }
     const scoped = state.tasks.filter(inScope)
-    const todays = scoped.filter((t) => taskCoversDate(t, today))
+    const todayAll = scoped.filter((t) => taskCoversDate(t, today))
+    const todayTodoN = todayAll.filter((t) => t.status === 'TODO').length
+    const todayDoneN = todayAll.length - todayTodoN
+    const todays = isViewToday ? todayAll : scoped.filter((t) => taskCoversDate(t, viewDate))
     const todoTodays = todays.filter((t) => t.status === 'TODO').sort(byPriority)
     const doneTodays = todays
       .filter((t) => t.status === 'DONE')
@@ -112,11 +117,11 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
       todaysByProject: byProject,
       overdue,
       inbox,
-      todayTodoCount: todoTodays.length,
-      todayDoneCount: doneTodays.length,
+      todayTodoCount: todayTodoN,
+      todayDoneCount: todayDoneN,
       todayTaskCount: allTodays.length,
     }
-  }, [state.tasks, today, projectFilter, hiddenIds])
+  }, [state.tasks, today, viewDate, isViewToday, projectFilter, hiddenIds])
 
   // Clear stale selections when overdue list changes
   useEffect(() => {
@@ -161,7 +166,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
   function handleProjectDrop(taskId, laneId) {
     const task = state.tasks.find((t) => t.id === taskId)
     if (!task) return
-    if (!taskCoversDate(task, today)) actions.moveToDate(taskId, today)
+    if (!taskCoversDate(task, viewDate)) actions.moveToDate(taskId, viewDate)
     actions.updateTask(taskId, { project_id: laneId === '__none__' ? null : laneId })
   }
 
@@ -369,11 +374,11 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
         </div>
       )}
 
-      <div className="section-title" style={{ marginTop: '4px' }}>本日のタスク</div>
+      <div className="section-title" style={{ marginTop: '4px' }}>{isViewToday ? '本日のタスク' : `${formatFullJP(viewDate)}のタスク`}</div>
 
       {showEmptyGuide && (
         <div className="empty-guide">
-          <p className="empty-guide-lead">今日のタスクはまだありません</p>
+          <p className="empty-guide-lead">{isViewToday ? '今日' : 'この日'}のタスクはまだありません</p>
           <ul className="empty-guide-list">
             <li>上の入力欄から、今日やることを1つ追加してみましょう</li>
             {inbox.length > 0 ? (
@@ -412,7 +417,7 @@ export default function Today({ addBarRef, calendarDate, onResetCalDate, project
                 {tasks.length > 0 && (
                   <TaskList tasks={tasks} showStar showDate={false} showProject={false} focusTaskId={focusTaskId} focusNonce={focusNonce} />
                 )}
-                <LaneAddInput projectId={laneProjectId} date={today} />
+                <LaneAddInput projectId={laneProjectId} date={viewDate} />
               </div>
             </div>
           )
