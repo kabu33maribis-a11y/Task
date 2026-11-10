@@ -4,6 +4,7 @@ import {
   Bell,
   BellOff,
   Check,
+  FileText,
   FolderOpen,
   HardDrive,
   Palette,
@@ -37,6 +38,7 @@ import {
 } from '../lib/notifications.js'
 import { version } from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.jsx'
+import { TemplatesTab } from './TemplateManager.jsx'
 import {
   AddEntityBar,
   ColorPickerSwatch,
@@ -141,6 +143,7 @@ export default function SettingsModal({ onClose }) {
       members: state.members ?? [],
       projectMembers: state.projectMembers ?? [],
       taskAssignees: state.taskAssignees ?? [],
+      taskTemplates: state.taskTemplates ?? [],
     }
   }
 
@@ -181,6 +184,7 @@ export default function SettingsModal({ onClose }) {
     { id: 'notifications', label: '通知', icon: Bell, group: '一般', description: 'タスクの開始やリマインダをデスクトップ通知で受け取るかどうかを設定します。' },
     { id: 'tags', label: 'タグ', icon: Tag, group: '分類', meta: sortedTags.length, description: 'WBSで親タスクに付けると、子タスクまで同じ色の淵が付きます。⋯メニューの「子にタグを付ける」で配下へ一括適用できます。' },
     { id: 'categories', label: 'カテゴリ', icon: Shapes, group: '分類', meta: sortedCats.length, description: 'タスクの種類を分ける軸。コンソールやログの集計に使います。' },
+    { id: 'templates', label: 'テンプレート', icon: FileText, group: '分類', meta: (state.taskTemplates ?? []).length, description: '毎月のタスクなどを登録しておき、追加バーの「テンプレ」から対象月を選んで一括追加できます。' },
     { id: 'data', label: 'データ', icon: HardDrive, group: '保存', description: 'データファイルの保存先と、初期化に関する操作です。' },
   ]
 
@@ -401,6 +405,8 @@ export default function SettingsModal({ onClose }) {
             <AddEntityBar placeholder="新しいカテゴリ名を入力して Enter" onAdd={(n) => actions.addCategory(n)} />
           </>
         )}
+
+        {tab === 'templates' && <TemplatesTab />}
 
         {tab === 'data' && (
           <div className="settings-stack">

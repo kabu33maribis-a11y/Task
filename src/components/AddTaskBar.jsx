@@ -3,6 +3,7 @@ import { useStore } from '../store/StoreContext.jsx'
 import ConsoleDateRangeFields from './ConsoleDateRangeFields.jsx'
 import { todayStr, formatMonthDayJP, normalizeConsoleDateRange } from '../lib/date.js'
 import { parseNaturalLanguageTask } from '../lib/ai/client.js'
+import { TemplatePickerDialog } from './TemplateManager.jsx'
 
 function parseTitleLines(text) {
   return text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
@@ -28,6 +29,7 @@ const AddTaskBar = forwardRef(function AddTaskBar(
   const { actions } = useStore()
   const [title, setTitle] = useState('')
   const [showOpts, setShowOpts] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
   const [date, setDate] = useState(defaultDate ?? '')
   const [endDate, setEndDate] = useState('')
   const [categoryId, setCategoryId] = useState('')
@@ -195,6 +197,13 @@ const AddTaskBar = forwardRef(function AddTaskBar(
         >
           {aiLoading ? '解析中…' : 'AI'}
         </button>
+        <button
+          className="addbar-action"
+          onClick={() => setShowTemplates(true)}
+          title="テンプレートから追加"
+        >
+          テンプレ
+        </button>
         {defaultDate !== null && (
           <button className="add-inbox" onClick={submitInbox} disabled={!hasTitles} title="Inboxに追加">
             Inbox
@@ -204,6 +213,7 @@ const AddTaskBar = forwardRef(function AddTaskBar(
           追加
         </button>
       </div>
+      {showTemplates && <TemplatePickerDialog onClose={() => setShowTemplates(false)} />}
       {aiError && <p className="meta-note addbar-ai-error">{aiError}</p>}
       {showOpts && (
         <div className="addbar-opts">

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react'
 import { uid } from '../lib/id.js'
-import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, syncDatePatch } from '../lib/date.js'
+import { todayStr, normalizeConsoleDateRange, syncedDateFields, unifyTaskDates, syncDatePatch, dateInMonthClamped } from '../lib/date.js'
 import { getDb, needsDbSetup, prepareDefaultDb, reconnectDb } from '../lib/db.js'
 import { pickDbFile } from '../lib/appConfig.js'
 import { isTauri } from '../lib/tauri.js'
@@ -36,7 +36,7 @@ function makeInitialState() {
   }))
   return {
     version: 1, tasks: [], categories, projects: [], activities: [], checklistItems: [], dependencies: [], tags,
-    members: [], projectMembers: [], taskAssignees: [],
+    members: [], projectMembers: [], taskAssignees: [], taskTemplates: [],
   }
 }
 
@@ -45,7 +45,7 @@ async function loadState() {
     const db = await getDb()
     const [
       tasks, categories, projects, activities, checklistItems, dependencies, tags,
-      members, projectMembers, taskAssignees,
+      members, projectMembers, taskAssignees, taskTemplates,
     ] = await Promise.all([
       db.select('SELECT * FROM tasks'),
       db.select('SELECT * FROM categories'),
@@ -57,6 +57,7 @@ async function loadState() {
       db.select('SELECT * FROM members'),
       db.select('SELECT * FROM project_members'),
       db.select('SELECT * FROM task_assignees'),
+      db.select('SELECT * FROM task_templates'),
     ])
 
     // 初回起動: カテゴリもタスクも空ならデフォルトを挿入
@@ -173,6 +174,7 @@ async function loadState() {
       members: (members ?? []).map(normalizeMember),
       projectMembers: (projectMembers ?? []).map(normalizeProjectMember),
       taskAssignees: (taskAssignees ?? []).map(normalizeTaskAssignee),
+      taskTemplates: (taskTemplates ?? []).map(normalizeTemplate),
     }
   } catch (e) {
     console.error('loadState error', e)
@@ -399,6 +401,34 @@ function normalizeTag(tag) {
   }
 }
 
+function parseJsonList(v) {
+  if (Array.isArray(v)) return v.filter((s) => typeof s === 'string' && s.trim())
+  if (typeof v !== 'string' || !v) return []
+  try {
+    const a = JSON.parse(v)
+    return Array.isArray(a) ? a.filter((s) => typeof s === 'string' && s.trim()) : []
+  } catch {
+    return []
+  }
+}
+
+function normalizeTemplate(t) {
+  return {
+    id: t.id,
+    name: t.name ?? '',
+    title: t.title ?? t.name ?? '',
+    category_id: t.category_id ?? null,
+    project_id: t.project_id ?? null,
+    priority: t.priority ?? null,
+    day_of_month: t.day_of_month == null || t.day_of_month === '' ? null : Number(t.day_of_month),
+    subtasks: parseJsonList(t.subtasks),
+    checklist: parseJsonList(t.checklist),
+    sort_order: t.sort_order ?? 0,
+    created_at: t.created_at ?? null,
+    updated_at: t.updated_at ?? null,
+  }
+}
+
 function normalizeMember(m) {
   return {
     id: m.id,
@@ -531,6 +561,19 @@ async function dbUpsertTag(db, tag) {
   await db.execute(
     'INSERT OR REPLACE INTO tags (id,name,color,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)',
     [tag.id, tag.name, tag.color ?? null, tag.sort_order, tag.created_at, tag.updated_at ?? null],
+  )
+}
+
+async function dbUpsertTemplate(db, t) {
+  await db.execute(
+    `INSERT OR REPLACE INTO task_templates
+     (id,name,title,category_id,project_id,priority,day_of_month,subtasks,checklist,sort_order,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      t.id, t.name, t.title, t.category_id ?? null, t.project_id ?? null, t.priority ?? null,
+      t.day_of_month ?? null, JSON.stringify(t.subtasks ?? []), JSON.stringify(t.checklist ?? []),
+      t.sort_order ?? 0, t.created_at, t.updated_at ?? null,
+    ],
   )
 }
 
@@ -972,7 +1015,66 @@ function reducer(state, action) {
         members: (action.state.members ?? []).map(normalizeMember),
         projectMembers: (action.state.projectMembers ?? []).map(normalizeProjectMember),
         taskAssignees: (action.state.taskAssignees ?? []).map(normalizeTaskAssignee),
+        taskTemplates: (action.state.taskTemplates ?? []).map(normalizeTemplate),
       }
+    }
+
+    case 'ADD_TEMPLATE': {
+      const now = stamp()
+      const tpl = normalizeTemplate({
+        ...action.input,
+        id: uid('tp'),
+        sort_order: (state.taskTemplates ?? []).length,
+        created_at: now,
+        updated_at: now,
+      })
+      return { ...state, taskTemplates: [...(state.taskTemplates ?? []), tpl] }
+    }
+
+    case 'UPDATE_TEMPLATE': {
+      return {
+        ...state,
+        taskTemplates: (state.taskTemplates ?? []).map((t) =>
+          t.id === action.id ? normalizeTemplate({ ...t, ...action.patch, updated_at: stamp() }) : t,
+        ),
+      }
+    }
+
+    case 'DELETE_TEMPLATE': {
+      return { ...state, taskTemplates: (state.taskTemplates ?? []).filter((t) => t.id !== action.id) }
+    }
+
+    // 選択したテンプレートを対象月に展開（親 + サブタスク + チェックリスト）
+    case 'ADD_FROM_TEMPLATES': {
+      let tasks = state.tasks
+      let items = state.checklistItems ?? []
+      for (const id of action.ids) {
+        const tpl = (state.taskTemplates ?? []).find((t) => t.id === id)
+        if (!tpl) continue
+        const date = dateInMonthClamped(action.month, tpl.day_of_month)
+        const parent = makeTask({
+          title: tpl.title || tpl.name,
+          scheduled_date: date,
+          category_id: tpl.category_id,
+          project_id: tpl.project_id,
+          priority: tpl.priority,
+        }, tasks)
+        tasks = [...tasks, parent]
+        for (const title of tpl.checklist) {
+          items = [...items, makeChecklistItem(parent.id, title, items)]
+        }
+        for (const title of tpl.subtasks) {
+          const child = makeTask({
+            title,
+            project_id: parent.project_id ?? null,
+            category_id: parent.category_id ?? null,
+            parent_id: parent.id,
+            scheduled_date: null,
+          }, tasks)
+          tasks = [...tasks, child]
+        }
+      }
+      return { ...state, tasks, checklistItems: items }
     }
 
     case 'TOGGLE_COMPLETE': {
@@ -1503,6 +1605,30 @@ async function doSyncToDb(prevState, nextState, action) {
           for (const act of newActs) await dbUpsertActivity(db, act)
           break
         }
+        case 'ADD_TEMPLATE': {
+          const tpl = (nextState.taskTemplates ?? []).find((t) => !(prevState.taskTemplates ?? []).some((p) => p.id === t.id))
+          if (tpl) await dbUpsertTemplate(db, tpl)
+          break
+        }
+        case 'UPDATE_TEMPLATE': {
+          const tpl = (nextState.taskTemplates ?? []).find((t) => t.id === action.id)
+          if (tpl) await dbUpsertTemplate(db, tpl)
+          break
+        }
+        case 'DELETE_TEMPLATE': {
+          await db.execute('DELETE FROM task_templates WHERE id = ?', [action.id])
+          break
+        }
+        case 'ADD_FROM_TEMPLATES': {
+          const newTasks = nextState.tasks.filter((t) => !prevState.tasks.some((p) => p.id === t.id))
+          for (const t of newTasks) await dbUpsertTask(db, t)
+          for (const item of nextState.checklistItems ?? []) {
+            if (!(prevState.checklistItems ?? []).some((p) => p.id === item.id)) {
+              await dbUpsertChecklistItem(db, item)
+            }
+          }
+          break
+        }
         case 'ADD_TASK_WITH_CHILDREN': {
           const newTasks = nextState.tasks.filter((t) => !prevState.tasks.some((p) => p.id === t.id))
           for (const t of newTasks) await dbUpsertTask(db, t)
@@ -1670,6 +1796,8 @@ async function doSyncToDb(prevState, nextState, action) {
           await db.execute('DELETE FROM categories')
           await db.execute('DELETE FROM projects')
           await db.execute('DELETE FROM tags')
+          await db.execute('DELETE FROM task_templates')
+          for (const tpl of nextState.taskTemplates ?? []) await dbUpsertTemplate(db, tpl)
           for (const tag of nextState.tags ?? []) await dbUpsertTag(db, tag)
           for (const t of nextState.tasks) await dbUpsertTask(db, t)
           for (const c of nextState.categories) await dbUpsertCategory(db, c)
@@ -1693,6 +1821,7 @@ async function doSyncToDb(prevState, nextState, action) {
           await db.execute('DELETE FROM categories')
           await db.execute('DELETE FROM projects')
           await db.execute('DELETE FROM tags')
+          await db.execute('DELETE FROM task_templates')
           for (const c of nextState.categories) await dbUpsertCategory(db, c)
           for (const tag of nextState.tags ?? []) await dbUpsertTag(db, tag)
           break
@@ -1735,7 +1864,7 @@ function flushSyncWithTimeout(ms = CLOSE_FLUSH_TIMEOUT_MS) {
 const StoreContext = createContext(null)
 
 export function StoreProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, { version: 1, tasks: [], categories: [], projects: [], activities: [], checklistItems: [], dependencies: [], tags: [] })
+  const [state, dispatch] = useReducer(reducer, { version: 1, tasks: [], categories: [], projects: [], activities: [], checklistItems: [], dependencies: [], tags: [], taskTemplates: [] })
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState(null)
   const [gate, setGate] = useState('check') // 'check' | 'setup' | 'app'
@@ -1997,6 +2126,10 @@ export function StoreProvider({ children }) {
     addTag: (name, color) => dispatchWithSync({ type: 'ADD_TAG', name, color }),
     updateTag: (id, patch) => dispatchWithSync({ type: 'UPDATE_TAG', id, patch }),
     deleteTag: (id) => dispatchWithSync({ type: 'DELETE_TAG', id }),
+    addTemplate: (input) => dispatchWithSync({ type: 'ADD_TEMPLATE', input }),
+    updateTemplate: (id, patch) => dispatchWithSync({ type: 'UPDATE_TEMPLATE', id, patch }),
+    deleteTemplate: (id) => dispatchWithSync({ type: 'DELETE_TEMPLATE', id }),
+    addFromTemplates: (ids, month) => dispatchWithSync({ type: 'ADD_FROM_TEMPLATES', ids, month }),
     addMember: (name, color) => dispatchWithSync({ type: 'ADD_MEMBER', name, color }),
     updateMember: (id, patch) => dispatchWithSync({ type: 'UPDATE_MEMBER', id, patch }),
     deleteMember: (id) => dispatchWithSync({ type: 'DELETE_MEMBER', id }),

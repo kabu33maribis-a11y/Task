@@ -337,6 +337,16 @@ export function currentMonth() {
   return { year: d.getFullYear(), month: d.getMonth() + 1 }
 }
 
+// {year, month} の day 日を 'YYYY-MM-DD' で返す。月長でクランプし、day が 0 なら月末。
+// day が null/未指定なら null（日付なし）。
+export function dateInMonthClamped({ year, month }, day) {
+  if (day == null || day === '') return null
+  const last = new Date(year, month, 0).getDate()
+  const n = Number(day)
+  const d = n <= 0 ? last : Math.min(n, last)
+  return `${year}-${pad(month)}-${pad(d)}`
+}
+
 export function monthLabel({ year, month }) {
   return `${year}年${month}月`
 }
